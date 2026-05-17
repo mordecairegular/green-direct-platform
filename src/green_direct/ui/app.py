@@ -12,6 +12,7 @@ import pandas as pd
 SRC_ROOT = str(Path(__file__).resolve().parents[2])
 if sys.path[0] != SRC_ROOT:  # pragma: no cover - import path guard for Streamlit and installed packages
     sys.path.insert(0, SRC_ROOT)
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 from green_direct.batch.batch_runner import estimate_scenario_count, run_batch
 from green_direct.export.csv_exporter import export_hourly_details_zip
@@ -19,6 +20,7 @@ from green_direct.export.excel_exporter import export_summary_excel
 from green_direct.io.read_curves import read_csv_auto_encoding, read_curve_set
 from green_direct.io.validators import DataValidationError
 from green_direct.models.params import BessParams, DataCleaningParams, PerformanceParams, PolicyParams
+from green_direct.visualization.chart_ui import render_chart_analysis
 
 
 TIME_COLUMN_CANDIDATES = ["时间", "timestamp", "time", "日期时间", "日期", "datetime"]
@@ -32,6 +34,33 @@ FILE_KEYWORDS = {
     "光伏": ["光伏", "pv", "solar"],
     "风电": ["风电", "wind"],
 }
+
+
+class _LocalSampleFile:
+    def __init__(self, path: Path):
+        self.path = path
+        self.name = path.name
+
+    def getvalue(self) -> bytes:
+        return self.path.read_bytes()
+
+
+def _load_sample_curve_files() -> tuple[dict[str, _LocalSampleFile], list[str]]:
+    sample_dir = PROJECT_ROOT / "samples"
+    assigned: dict[str, _LocalSampleFile] = {}
+    messages: list[str] = []
+    if not sample_dir.exists():
+        return assigned, ["未找到 samples 示例数据目录。"]
+    for path in sample_dir.glob("*.csv"):
+        curve_name = _match_curve_from_filename(path.name)
+        if curve_name is None:
+            messages.append(f"示例文件 `{path.name}` 未能识别曲线类型。")
+            continue
+        assigned[curve_name] = _LocalSampleFile(path)
+    missing = {"负荷", "光伏", "风电"} - set(assigned)
+    if missing:
+        messages.append(f"示例数据缺少：{', '.join(sorted(missing))}。")
+    return assigned, messages
 
 
 def _load_preview(uploaded_file):
@@ -256,6 +285,19 @@ def main() -> None:
 
     with st.sidebar:
         with st.expander("数据上传", expanded=True):
+            use_sample_data = st.checkbox(
+                "使用内置示例数据（Demo）",
+                value=False,
+                help="使用 samples 目录中的负荷、光伏、风电示例曲线，适合快速体验测算和图表分析。",
+            )
+            sample_files: dict[str, object] = {}
+            if use_sample_data:
+                sample_files, sample_messages = _load_sample_curve_files()
+                for message in sample_messages:
+                    st.warning(message)
+                for curve_name, sample_file in sample_files.items():
+                    st.caption(f"{curve_name}示例：`{sample_file.name}`")
+
             batch_files = st.file_uploader(
                 "批量上传曲线 CSV",
                 type=["csv"],
@@ -272,9 +314,9 @@ def main() -> None:
             load_file_manual = st.file_uploader("负荷 CSV", type=["csv"], key="load_csv_manual")
             pv_file_manual = st.file_uploader("光伏 CSV", type=["csv"], key="pv_csv_manual")
             wind_file_manual = st.file_uploader("风电 CSV", type=["csv"], key="wind_csv_manual")
-            load_file = load_file_manual or assigned_files.get("负荷")
-            pv_file = pv_file_manual or assigned_files.get("光伏")
-            wind_file = wind_file_manual or assigned_files.get("风电")
+            load_file = load_file_manual or assigned_files.get("负荷") or sample_files.get("负荷")
+            pv_file = pv_file_manual or assigned_files.get("光伏") or sample_files.get("光伏")
+            wind_file = wind_file_manual or assigned_files.get("风电") or sample_files.get("风电")
 
             try:
                 load_df, load_encoding = _load_preview(load_file)
@@ -289,6 +331,7 @@ def main() -> None:
             except DataValidationError as exc:
                 st.error(str(exc))
                 load_df = pv_df = wind_df = None
+                load_encoding = pv_encoding = wind_encoding = None
 
             load_time_guess = _guess_time_column(load_df)
             pv_time_guess = _guess_time_column(pv_df)
@@ -373,7 +416,77 @@ def main() -> None:
 
     if not ready:
         st.info("请上传三条 CSV 曲线并确认列名后开始测算。")
-        return
+
+    if st.button("一键生成 Demo 结果", help="使用 samples 示例曲线和 20 个小规模方案快速生成图表演示。"):
+        try:
+            demo_files, demo_messages = _load_sample_curve_files()
+            missing_demo = {"负荷", "光伏", "风电"} - set(demo_files)
+            if missing_demo:
+                raise DataValidationError(f"内置示例数据不完整，缺少：{', '.join(sorted(missing_demo))}。")
+            for message in demo_messages:
+                st.warning(message)
+
+            demo_load_df, _ = _load_preview(demo_files["负荷"])
+            demo_pv_df, _ = _load_preview(demo_files["光伏"])
+            demo_wind_df, _ = _load_preview(demo_files["风电"])
+            demo_load_time_col = _guess_time_column(demo_load_df)
+            demo_pv_time_col = _guess_time_column(demo_pv_df)
+            demo_wind_time_col = _guess_time_column(demo_wind_df)
+            demo_load_value_col = _guess_value_column(demo_load_df, demo_load_time_col, "负荷")
+            demo_pv_value_col = _guess_value_column(demo_pv_df, demo_pv_time_col, "光伏")
+            demo_wind_value_col = _guess_value_column(demo_wind_df, demo_wind_time_col, "风电")
+            if not all(
+                [
+                    demo_load_time_col,
+                    demo_pv_time_col,
+                    demo_wind_time_col,
+                    demo_load_value_col,
+                    demo_pv_value_col,
+                    demo_wind_value_col,
+                ]
+            ):
+                raise DataValidationError("未能自动识别示例数据列名，请检查 samples 目录中的 CSV。")
+
+            demo_curves = read_curve_set(
+                BytesIO(demo_files["负荷"].getvalue()),
+                BytesIO(demo_files["光伏"].getvalue()),
+                BytesIO(demo_files["风电"].getvalue()),
+                load_time_col=demo_load_time_col,
+                load_value_col=demo_load_value_col,
+                pv_time_col=demo_pv_time_col,
+                pv_value_col=demo_pv_value_col,
+                wind_time_col=demo_wind_time_col,
+                wind_value_col=demo_wind_value_col,
+                cleaning=DataCleaningParams(),
+            )
+            demo_grid = {
+                "pv_capacity": {"start": 10, "end": 20, "step": 10},
+                "wind_capacity": {"start": 5, "end": 15, "step": 10},
+                "bess_power": {"start": 0, "end": 4, "step": 2},
+                "bess_duration_hours": [0, 2, 4],
+            }
+            with st.spinner("正在生成 Demo 测算结果..."):
+                batch_result = run_batch(
+                    demo_curves.data,
+                    demo_grid,
+                    bess_params=BessParams(),
+                    policy_params=PolicyParams(export_control_mode="annual_cap_runtime"),
+                    performance_params=PerformanceParams(warn_if_scenarios_exceed=int(warn_threshold)),
+                )
+            st.session_state["batch_result"] = batch_result
+            st.session_state["config_snapshot"] = {
+                "scenario_grid": demo_grid,
+                "bess": BessParams().__dict__,
+                "policy": PolicyParams(export_control_mode="annual_cap_runtime").__dict__,
+                "warnings": demo_curves.warnings,
+                "demo": True,
+            }
+            st.session_state.pop("download_payloads", None)
+            st.success("Demo 结果已生成，可直接查看下方图表分析。")
+        except DataValidationError as exc:
+            st.error(str(exc))
+        except Exception as exc:  # noqa: BLE001 - UI should show friendly text
+            st.error(f"Demo 生成失败：{exc}")
 
     statuses = [
         _curve_status("负荷", load_df, load_encoding, load_time_col, load_value_col),
@@ -395,7 +508,7 @@ def main() -> None:
             if item["负值点"]:
                 st.info(f"{item['曲线']}曲线存在负值，共 {item['负值点']} 个点，将按站用电参与计算。")
 
-    if st.button("开始测算", type="primary"):
+    if st.button("开始测算", type="primary", disabled=not ready):
         try:
             curves = read_curve_set(
                 BytesIO(load_file.getvalue()),
@@ -524,6 +637,8 @@ def main() -> None:
             file_name=f"hourly_detail_{selected}.csv",
             mime="text/csv",
         )
+
+    render_chart_analysis(st, batch_result, summary)
 
 
 if __name__ == "__main__":
