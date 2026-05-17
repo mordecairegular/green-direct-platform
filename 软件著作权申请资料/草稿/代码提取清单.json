@@ -1,0 +1,338 @@
+{
+  "software_name": "绿电直连风光储协同容量测算与达标评估系统",
+  "version": "V1.0",
+  "project_root": "Z:\\Projects\\20260515_8760",
+  "file_count": 35,
+  "material_line_count": 2824,
+  "source_line_count": 2754,
+  "selected_source_line_count": 2754,
+  "lines_per_page": 60,
+  "total_pages": 48,
+  "target_pages": 60,
+  "available_candidate_line_count": 2829,
+  "available_candidate_pages": 48,
+  "supplement_status": "候选源码不足60页，按全部代码材料生成",
+  "mode": "all_under_60_pages",
+  "selection_file": "软件著作权申请资料\\草稿\\代码文件选择.json",
+  "outputs": [
+    "代码-全部.md"
+  ],
+  "files": [
+    {
+      "path": "src/green_direct/models/__init__.py",
+      "source_line_count": 1,
+      "selected_line_start": 1,
+      "selected_line_end": 1,
+      "selected_line_count": 1,
+      "material_line_start": 1,
+      "material_line_end": 3
+    },
+    {
+      "path": "src/green_direct/models/params.py",
+      "source_line_count": 57,
+      "selected_line_start": 1,
+      "selected_line_end": 57,
+      "selected_line_count": 57,
+      "material_line_start": 4,
+      "material_line_end": 62
+    },
+    {
+      "path": "src/green_direct/models/results.py",
+      "source_line_count": 16,
+      "selected_line_start": 1,
+      "selected_line_end": 16,
+      "selected_line_count": 16,
+      "material_line_start": 63,
+      "material_line_end": 80
+    },
+    {
+      "path": "src/green_direct/models/scenario.py",
+      "source_line_count": 28,
+      "selected_line_start": 1,
+      "selected_line_end": 28,
+      "selected_line_count": 28,
+      "material_line_start": 81,
+      "material_line_end": 110
+    },
+    {
+      "path": "config/default_params.yaml",
+      "source_line_count": 40,
+      "selected_line_start": 1,
+      "selected_line_end": 40,
+      "selected_line_count": 40,
+      "material_line_start": 111,
+      "material_line_end": 152
+    },
+    {
+      "path": "config/scenario_grid.example.yaml",
+      "source_line_count": 22,
+      "selected_line_start": 1,
+      "selected_line_end": 22,
+      "selected_line_count": 22,
+      "material_line_start": 153,
+      "material_line_end": 176
+    },
+    {
+      "path": "pyproject.toml",
+      "source_line_count": 31,
+      "selected_line_start": 1,
+      "selected_line_end": 31,
+      "selected_line_count": 31,
+      "material_line_start": 177,
+      "material_line_end": 209
+    },
+    {
+      "path": "src/green_direct/__init__.py",
+      "source_line_count": 3,
+      "selected_line_start": 1,
+      "selected_line_end": 3,
+      "selected_line_count": 3,
+      "material_line_start": 210,
+      "material_line_end": 214
+    },
+    {
+      "path": "src/green_direct/batch/__init__.py",
+      "source_line_count": 1,
+      "selected_line_start": 1,
+      "selected_line_end": 1,
+      "selected_line_count": 1,
+      "material_line_start": 215,
+      "material_line_end": 217
+    },
+    {
+      "path": "src/green_direct/batch/batch_runner.py",
+      "source_line_count": 98,
+      "selected_line_start": 1,
+      "selected_line_end": 98,
+      "selected_line_count": 98,
+      "material_line_start": 218,
+      "material_line_end": 317
+    },
+    {
+      "path": "src/green_direct/batch/scenario_generator.py",
+      "source_line_count": 82,
+      "selected_line_start": 1,
+      "selected_line_end": 82,
+      "selected_line_count": 82,
+      "material_line_start": 318,
+      "material_line_end": 401
+    },
+    {
+      "path": "src/green_direct/cli.py",
+      "source_line_count": 6,
+      "selected_line_start": 1,
+      "selected_line_end": 6,
+      "selected_line_count": 6,
+      "material_line_start": 402,
+      "material_line_end": 409
+    },
+    {
+      "path": "src/green_direct/core/__init__.py",
+      "source_line_count": 1,
+      "selected_line_start": 1,
+      "selected_line_end": 1,
+      "selected_line_count": 1,
+      "material_line_start": 410,
+      "material_line_end": 412
+    },
+    {
+      "path": "src/green_direct/core/bess_dispatch.py",
+      "source_line_count": 136,
+      "selected_line_start": 1,
+      "selected_line_end": 136,
+      "selected_line_count": 136,
+      "material_line_start": 413,
+      "material_line_end": 550
+    },
+    {
+      "path": "src/green_direct/core/metrics.py",
+      "source_line_count": 152,
+      "selected_line_start": 1,
+      "selected_line_end": 152,
+      "selected_line_count": 152,
+      "material_line_start": 551,
+      "material_line_end": 704
+    },
+    {
+      "path": "src/green_direct/core/single_scenario_simulator.py",
+      "source_line_count": 233,
+      "selected_line_start": 1,
+      "selected_line_end": 233,
+      "selected_line_count": 233,
+      "material_line_start": 705,
+      "material_line_end": 939
+    },
+    {
+      "path": "src/green_direct/economy/__init__.py",
+      "source_line_count": 1,
+      "selected_line_start": 1,
+      "selected_line_end": 1,
+      "selected_line_count": 1,
+      "material_line_start": 940,
+      "material_line_end": 942
+    },
+    {
+      "path": "src/green_direct/economy/economic_evaluator.py",
+      "source_line_count": 5,
+      "selected_line_start": 1,
+      "selected_line_end": 5,
+      "selected_line_count": 5,
+      "material_line_start": 943,
+      "material_line_end": 949
+    },
+    {
+      "path": "src/green_direct/economy/economic_inputs.py",
+      "source_line_count": 4,
+      "selected_line_start": 1,
+      "selected_line_end": 4,
+      "selected_line_count": 4,
+      "material_line_start": 950,
+      "material_line_end": 955
+    },
+    {
+      "path": "src/green_direct/export/__init__.py",
+      "source_line_count": 1,
+      "selected_line_start": 1,
+      "selected_line_end": 1,
+      "selected_line_count": 1,
+      "material_line_start": 956,
+      "material_line_end": 958
+    },
+    {
+      "path": "src/green_direct/export/csv_exporter.py",
+      "source_line_count": 65,
+      "selected_line_start": 1,
+      "selected_line_end": 65,
+      "selected_line_count": 65,
+      "material_line_start": 959,
+      "material_line_end": 1025
+    },
+    {
+      "path": "src/green_direct/export/excel_exporter.py",
+      "source_line_count": 109,
+      "selected_line_start": 1,
+      "selected_line_end": 109,
+      "selected_line_count": 109,
+      "material_line_start": 1026,
+      "material_line_end": 1136
+    },
+    {
+      "path": "src/green_direct/io/__init__.py",
+      "source_line_count": 1,
+      "selected_line_start": 1,
+      "selected_line_end": 1,
+      "selected_line_count": 1,
+      "material_line_start": 1137,
+      "material_line_end": 1139
+    },
+    {
+      "path": "src/green_direct/io/read_curves.py",
+      "source_line_count": 165,
+      "selected_line_start": 1,
+      "selected_line_end": 165,
+      "selected_line_count": 165,
+      "material_line_start": 1140,
+      "material_line_end": 1306
+    },
+    {
+      "path": "src/green_direct/io/validators.py",
+      "source_line_count": 122,
+      "selected_line_start": 1,
+      "selected_line_end": 122,
+      "selected_line_count": 122,
+      "material_line_start": 1307,
+      "material_line_end": 1430
+    },
+    {
+      "path": "src/green_direct/ui/__init__.py",
+      "source_line_count": 1,
+      "selected_line_start": 1,
+      "selected_line_end": 1,
+      "selected_line_count": 1,
+      "material_line_start": 1431,
+      "material_line_end": 1433
+    },
+    {
+      "path": "src/green_direct/ui/app.py",
+      "source_line_count": 530,
+      "selected_line_start": 1,
+      "selected_line_end": 530,
+      "selected_line_count": 530,
+      "material_line_start": 1434,
+      "material_line_end": 1965
+    },
+    {
+      "path": "tests/test_batch_runner.py",
+      "source_line_count": 74,
+      "selected_line_start": 1,
+      "selected_line_end": 74,
+      "selected_line_count": 74,
+      "material_line_start": 1966,
+      "material_line_end": 2041
+    },
+    {
+      "path": "tests/test_bess_dispatch.py",
+      "source_line_count": 141,
+      "selected_line_start": 1,
+      "selected_line_end": 141,
+      "selected_line_count": 141,
+      "material_line_start": 2042,
+      "material_line_end": 2184
+    },
+    {
+      "path": "tests/test_data_validation.py",
+      "source_line_count": 153,
+      "selected_line_start": 1,
+      "selected_line_end": 153,
+      "selected_line_count": 153,
+      "material_line_start": 2185,
+      "material_line_end": 2339
+    },
+    {
+      "path": "tests/test_export.py",
+      "source_line_count": 94,
+      "selected_line_start": 1,
+      "selected_line_end": 94,
+      "selected_line_count": 94,
+      "material_line_start": 2340,
+      "material_line_end": 2435
+    },
+    {
+      "path": "tests/test_metrics.py",
+      "source_line_count": 21,
+      "selected_line_start": 1,
+      "selected_line_end": 21,
+      "selected_line_count": 21,
+      "material_line_start": 2436,
+      "material_line_end": 2458
+    },
+    {
+      "path": "tests/test_project_structure.py",
+      "source_line_count": 17,
+      "selected_line_start": 1,
+      "selected_line_end": 17,
+      "selected_line_count": 17,
+      "material_line_start": 2459,
+      "material_line_end": 2477
+    },
+    {
+      "path": "tests/test_single_scenario.py",
+      "source_line_count": 339,
+      "selected_line_start": 1,
+      "selected_line_end": 339,
+      "selected_line_count": 339,
+      "material_line_start": 2478,
+      "material_line_end": 2818
+    },
+    {
+      "path": "tests/test_ui_import.py",
+      "source_line_count": 4,
+      "selected_line_start": 1,
+      "selected_line_end": 4,
+      "selected_line_count": 4,
+      "material_line_start": 2819,
+      "material_line_end": 2824
+    }
+  ],
+  "safe_software_filename": "绿电直连风光储协同容量测算与达标评估系统"
+}

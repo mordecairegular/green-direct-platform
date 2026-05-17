@@ -1,0 +1,2 @@
+﻿scenario_id,timestamp,hour_index,load_power,pv_power,wind_power,renewable_power,direct_self_use_power,bess_charge_power,bess_discharge_power,grid_import_power,grid_export_power,curtail_power,soc_start,soc_end,bess_energy_start,bess_energy_end,hour_case
+S0001,2020-01-01 00:00:00,0,10,1,1,2,2,0,0,8,0,0,0,0,0,0,GEN_SHORT_GRID_IMPORT

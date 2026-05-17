@@ -1,0 +1,40 @@
+time:
+  dt_hours: 1.0
+  supported_hours:
+    - 8760
+    - 8784
+
+data_cleaning:
+  allow_negative_pu: true
+  allow_small_negative_pu: true
+  small_negative_tolerance: -0.001
+  clip_small_negative_to_zero: false
+  allow_pu_greater_than_one: true
+  clip_pu_greater_than_one: false
+
+bess:
+  soc_initial: 0.5
+  soc_min: 0.1
+  soc_max: 0.9
+  eta_charge: 0.95
+  eta_discharge: 0.95
+  cycle_life: 6000
+  allow_grid_charge: false
+
+policy:
+  self_use_rate_min: 0.60
+  green_load_rate_min: 0.30
+  green_load_rate_2030_min: 0.35
+  export_rate_max: 0.20
+  allow_export: true
+  export_power_max: null
+  grid_exchange_power_limit: null
+  export_control_mode: annual_cap_runtime
+
+output:
+  save_hourly_detail: true
+  save_excel_summary: true
+  save_config_snapshot: true
+
+performance:
+  warn_if_scenarios_exceed: 5000
