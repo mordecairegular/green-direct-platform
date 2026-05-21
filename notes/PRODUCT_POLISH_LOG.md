@@ -1447,3 +1447,48 @@ exchange_import_shortfall_energy == 0
 
 - `python -m py_compile src/green_direct/visualization/chart_ui.py src/green_direct/ui/app.py` 通过。
 - `pytest` 通过，83 个测试全部通过。
+
+## 2026-05-21 项目文件夹清理记录
+
+用户提出项目文件夹体量过大、文档和生成物积累过多，需要做一次彻底清理和梳理。清理前已先提交 Git 检查点：
+
+```text
+535ee78 Checkpoint before repository cleanup
+```
+
+### 已清理
+
+- 删除可再生打包产物和缓存：
+  - `release/`
+  - `dist/`
+  - `build/`
+  - `outputs/`
+  - `.pytest_cache/`
+  - 各级 `__pycache__/`
+- 删除本地编辑器状态目录 `.obsidian/`。
+- `.gitignore` 增加 `.obsidian/` 和 `outputs/`，避免本地状态和导出文件再次进入版本库。
+- 删除旧图表模块讨论稿和提示词文档：
+  - `docs/PRD_CHART_MODULE.md`
+  - `docs/CHART_MODULE_CONTRACT.md`
+  - `docs/CHART_MODULE_DEMO_GUIDE.md`
+  - `docs/CODEX_START_PROMPT_CHART_MODULE.md`
+  - `docs/CODEX_TASK_CHART_MODULE.md`
+  - `notes/CHART_MODULE_AI_PROMPT.md`
+- 删除历史导出样例文件：
+  - `outputs/config_snapshot_20260516_120000.json`
+  - `outputs/hourly_detail_S0001_20260516_120000.csv`
+  - `outputs/hourly_details_20260516_120000.zip`
+  - `outputs/scenario_summary_20260516_120000.xlsx`
+  - `outputs/scenario_summary_20260516_175415.xlsx`
+
+### 已保留
+
+- `src/`、`tests/`、`docs/references/economic_evaluation/`、`notes/architecture_reframe_20260519/`、`samples/` 均保留。
+- V0.1 基线文档继续保留，作为回归和口径参考。
+- `samples/对标软件/` 保留，作为 UI / 图表 / 工作流对标参考。
+
+### 梳理结果
+
+- README 已更新为当前“方案策划与测算平台”定位。
+- 用户快速指南已更新为当前 UI：高级结果下载、经济性 V1、方案图谱。
+- 项目根目录最大体量从打包产物主导转为少量源码、样例和文档，后续清理重点不再是大文件，而是继续压缩重复文档和把权威口径集中到少数文件中。
