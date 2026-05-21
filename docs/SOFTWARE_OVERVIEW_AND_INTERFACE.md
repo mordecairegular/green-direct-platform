@@ -113,7 +113,7 @@ src/green_direct/
 | `batch` | 方案枚举、批量仿真、进度回调 | 可以，核心依赖 |
 | `export` | Excel、CSV、ZIP、配置快照导出 | 可以 |
 | `ui` | Streamlit 用户界面 | 不建议作为业务依赖 |
-| `economy` | 经济性接口预留，V0.1 暂不实现 | 后续扩展 |
+| `economy` | 经济性评价 V1：年度现金流、税费、折旧、储能更换、FNPV/FIRR/回收期 | 可以，但不得反向修改技术调度 |
 
 ## 5. 统一单位
 
@@ -764,6 +764,16 @@ src/green_direct/charts/
 
 推荐两类入口。
 
+当前 Streamlit 入口中，`src/green_direct/visualization/chart_ui.py` 已先按“方案图谱”方式重构为展示层原型：
+
+- 输入仍为 `BatchResult.summary`、`BatchResult.hourly_details` 和可选的经济性 V1 结果；
+- 默认围绕系统代表方案展示，不再把全量枚举图表作为主界面；
+- 用户可以加入指定 `scenario_id` 参与对比；
+- 已提供方案总览、能量流向、运行时序、经济性分析四类图；
+- 图表模块只读结果，不修改调度、政策或经济性计算结果。
+
+后续如果形成正式推荐引擎，应把代表方案选择逻辑从 UI 中迁移到 `recommendation/` 或服务层。
+
 ### 17.1 直接制图模式
 
 输入：
@@ -811,39 +821,42 @@ flowchart TD
 - 不应把经济性收益混入技术图表；
 - 不应只展示汇总指标而不保留逐小时解释能力。
 
-## 18. 后续经济性模块接入建议
+## 18. 经济性模块 V1 接口
 
-经济性模块建议保持独立，推荐新增或完善：
+经济性模块位于：
 
 ```text
 src/green_direct/economy/
 ```
 
-输入应来自技术测算结果：
+当前 V1 已实现不考虑贷款的年度项目投资现金流评价。权威计算口径见：
+
+```text
+docs/references/economic_evaluation/经济性评价V1计算口径_合并版.md
+```
+
+输入来自技术测算结果：
 
 - `summary` 中的年度电量、容量、达标状态；
-- 必要时使用 `hourly_detail` 计算分时电价、需量电费或时序收益；
-- 用户输入的投资、价格、运维、折旧、税费、主体关系等经济参数。
+- 用户输入的投资、价格、运维、税率、折现率和其他经营收入等经济参数。
 
-建议未来数据结构：
+主要接口：
 
 ```python
-EconomicParams(...)
-EconomicResult(
-    scenario_id=...,
-    npv=...,
-    irr=...,
-    payback_year=...,
-    lcoe=...,
-    warnings=[...],
-)
+from green_direct.economy import EconomicParams, evaluate_scenario_economy, evaluate_batch_economy
+
+result = evaluate_scenario_economy(summary_row, EconomicParams())
+economic_summary, annual_cashflows = evaluate_batch_economy(summary_df, EconomicParams())
 ```
+
+`EconomicResult.annual_cashflow` 是年度明细表。`EconomicResult.metrics` 包含 FNPV、FIRR、静态投资回收期、动态投资回收期等汇总指标。
 
 经济性模块应遵守：
 
 - 不修改技术测算 `summary` 和 `hourly_detail` 的原始含义；
 - 可以生成独立经济性结果表，并通过 `scenario_id` 与技术结果关联；
-- 同一主体和不同主体投资关系应在经济参数中显式表达；
+- V1 不考虑贷款、流动资金、残值回收、无形资产摊销、留抵退税和复杂融资；
+- 运行成本 V1 不考虑进项税，建设投资和储能更换按已确认口径处理进项税；
 - 经济性排序不应替代技术达标判断，两者应并列展示。
 
 ## 19. 后续报告模块接入建议

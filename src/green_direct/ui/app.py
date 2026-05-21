@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
+import re
 import sys
 from tempfile import TemporaryDirectory
 
@@ -15,11 +16,13 @@ if sys.path[0] != SRC_ROOT:  # pragma: no cover - import path guard for Streamli
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 from green_direct.batch.batch_runner import estimate_scenario_count, run_batch
+from green_direct.economy import EconomicParams, OtherOperatingRevenueItem, evaluate_batch_economy
 from green_direct.export.csv_exporter import export_hourly_details_zip
 from green_direct.export.excel_exporter import export_summary_excel
 from green_direct.io.read_curves import read_csv_auto_encoding, read_curve_set
 from green_direct.io.validators import DataValidationError
 from green_direct.models.params import BessParams, DataCleaningParams, PerformanceParams, PolicyParams
+from green_direct.ui.field_labels import localize_columns, mapping_frame
 from green_direct.visualization.chart_ui import render_chart_analysis
 
 
@@ -263,7 +266,12 @@ def _format_summary_for_display(summary: pd.DataFrame) -> pd.DataFrame:
     for column in percent_columns:
         if column in display.columns:
             display[column] = display[column].map(lambda value: "" if pd.isna(value) else f"{value:.2%}")
-    return display
+    return localize_columns(display)
+
+
+def _display_mapping_expander(st, columns: list[str], label: str = "字段对应关系") -> None:
+    with st.expander(label, expanded=False):
+        st.dataframe(mapping_frame(columns), use_container_width=True, hide_index=True)
 
 
 def _get_download_payloads(st, batch_result, config_snapshot: dict):
@@ -273,15 +281,238 @@ def _get_download_payloads(st, batch_result, config_snapshot: dict):
         return cached["payloads"]
     with st.spinner("正在准备下载文件..."):
         payloads = _build_download_payloads(batch_result, config_snapshot)
-    st.session_state["download_payloads"] = {"signature": signature, "payloads": payloads}
+        st.session_state["download_payloads"] = {"signature": signature, "payloads": payloads}
     return payloads
+
+
+def _parse_specific_years(raw: object) -> tuple[int, ...]:
+    text = "" if raw is None else str(raw).strip()
+    if not text:
+        return ()
+    years: list[int] = []
+    for part in re.split(r"[,，;；|\s]+", text):
+        if not part:
+            continue
+        years.append(int(float(part)))
+    return tuple(year for year in years if year > 0)
+
+
+def _build_other_revenue_items(raw: pd.DataFrame) -> tuple[OtherOperatingRevenueItem, ...]:
+    items: list[OtherOperatingRevenueItem] = []
+    if raw.empty:
+        return ()
+    for _, row in raw.iterrows():
+        amount = pd.to_numeric(row.get("金额(万元/年)", 0.0), errors="coerce")
+        if pd.isna(amount) or abs(float(amount)) < 1e-12:
+            continue
+        name = str(row.get("名称", "")).strip() or "其他经营收入"
+        active_rule = str(row.get("发生规则", "every_year")).strip() or "every_year"
+        vat_rate = pd.to_numeric(row.get("销项税率", 0.13), errors="coerce")
+        if pd.isna(vat_rate):
+            vat_rate = 0.13
+        items.append(
+            OtherOperatingRevenueItem(
+                name=name,
+                amount_with_vat=float(amount),
+                vat_rate=float(vat_rate),
+                active_rule=active_rule,
+                specific_years=_parse_specific_years(row.get("指定年份")),
+            )
+        )
+    return tuple(items)
+
+
+def _build_excel_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        for sheet_name, data in sheets.items():
+            data.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+    return output.getvalue()
+
+
+def _render_data_status(st, statuses: list[dict]) -> None:
+    status_df = pd.DataFrame(statuses)
+    if status_df.empty:
+        return
+
+    has_incomplete = len(statuses) < 3
+    has_invalid_length = any(item["小时数"] not in {8760, 8784} for item in statuses)
+    has_high_pu = any(item["大于1点"] for item in statuses)
+    has_negative = any(item["负值点"] for item in statuses)
+
+    if has_incomplete or has_invalid_length:
+        st.error("数据状态：需要复核。存在缺失曲线或小时数不符合 8760/8784。")
+    elif has_high_pu:
+        st.warning("数据状态：可计算，但标幺曲线存在大于 1 的点，请确认容量基准。")
+    elif has_negative:
+        st.info("数据状态：可计算。发现负标幺值，将按站用电口径参与计算。")
+    else:
+        st.success("数据状态：三条曲线已识别，小时数和基础格式正常。")
+
+    with st.expander("查看数据状态详情", expanded=False):
+        st.dataframe(status_df, use_container_width=True, hide_index=True)
+        for item in statuses:
+            st.caption(
+                f"{item['曲线']}：{item['小时数']} 小时，"
+                f"{item['开始时间']} 至 {item['结束时间']}。"
+            )
+            if item["大于1点"]:
+                st.warning(f"{item['曲线']}标幺值曲线存在数值大于 1 的情况，共 {item['大于1点']} 个点。")
+            if item["负值点"]:
+                st.info(f"{item['曲线']}曲线存在负值，共 {item['负值点']} 个点，将按站用电参与计算。")
+
+
+def _render_economy_v1(st, summary: pd.DataFrame) -> None:
+    st.markdown("---")
+    st.header("经济性评价 V1")
+    st.caption("经济性评价仅读取方案汇总结果，不重新计算逐小时调度。")
+
+    with st.expander("经济性参数", expanded=False):
+        c1, c2, c3, c4 = st.columns(4)
+        operation_years = int(c1.number_input("运营期（年）", value=25, min_value=1, max_value=40, step=1))
+        discount_rate = c2.number_input("折现率", value=0.06, min_value=-0.99, max_value=1.0, step=0.005, format="%.3f")
+        income_tax_rate = c3.number_input("企业所得税率", value=0.25, min_value=0.0, max_value=1.0, step=0.01)
+        urban_area = c4.selectbox("城建税地区", ["县城、镇 5%", "市区 7%", "其他 1%"])
+        urban_tax_rate = {"市区 7%": 0.07, "县城、镇 5%": 0.05, "其他 1%": 0.01}[urban_area]
+
+        c1, c2, c3, c4 = st.columns(4)
+        wind_capex = c1.number_input("风电单位造价（元/kW，含税）", value=4500.0, min_value=0.0, step=100.0)
+        pv_capex = c2.number_input(
+            "光伏单位造价（元/kW，含税）",
+            value=2500.0,
+            min_value=0.0,
+            step=100.0,
+            help="需与光伏标幺曲线容量基准匹配；直流侧曲线填直流侧造价，交流侧曲线填交流侧造价。",
+        )
+        bess_capex = c3.number_input("储能单位造价（元/kWh，含税）", value=900.0, min_value=0.0, step=50.0)
+        other_fixed_asset = c4.number_input("其他固定资产投资（万元，含税）", value=0.0, min_value=0.0, step=100.0)
+
+        c1, c2, c3, c4 = st.columns(4)
+        construction_vat_rate = c1.number_input("建设投资进项税率", value=0.10, min_value=0.0, max_value=1.0, step=0.01)
+        wind_om = c2.number_input("风电运维成本（元/kW/年）", value=50.0, min_value=0.0, step=1.0)
+        pv_om = c3.number_input("光伏运维成本（元/kW/年）", value=25.0, min_value=0.0, step=1.0)
+        bess_om = c4.number_input("储能运维成本（元/kW/年）", value=18.0, min_value=0.0, step=1.0)
+
+        c1, c2, c3, c4 = st.columns(4)
+        grid_export_price = c1.number_input("上网电价（元/kWh，含税）", value=0.25, min_value=0.0, step=0.01)
+        self_use_price = c2.number_input(
+            "自发自用电价（元/kWh，含税）",
+            value=0.40,
+            min_value=0.0,
+            step=0.01,
+            help="输入不含过网费的自发自用电价。",
+        )
+        output_vat_rate = c3.number_input("销项税率", value=0.13, min_value=0.0, max_value=1.0, step=0.01)
+        other_operating_cost = c4.number_input("其他运行成本（万元/年）", value=0.0, min_value=0.0, step=10.0)
+
+        c1, c2 = st.columns(2)
+        replacement_ratio = c1.number_input("储能更换投资比例", value=0.50, min_value=0.0, max_value=1.0, step=0.05)
+        replacement_vat_rate = c2.number_input("储能更换进项税率", value=0.13, min_value=0.0, max_value=1.0, step=0.01)
+
+        st.caption("其他经营收入可输入负值；负值在 V1 中不产生进项税，按收入抵减或额外经营性支出处理。")
+        default_other = pd.DataFrame(
+            [
+                {
+                    "名称": "",
+                    "金额(万元/年)": 0.0,
+                    "销项税率": 0.13,
+                    "发生规则": "every_year",
+                    "指定年份": "",
+                }
+            ]
+        )
+        other_revenue_df = st.data_editor(
+            st.session_state.get("economy_other_revenue_df", default_other),
+            num_rows="dynamic",
+            use_container_width=True,
+            key="economy_other_revenue_editor",
+        )
+        st.session_state["economy_other_revenue_df"] = other_revenue_df
+
+    try:
+        other_revenues = _build_other_revenue_items(other_revenue_df)
+    except ValueError as exc:
+        st.error(f"其他经营收入年份格式有误：{exc}")
+        return
+
+    params = EconomicParams(
+        operation_years=operation_years,
+        wind_capex_per_kw_with_vat=wind_capex,
+        pv_capex_per_kw_with_vat=pv_capex,
+        bess_capex_per_kwh_with_vat=bess_capex,
+        other_fixed_asset_investment_with_vat=other_fixed_asset,
+        construction_input_vat_rate=construction_vat_rate,
+        wind_om_cost_per_kw_year=wind_om,
+        pv_om_cost_per_kw_year=pv_om,
+        bess_om_cost_per_kw_year=bess_om,
+        other_operating_cost_with_vat=other_operating_cost,
+        grid_export_price_with_vat=grid_export_price,
+        self_use_price_with_vat=self_use_price,
+        output_vat_rate=output_vat_rate,
+        other_operating_revenues=other_revenues,
+        bess_replacement_cost_ratio=replacement_ratio,
+        bess_replacement_input_vat_rate=replacement_vat_rate,
+        urban_maintenance_tax_rate=urban_tax_rate,
+        income_tax_rate=income_tax_rate,
+        discount_rate=discount_rate,
+    )
+
+    if st.button("计算经济性 V1", key="run_economy_v1"):
+        with st.spinner("正在计算经济性年度现金流..."):
+            economic_summary, annual_cashflows = evaluate_batch_economy(summary, params)
+        st.session_state["economy_v1_result"] = {
+            "summary": economic_summary,
+            "annual_cashflows": annual_cashflows,
+        }
+
+    economy_result = st.session_state.get("economy_v1_result")
+    if not economy_result:
+        return
+
+    economic_summary = economy_result["summary"]
+    annual_cashflows = economy_result["annual_cashflows"]
+    if economic_summary.empty:
+        st.info("当前没有可展示的经济性结果。")
+        return
+
+    display_columns = [
+        "scenario_id",
+        "fnpv",
+        "firr",
+        "firr_status",
+        "static_payback_year",
+        "dynamic_payback_year",
+        "construction_cash_outflow",
+        "annual_operating_revenue_with_vat",
+        "annual_operating_cost_with_vat",
+        "bess_replacement_operation_year",
+    ]
+    st.subheader("经济性汇总")
+    st.dataframe(localize_columns(economic_summary[display_columns]), use_container_width=True, hide_index=True)
+    _display_mapping_expander(st, display_columns, "经济性汇总字段对应关系")
+
+    selected_id = st.selectbox("选择方案下载经济性年度明细", economic_summary["scenario_id"].astype(str).tolist())
+    annual = annual_cashflows[selected_id]
+
+    st.download_button(
+        "下载经济性结果 Excel",
+        data=_build_excel_bytes(
+            {
+                "经济性汇总": localize_columns(economic_summary),
+                f"年度现金流_{selected_id}": localize_columns(annual),
+            }
+        ),
+        file_name="economic_evaluation_v1.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="download_economy_v1",
+    )
 
 
 def main() -> None:
     import streamlit as st
 
-    st.set_page_config(page_title="绿电直连风光储测算 V0.1", layout="wide")
-    st.title("绿电直连风光储多方案批量测算工具 V0.1")
+    st.set_page_config(page_title="绿电直连风光储方案策划平台", layout="wide")
+    st.title("绿电直连风光储方案策划与测算平台")
 
     with st.sidebar:
         with st.expander("数据上传", expanded=True):
@@ -495,18 +726,7 @@ def main() -> None:
     ]
     statuses = [item for item in statuses if item is not None]
     if statuses:
-        st.subheader("数据状态")
-        status_df = pd.DataFrame(statuses)
-        st.dataframe(status_df, use_container_width=True, hide_index=True)
-        for item in statuses:
-            st.caption(
-                f"{item['曲线']}：{item['小时数']} 小时，"
-                f"{item['开始时间']} 至 {item['结束时间']}。"
-            )
-            if item["大于1点"]:
-                st.warning(f"{item['曲线']}标幺值曲线存在数值大于 1 的情况，共 {item['大于1点']} 个点。")
-            if item["负值点"]:
-                st.info(f"{item['曲线']}曲线存在负值，共 {item['负值点']} 个点，将按站用电参与计算。")
+        _render_data_status(st, statuses)
 
     if st.button("开始测算", type="primary", disabled=not ready):
         try:
@@ -594,51 +814,65 @@ def main() -> None:
     c4.metric("最低弃电率", f"{summary['curtail_rate'].min():.2%}")
     c5.metric("最低下网比例", f"{summary['grid_import_rate'].min():.2%}")
 
-    payloads = _get_download_payloads(st, batch_result, st.session_state.get("config_snapshot", {}))
-    d1, d2 = st.columns(2)
-    d1.download_button(
-        "下载方案汇总 Excel",
-        data=payloads["excel_bytes"],
-        file_name=payloads["excel_name"],
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="download_summary_excel",
-    )
-    d2.download_button(
-        "下载全部逐小时明细 ZIP",
-        data=payloads["zip_bytes"],
-        file_name=payloads["zip_name"],
-        mime="application/zip",
-        key="download_hourly_zip",
-    )
+    with st.expander("高级：结果表、筛选与下载", expanded=False):
+        if st.checkbox("准备下载文件", value=False, help="生成 Excel/ZIP 可能需要等待，默认不占用主界面。"):
+            payloads = _get_download_payloads(st, batch_result, st.session_state.get("config_snapshot", {}))
+            d1, d2 = st.columns(2)
+            d1.download_button(
+                "下载方案汇总 Excel",
+                data=payloads["excel_bytes"],
+                file_name=payloads["excel_name"],
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="download_summary_excel",
+            )
+            d2.download_button(
+                "下载全部逐小时明细 ZIP",
+                data=payloads["zip_bytes"],
+                file_name=payloads["zip_name"],
+                mime="application/zip",
+                key="download_hourly_zip",
+            )
 
-    only_passed = st.checkbox("只看达标方案", value=False)
-    scheme_types = st.multiselect(
-        "方案类型筛选（与达标筛选为 AND 关系）",
-        sorted(summary["方案类型"].dropna().unique()),
-        default=[],
-    )
-    sort_label = st.selectbox(
-        "排序方式",
-        ["绿电占比从高到低", "弃电率从低到高", "自发自用率从高到低", "上网比例从低到高", "储能容量从小到大"],
-    )
-    display = _apply_filters(summary, only_passed, scheme_types, sort_label)
-    max_display_rows = st.number_input("结果表最多显示行数", min_value=50, max_value=5000, value=500, step=50)
-    st.caption(f"当前筛选结果 {len(display)} 条，表格显示前 {min(len(display), int(max_display_rows))} 条。")
-    st.dataframe(_format_summary_for_display(display.head(int(max_display_rows))), use_container_width=True)
-
-    scenario_ids = list(batch_result.hourly_details.keys())
-    selected = st.selectbox("选择方案查看逐小时明细", scenario_ids)
-    if selected:
-        st.dataframe(batch_result.hourly_details[selected], use_container_width=True)
-        csv_bytes = batch_result.hourly_details[selected].to_csv(index=False).encode("utf-8-sig")
-        st.download_button(
-            "下载当前方案逐小时 CSV",
-            data=csv_bytes,
-            file_name=f"hourly_detail_{selected}.csv",
-            mime="text/csv",
+        only_passed = st.checkbox("只看达标方案", value=False)
+        scheme_types = st.multiselect(
+            "方案类型筛选（与达标筛选为 AND 关系）",
+            sorted(summary["方案类型"].dropna().unique()),
+            default=[],
         )
+        sort_label = st.selectbox(
+            "排序方式",
+            ["绿电占比从高到低", "弃电率从低到高", "自发自用率从高到低", "上网比例从低到高", "储能容量从小到大"],
+        )
+        display = _apply_filters(summary, only_passed, scheme_types, sort_label)
+        max_display_rows = st.number_input("结果表最多显示行数", min_value=50, max_value=5000, value=200, step=50)
+        st.caption(f"当前筛选结果 {len(display)} 条，表格显示前 {min(len(display), int(max_display_rows))} 条。")
+        st.dataframe(_format_summary_for_display(display.head(int(max_display_rows))), use_container_width=True)
+        _display_mapping_expander(st, list(display.columns), "方案汇总字段对应关系")
 
-    render_chart_analysis(st, batch_result, summary)
+        scenario_ids = list(batch_result.hourly_details.keys())
+        selected = st.selectbox("选择方案下载逐小时 CSV", scenario_ids)
+        if selected:
+            csv_bytes = localize_columns(batch_result.hourly_details[selected]).to_csv(index=False).encode("utf-8-sig")
+            st.download_button(
+                "下载当前方案逐小时 CSV",
+                data=csv_bytes,
+                file_name=f"hourly_detail_{selected}.csv",
+                mime="text/csv",
+            )
+            _display_mapping_expander(
+                st,
+                list(batch_result.hourly_details[selected].columns),
+                "逐小时明细字段对应关系",
+            )
+
+    _render_economy_v1(st, summary)
+
+    render_chart_analysis(
+        st,
+        batch_result,
+        summary,
+        economy_result=st.session_state.get("economy_v1_result"),
+    )
 
 
 if __name__ == "__main__":

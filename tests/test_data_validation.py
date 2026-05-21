@@ -5,6 +5,7 @@ import pytest
 
 from green_direct.io.read_curves import read_curve_set, read_load_curve, read_pu_curve
 from green_direct.io.validators import DataValidationError
+from green_direct.models.diagnostics import DiagnosticSeverity
 from green_direct.models.params import DataCleaningParams
 
 
@@ -151,3 +152,16 @@ def test_read_curve_set_success():
 
     assert list(result.data.columns) == ["timestamp", "load_power", "pv_pu", "wind_pu"]
     assert result.data["load_power"].sum() == 87600
+
+
+def test_pu_curve_warning_is_also_recorded_as_diagnostic():
+    timestamps = pd.date_range("2020-01-01", periods=8760, freq="h")
+    df = pd.DataFrame({"time": timestamps.astype(str), "pv": -0.0005})
+    data = df.to_csv(index=False).encode("utf-8")
+
+    curve = read_pu_curve(BytesIO(data), "time", "pv", "鍏変紡")
+
+    assert curve.warnings
+    assert curve.diagnostics is not None
+    assert curve.diagnostics.items[0].severity is DiagnosticSeverity.WARNING
+    assert curve.diagnostics.items[0].code == "PU_CURVE_WARNING"

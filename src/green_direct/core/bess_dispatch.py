@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 
 from green_direct.models.params import BessParams
+
+
+class DispatchStrategy(str, Enum):
+    GRID_CONNECTED_RENEWABLE_FIRST_GREEDY = "GRID_CONNECTED_RENEWABLE_FIRST_GREEDY"
 
 
 @dataclass(frozen=True)
@@ -134,3 +139,46 @@ def dispatch_hour(
         bess_energy_end=max(bess_energy_end, 0.0),
         hour_case=hour_case,
     )
+
+
+def normalize_dispatch_strategy(strategy: DispatchStrategy | str | None) -> DispatchStrategy:
+    if strategy is None:
+        return DispatchStrategy.GRID_CONNECTED_RENEWABLE_FIRST_GREEDY
+    try:
+        return DispatchStrategy(strategy)
+    except ValueError as exc:
+        supported = ", ".join(item.value for item in DispatchStrategy)
+        raise ValueError(f"Unsupported dispatch strategy: {strategy}. Supported strategies: {supported}") from exc
+
+
+def dispatch_hour_with_strategy(
+    *,
+    strategy: DispatchStrategy | str | None = None,
+    load_energy: float,
+    renewable_energy: float,
+    bess_power: float,
+    bess_energy: float,
+    bess_energy_start: float,
+    bess_params: BessParams,
+    dt_hours: float,
+    allow_export: bool,
+    export_power_max: float | None,
+    remaining_export_cap: float | None = None,
+    grid_exchange_power_limit: float | None = None,
+) -> DispatchStep:
+    normalized = normalize_dispatch_strategy(strategy)
+    if normalized is DispatchStrategy.GRID_CONNECTED_RENEWABLE_FIRST_GREEDY:
+        return dispatch_hour(
+            load_energy=load_energy,
+            renewable_energy=renewable_energy,
+            bess_power=bess_power,
+            bess_energy=bess_energy,
+            bess_energy_start=bess_energy_start,
+            bess_params=bess_params,
+            dt_hours=dt_hours,
+            allow_export=allow_export,
+            export_power_max=export_power_max,
+            remaining_export_cap=remaining_export_cap,
+            grid_exchange_power_limit=grid_exchange_power_limit,
+        )
+    raise ValueError(f"Unsupported dispatch strategy: {normalized.value}")

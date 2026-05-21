@@ -1,18 +1,28 @@
-"""Single scenario simulator."""
+﻿"""Single scenario simulator."""
 
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
-from green_direct.core.bess_dispatch import dispatch_hour
+from green_direct.core.bess_dispatch import (
+    DispatchStrategy,
+    dispatch_hour_with_strategy,
+    normalize_dispatch_strategy,
+)
 from green_direct.core.metrics import calculate_summary
+from green_direct.models.diagnostics import DiagnosticSeverity, InputDiagnostics
 from green_direct.models.params import BessParams, PolicyParams
 from green_direct.models.results import ScenarioResult
 from green_direct.models.scenario import Scenario
 
 
-HOURLY_COLUMNS = [
+# V0.1 physical HourlyEnergyLedger implementation.
+#
+# The hourly_detail DataFrame is the technical simulation's hourly fact table.
+# Policy, economy, chart, and report layers should read these fields instead of
+# recomputing core dispatch, SOC, grid exchange, export, or curtailment logic.
+HOURLY_LEDGER_COLUMNS = [
     "scenario_id",
     "timestamp",
     "hour_index",
@@ -42,36 +52,133 @@ HOURLY_COLUMNS = [
     "hour_case",
 ]
 
+# Backward-compatible alias for existing export/tests/downstream imports.
+HOURLY_COLUMNS = HOURLY_LEDGER_COLUMNS
 
+
+def collect_single_scenario_input_diagnostics(
+    curves: pd.DataFrame,
+    scenario: Scenario,
+    bess_params: BessParams,
+    policy_params: PolicyParams,
+    *,
+    dt_hours: float,
+    strategy: DispatchStrategy | str | None,
+) -> InputDiagnostics:
+    diagnostics = InputDiagnostics()
+    required = {"timestamp", "load_power", "pv_pu", "wind_pu"}
+    missing = required - set(curves.columns)
+    if missing:
+        diagnostics.add(
+            DiagnosticSeverity.ERROR,
+            "single_scenario_input",
+            "MISSING_CURVE_COLUMNS",
+            f"Missing required curve columns: {', '.join(sorted(missing))}",
+            location="curves",
+        )
+    if dt_hours <= 0:
+        diagnostics.add(
+            DiagnosticSeverity.ERROR,
+            "single_scenario_input",
+            "INVALID_DT_HOURS",
+            "dt_hours must be greater than 0.",
+            location="dt_hours",
+        )
+    for name in ["pv_capacity", "wind_capacity", "bess_power", "bess_energy"]:
+        if getattr(scenario, name) < 0:
+            diagnostics.add(
+                DiagnosticSeverity.ERROR,
+                "single_scenario_input",
+                "NEGATIVE_SCENARIO_CAPACITY",
+                f"{name} cannot be negative.",
+                location=name,
+            )
+    if not (0 <= bess_params.soc_min <= bess_params.soc_initial <= bess_params.soc_max <= 1):
+        diagnostics.add(
+            DiagnosticSeverity.ERROR,
+            "single_scenario_input",
+            "INVALID_SOC_PARAMETERS",
+            "SOC parameters must satisfy 0 <= soc_min <= soc_initial <= soc_max <= 1.",
+            location="bess_params",
+        )
+    if bess_params.eta_charge <= 0 or bess_params.eta_discharge <= 0:
+        diagnostics.add(
+            DiagnosticSeverity.ERROR,
+            "single_scenario_input",
+            "INVALID_BESS_EFFICIENCY",
+            "BESS charge and discharge efficiencies must be greater than 0.",
+            location="bess_params",
+        )
+    if not (0 <= policy_params.export_rate_max <= 1):
+        diagnostics.add(
+            DiagnosticSeverity.WARNING,
+            "policy_params",
+            "EXPORT_RATE_MAX_OUT_OF_NORMAL_RANGE",
+            "export_rate_max should normally be between 0 and 1.",
+            location="policy_params.export_rate_max",
+        )
+    if policy_params.grid_exchange_power_limit is not None and policy_params.grid_exchange_power_limit < 0:
+        diagnostics.add(
+            DiagnosticSeverity.WARNING,
+            "policy_params",
+            "NEGATIVE_GRID_EXCHANGE_POWER_LIMIT",
+            "grid_exchange_power_limit is negative; dispatch clamps usable limits to no less than 0.",
+            location="policy_params.grid_exchange_power_limit",
+        )
+    if policy_params.export_control_mode not in {"annual_cap_runtime", "post_check"}:
+        diagnostics.add(
+            DiagnosticSeverity.WARNING,
+            "policy_params",
+            "UNKNOWN_EXPORT_CONTROL_MODE",
+            "Unknown export_control_mode; V0.1 explicitly supports annual_cap_runtime and post_check.",
+            location="policy_params.export_control_mode",
+        )
+    normalized_strategy = normalize_dispatch_strategy(strategy)
+    diagnostics.add(
+        DiagnosticSeverity.INFO,
+        "dispatch",
+        "DISPATCH_STRATEGY_SELECTED",
+        f"dispatch_strategy={normalized_strategy.value}",
+        location="strategy",
+    )
+    return diagnostics
 def _validate_inputs(curves: pd.DataFrame, scenario: Scenario, bess_params: BessParams, dt_hours: float) -> None:
     required = {"timestamp", "load_power", "pv_pu", "wind_pu"}
     missing = required - set(curves.columns)
     if missing:
-        raise ValueError(f"曲线数据缺少必要列: {', '.join(sorted(missing))}")
+        raise ValueError(f"Missing required curve columns: {', '.join(sorted(missing))}")
     if dt_hours <= 0:
-        raise ValueError("dt_hours 必须大于 0。")
+        raise ValueError("dt_hours must be greater than 0.")
     for name in ["pv_capacity", "wind_capacity", "bess_power", "bess_energy"]:
         if getattr(scenario, name) < 0:
-            raise ValueError(f"{name} 不能小于 0。")
+            raise ValueError(f"{name} cannot be negative.")
     if not (0 <= bess_params.soc_min <= bess_params.soc_initial <= bess_params.soc_max <= 1):
-        raise ValueError("SOC 参数必须满足 0 <= soc_min <= soc_initial <= soc_max <= 1。")
+        raise ValueError("SOC parameters must satisfy 0 <= soc_min <= soc_initial <= soc_max <= 1.")
     if bess_params.eta_charge <= 0 or bess_params.eta_discharge <= 0:
-        raise ValueError("储能充放电效率必须大于 0。")
-
-
+        raise ValueError("BESS charge and discharge efficiencies must be greater than 0.")
 def run_single_scenario(
     curves: pd.DataFrame,
     scenario: Scenario,
     *,
     bess_params: BessParams | None = None,
     policy_params: PolicyParams | None = None,
+    strategy: DispatchStrategy | str | None = DispatchStrategy.GRID_CONNECTED_RENEWABLE_FIRST_GREEDY,
     dt_hours: float = 1.0,
 ) -> ScenarioResult:
     """Run hourly energy-balance simulation for one scenario."""
 
     bess = bess_params or BessParams()
     policy = policy_params or PolicyParams()
+    dispatch_strategy = normalize_dispatch_strategy(strategy)
     _validate_inputs(curves, scenario, bess, dt_hours)
+    diagnostics = collect_single_scenario_input_diagnostics(
+        curves,
+        scenario,
+        bess,
+        policy,
+        dt_hours=dt_hours,
+        strategy=dispatch_strategy,
+    )
 
     if scenario.bess_energy > 0 and scenario.bess_power > 0:
         bess_energy = bess.soc_initial * scenario.bess_energy
@@ -147,7 +254,8 @@ def run_single_scenario(
         if annual_export_cap is not None:
             remaining_cap = annual_export_cap - cumulative_export
 
-        step = dispatch_hour(
+        step = dispatch_hour_with_strategy(
+            strategy=dispatch_strategy,
             load_energy=dispatch_load_energy,
             renewable_energy=renewable_energy,
             bess_power=scenario.bess_power,
@@ -192,7 +300,7 @@ def run_single_scenario(
         data["bess_energy_end"][idx] = bess_energy
         data["hour_case"][idx] = step.hour_case
 
-    hourly = pd.DataFrame(data, columns=HOURLY_COLUMNS)
+    hourly = pd.DataFrame(data, columns=HOURLY_LEDGER_COLUMNS)
     if not hourly.empty:
         numeric_columns = [
             "load_power",
@@ -230,4 +338,5 @@ def run_single_scenario(
         initial_bess_energy=initial_bess_energy,
         dt_hours=dt_hours,
     )
-    return ScenarioResult(summary=summary, hourly_detail=hourly, warnings=[])
+    summary["dispatch_strategy"] = dispatch_strategy.value
+    return ScenarioResult(summary=summary, hourly_detail=hourly, warnings=[], diagnostics=diagnostics)

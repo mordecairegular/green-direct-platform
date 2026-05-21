@@ -17,6 +17,7 @@ from green_direct.io.validators import (
     validate_required_columns,
     validate_supported_length,
 )
+from green_direct.models.diagnostics import InputDiagnostics
 from green_direct.models.params import DataCleaningParams, TimeParams
 
 SUPPORTED_ENCODINGS = ("utf-8", "utf-8-sig", "gbk", "gb18030")
@@ -29,6 +30,7 @@ class CurveData:
     data: pd.DataFrame
     warnings: list[str]
     encoding: str
+    diagnostics: InputDiagnostics | None = None
 
 
 @dataclass
@@ -38,6 +40,7 @@ class CurveSet:
     data: pd.DataFrame
     warnings: list[str]
     encodings: dict[str, str]
+    diagnostics: InputDiagnostics | None = None
 
 
 def _read_bytes(source: str | Path | BinaryIO | bytes) -> bytes:
@@ -83,7 +86,7 @@ def read_load_curve(
     normalized = pd.DataFrame({"timestamp": timestamp, "load_power": value})
     if validate_length:
         validate_supported_length(len(normalized), time_params)
-    return CurveData(normalized, [], encoding)
+    return CurveData(normalized, [], encoding, InputDiagnostics())
 
 
 def read_pu_curve(
@@ -104,7 +107,8 @@ def read_pu_curve(
     normalized = pd.DataFrame({"timestamp": timestamp, column: value})
     if validate_length:
         validate_supported_length(len(normalized), time_params)
-    return CurveData(normalized, warnings, encoding)
+    diagnostics = InputDiagnostics.from_warning_messages(warnings, source="curve_cleaning", code="PU_CURVE_WARNING")
+    return CurveData(normalized, warnings, encoding, diagnostics)
 
 
 def read_curve_set(
@@ -154,7 +158,11 @@ def read_curve_set(
     merged["wind_pu"] = wind.data["wind_pu"].to_numpy()
     warnings = [*load.warnings, *pv.warnings, *wind.warnings]
     encodings = {"load": load.encoding, "pv": pv.encoding, "wind": wind.encoding}
-    return CurveSet(merged, warnings, encodings)
+    diagnostics = InputDiagnostics()
+    for item in (load.diagnostics, pv.diagnostics, wind.diagnostics):
+        if item is not None:
+            diagnostics.extend(item)
+    return CurveSet(merged, warnings, encodings, diagnostics)
 
 
 def convert_raw_power_to_pu(power: pd.Series, base_capacity: float) -> pd.Series:
