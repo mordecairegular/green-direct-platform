@@ -121,13 +121,16 @@ def _summary_for_ids(summary: pd.DataFrame, scenario_ids: list[str]) -> pd.DataF
     return data.sort_values("_display_order").drop(columns=["_display_order"])
 
 
-def _fmt(value: Any, suffix: str = "", digits: int = 1) -> str:
+def _fmt(value: Any, suffix: str = "", digits: int = 2) -> str:
     if value is None or pd.isna(value):
         return "-"
     if isinstance(value, (int, float)):
         if math.isinf(value):
             return "-"
-        return f"{value:,.{digits}f}{suffix}"
+        text = f"{value:,.{digits}f}"
+        if digits > 0:
+            text = text.rstrip("0").rstrip(".")
+        return f"{text}{suffix}"
     return f"{value}{suffix}"
 
 
@@ -135,6 +138,14 @@ def _fmt_rate(value: Any) -> str:
     if value is None or pd.isna(value) or (isinstance(value, float) and math.isinf(value)):
         return "-"
     return f"{float(value):.1%}"
+
+
+def _fmt_energy(value: Any, suffix: str = " 万kWh") -> str:
+    return _fmt(value, suffix, digits=0)
+
+
+def _apply_numeric_axis_format(fig: go.Figure, *, y_digits: int = 0) -> None:
+    fig.update_yaxes(tickformat=f",.{y_digits}f")
 
 
 def _safe_text(value: Any) -> str:
@@ -272,9 +283,9 @@ def _render_solution_card(
     highlight: bool = False,
 ) -> None:
     class_name = "gd-card gd-card-active" if highlight else "gd-card"
-    econ_left = _fmt(econ.get("fnpv"), " 万元") if econ is not None else _fmt_rate(row.get("export_rate"))
+    econ_left = _fmt(econ.get("fnpv"), " 万元", digits=0) if econ is not None else _fmt_rate(row.get("export_rate"))
     econ_left_label = "FNPV" if econ is not None else "上网比例"
-    econ_right = _fmt_rate(econ.get("firr")) if econ is not None else _fmt(row.get("annual_equivalent_cycles"), " 次")
+    econ_right = _fmt_rate(econ.get("firr")) if econ is not None else _fmt(row.get("annual_equivalent_cycles"), " 次", digits=0)
     econ_right_label = "FIRR" if econ is not None else "年循环"
     html_card = f"""
     <div class="{class_name}">
@@ -343,7 +354,7 @@ def _render_overview(
     c1.metric("光伏(万kW)", _fmt(active_row.get("pv_capacity")))
     c2.metric("风电(万kW)", _fmt(active_row.get("wind_capacity")))
     c3.metric("储能功率(万kW)", _fmt(active_row.get("bess_power")))
-    c4.metric("储能容量(万kWh)", _fmt(active_row.get("bess_energy")))
+    c4.metric("储能容量(万kWh)", _fmt_energy(active_row.get("bess_energy"), ""))
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("自发自用(亿kWh)", _fmt(_wan_kwh_to_yi_kwh(active_row.get("self_use_energy")), digits=2))
     c2.metric("绿电占比", _fmt_rate(active_row.get("green_load_rate")))
@@ -377,7 +388,7 @@ def _render_policy_radar(st, selected_summary: pd.DataFrame) -> None:
         )
     fig.update_layout(
         title="多方案关键指标雷达",
-        polar=dict(radialaxis=dict(range=[0, 1], tickformat=".0%")),
+        polar=dict(radialaxis=dict(range=[0, 1], tickformat=".1%")),
         height=420,
         margin=dict(l=40, r=40, t=60, b=30),
         legend=dict(orientation="h"),
@@ -413,14 +424,15 @@ def _render_energy_flow(st, hourly: pd.DataFrame, active_row: pd.Series) -> None
                     values=[pv_gen, wind_gen],
                     hole=0.62,
                     marker_colors=[COLORS["pv"], COLORS["wind"]],
-                    textinfo="label+percent",
+                    texttemplate="%{label}<br>%{percent:.1%}",
+                    hovertemplate="%{label}<br>%{value:,.0f} 万kWh<br>%{percent:.1%}<extra></extra>",
                 )
             ]
         )
         fig.update_layout(title="新能源发电构成", height=390, margin=dict(l=20, r=20, t=60, b=20))
         st.plotly_chart(fig, use_container_width=True)
-        st.metric("光伏发电", _fmt(pv_gen, " 万kWh"))
-        st.metric("风电发电", _fmt(wind_gen, " 万kWh"))
+        st.metric("光伏发电", _fmt_energy(pv_gen))
+        st.metric("风电发电", _fmt_energy(wind_gen))
 
     with c2:
         source_share = [pv_gen / total_gen if total_gen else 0, wind_gen / total_gen if total_gen else 0]
@@ -461,7 +473,13 @@ def _render_energy_flow(st, hourly: pd.DataFrame, active_row: pd.Series) -> None
             data=[
                 go.Sankey(
                     node=dict(label=labels, pad=18, thickness=18, color=colors),
-                    link=dict(source=source, target=target, value=value, color="rgba(88, 199, 223, 0.22)"),
+                    link=dict(
+                        source=source,
+                        target=target,
+                        value=value,
+                        color="rgba(88, 199, 223, 0.22)",
+                        hovertemplate="%{source.label} → %{target.label}<br>%{value:,.0f} 万kWh<extra></extra>",
+                    ),
                 )
             ]
         )
@@ -511,8 +529,8 @@ def _render_operation(st, hourly: pd.DataFrame) -> None:
         col=1,
     )
     fig.update_layout(title=f"24H 典型日运行策略 · {season}", barmode="relative", height=620, legend=dict(orientation="h"))
-    fig.update_yaxes(title_text="万kW", row=1, col=1)
-    fig.update_yaxes(title_text="SOC", tickformat=".0%", row=2, col=1)
+    fig.update_yaxes(title_text="万kW", tickformat=",.2f", row=1, col=1)
+    fig.update_yaxes(title_text="SOC", tickformat=".1%", row=2, col=1)
     st.plotly_chart(fig, use_container_width=True)
 
     with st.expander("查看 8760h 策略曲线", expanded=False):
@@ -524,8 +542,8 @@ def _render_operation(st, hourly: pd.DataFrame) -> None:
         fig2.add_scatter(x=sample["timestamp"], y=_series_or_zero(sample, "soc_end"), name="SOC", yaxis="y2", line=dict(color="#4a9d8f"))
         fig2.update_layout(
             height=420,
-            yaxis=dict(title="万kW"),
-            yaxis2=dict(title="SOC", overlaying="y", side="right", tickformat=".0%"),
+            yaxis=dict(title="万kW", tickformat=",.2f"),
+            yaxis2=dict(title="SOC", overlaying="y", side="right", tickformat=".1%"),
             legend=dict(orientation="h"),
         )
         st.plotly_chart(fig2, use_container_width=True)
@@ -540,10 +558,10 @@ def _render_economy(st, selected_summary: pd.DataFrame, active_id: str, economy_
     active = _economy_row(economy_summary, active_id)
     if active is not None:
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("FNPV(万元)", _fmt(active.get("fnpv")))
+        c1.metric("FNPV(万元)", _fmt(active.get("fnpv"), digits=0))
         c2.metric("FIRR", _fmt_rate(active.get("firr")))
-        c3.metric("静态回收期(年)", _fmt(active.get("static_payback_year")))
-        c4.metric("建设投资(万元)", _fmt(active.get("construction_cash_outflow")))
+        c3.metric("静态回收期(年)", _fmt(active.get("static_payback_year"), digits=1))
+        c4.metric("建设投资(万元)", _fmt(active.get("construction_cash_outflow"), digits=0))
     if selected_econ.empty:
         return
     fig = make_subplots(specs=[[{"secondary_y": True}]])
@@ -570,8 +588,8 @@ def _render_economy(st, selected_summary: pd.DataFrame, active_id: str, economy_
         secondary_y=True,
     )
     fig.update_layout(title="多方案经济性对比", height=500, barmode="group", legend=dict(orientation="h"))
-    fig.update_yaxes(title_text="万元", secondary_y=False)
-    fig.update_yaxes(title_text="FIRR", tickformat=".0%", secondary_y=True)
+    fig.update_yaxes(title_text="万元", tickformat=",.0f", secondary_y=False)
+    fig.update_yaxes(title_text="FIRR", tickformat=".1%", secondary_y=True)
     st.plotly_chart(fig, use_container_width=True)
 
 

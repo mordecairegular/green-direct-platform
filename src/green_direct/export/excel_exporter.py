@@ -59,7 +59,8 @@ def align_summary_columns(summary: pd.DataFrame) -> pd.DataFrame:
     for column in SUMMARY_COLUMNS:
         if column not in result.columns:
             result[column] = pd.NA
-    return result[SUMMARY_COLUMNS]
+    extra_columns = [column for column in result.columns if column not in SUMMARY_COLUMNS]
+    return result[[*SUMMARY_COLUMNS, *extra_columns]]
 
 
 def _config_to_frame(config: dict[str, Any] | None) -> pd.DataFrame:

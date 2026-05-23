@@ -25,6 +25,8 @@ def build_heatmap_chart(hourly: pd.DataFrame, value_field: str = "grid_import_po
         labels={"x": "年内日序", "y": "小时", "color": value_field},
         title=f"年度热力图：{value_field}",
     )
+    color_format = ".1%" if value_field in {"soc_end", "soc_start", "final_soc"} else ",.2f"
+    fig.update_coloraxes(colorbar_tickformat=color_format)
     fig.update_layout(height=500)
     return ChartResult(
         chart_id="S04",

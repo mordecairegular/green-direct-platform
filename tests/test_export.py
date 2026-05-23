@@ -71,6 +71,17 @@ def test_export_summary_excel(tmp_path):
     assert list(loaded.columns) == SUMMARY_COLUMNS
 
 
+def test_export_summary_excel_keeps_extra_economy_columns(tmp_path):
+    summary = _summary().assign(fnpv=1234.0, firr=0.08)
+    path = export_summary_excel(summary, tmp_path, now=datetime(2026, 1, 2, 3, 4, 5))
+
+    loaded = pd.read_excel(path, sheet_name="Summary")
+
+    assert list(loaded.columns[: len(SUMMARY_COLUMNS)]) == SUMMARY_COLUMNS
+    assert loaded["fnpv"].iloc[0] == 1234.0
+    assert loaded["firr"].iloc[0] == 0.08
+
+
 def test_export_hourly_detail_csv(tmp_path):
     path = export_hourly_detail_csv(_hourly(), tmp_path, now=datetime(2026, 1, 2, 3, 4, 5))
 

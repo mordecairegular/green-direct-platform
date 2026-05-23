@@ -22,7 +22,7 @@ from green_direct.export.excel_exporter import export_summary_excel
 from green_direct.io.read_curves import read_csv_auto_encoding, read_curve_set
 from green_direct.io.validators import DataValidationError
 from green_direct.models.params import BessParams, DataCleaningParams, PerformanceParams, PolicyParams
-from green_direct.ui.field_labels import localize_columns, mapping_frame
+from green_direct.ui.field_labels import format_display_frame, localize_columns, mapping_frame
 from green_direct.visualization.chart_ui import render_chart_analysis
 
 
@@ -148,13 +148,26 @@ def _range_inputs(st, label: str, defaults: tuple[float, float, float]) -> dict:
     return {"start": start, "end": end, "step": step}
 
 
-def _build_download_payloads(batch_result, config_snapshot: dict):
+def _merge_summary_with_economy(summary: pd.DataFrame, economy_summary: pd.DataFrame | None) -> pd.DataFrame:
+    if economy_summary is None or economy_summary.empty or "scenario_id" not in economy_summary.columns:
+        return summary
+    economy_columns = [column for column in economy_summary.columns if column != "scenario_id"]
+    renamed_economy = economy_summary.rename(
+        columns={column: f"{column}_economy" for column in economy_columns}
+    )
+    return summary.merge(renamed_economy, on="scenario_id", how="left")
+
+
+def _build_download_payloads(batch_result, config_snapshot: dict, economy_summary: pd.DataFrame | None = None):
     with TemporaryDirectory() as tmp:
+        summary_for_export = _merge_summary_with_economy(batch_result.summary, economy_summary)
+        filename_prefix = "scenario_summary_with_economy" if economy_summary is not None and not economy_summary.empty else "scenario_summary"
         excel_path = export_summary_excel(
-            batch_result.summary,
+            summary_for_export,
             tmp,
             config_snapshot=config_snapshot,
             warnings=batch_result.warnings,
+            filename_prefix=filename_prefix,
         )
         zip_path = export_hourly_details_zip(batch_result.hourly_details, tmp)
         return {
@@ -240,33 +253,7 @@ def _apply_filters(summary: pd.DataFrame, only_passed: bool, scheme_types: list[
 
 
 def _format_summary_for_display(summary: pd.DataFrame) -> pd.DataFrame:
-    display = summary.copy()
-    energy_columns = [
-        "total_load_energy",
-        "grid_import_energy",
-        "total_renewable_generation",
-        "pv_station_use_energy",
-        "wind_station_use_energy",
-        "station_use_energy",
-        "self_use_energy",
-        "grid_export_energy",
-        "export_cap_energy",
-        "curtail_energy",
-        "curtail_due_to_export_cap_energy",
-        "curtail_due_to_exchange_limit_energy",
-        "exchange_import_shortfall_energy",
-        "bess_charge_energy",
-        "bess_discharge_to_load",
-        "bess_loss_energy",
-    ]
-    percent_columns = ["grid_import_rate", "self_use_rate", "green_load_rate", "export_rate", "curtail_rate"]
-    for column in energy_columns:
-        if column in display.columns:
-            display[column] = display[column].map(lambda value: "" if pd.isna(value) else f"{value:.0f}")
-    for column in percent_columns:
-        if column in display.columns:
-            display[column] = display[column].map(lambda value: "" if pd.isna(value) else f"{value:.2%}")
-    return localize_columns(display)
+    return localize_columns(format_display_frame(summary))
 
 
 def _display_mapping_expander(st, columns: list[str], label: str = "字段对应关系") -> None:
@@ -275,12 +262,17 @@ def _display_mapping_expander(st, columns: list[str], label: str = "字段对应
 
 
 def _get_download_payloads(st, batch_result, config_snapshot: dict):
-    signature = (id(batch_result), len(batch_result.summary), len(batch_result.hourly_details))
+    economy_result = st.session_state.get("economy_v1_result")
+    economy_summary = economy_result.get("summary") if isinstance(economy_result, dict) else None
+    economy_signature = None
+    if isinstance(economy_summary, pd.DataFrame):
+        economy_signature = (len(economy_summary), tuple(economy_summary.columns))
+    signature = (id(batch_result), len(batch_result.summary), len(batch_result.hourly_details), economy_signature)
     cached = st.session_state.get("download_payloads")
     if cached and cached.get("signature") == signature:
         return cached["payloads"]
     with st.spinner("正在准备下载文件..."):
-        payloads = _build_download_payloads(batch_result, config_snapshot)
+        payloads = _build_download_payloads(batch_result, config_snapshot, economy_summary)
         st.session_state["download_payloads"] = {"signature": signature, "payloads": payloads}
     return payloads
 
@@ -385,7 +377,9 @@ def _render_economy_v1(st, summary: pd.DataFrame) -> None:
             help="需与光伏标幺曲线容量基准匹配；直流侧曲线填直流侧造价，交流侧曲线填交流侧造价。",
         )
         bess_capex = c3.number_input("储能单位造价（元/kWh，含税）", value=900.0, min_value=0.0, step=50.0)
-        other_fixed_asset = c4.number_input("其他固定资产投资（万元，含税）", value=0.0, min_value=0.0, step=100.0)
+        dedicated_connection_line = c4.number_input("送出线路工程投资（万元，含税）", value=0.0, min_value=0.0, step=100.0)
+
+        other_fixed_asset = st.number_input("其他固定资产投资（万元，含税）", value=0.0, min_value=0.0, step=100.0)
 
         c1, c2, c3, c4 = st.columns(4)
         construction_vat_rate = c1.number_input("建设投资进项税率", value=0.10, min_value=0.0, max_value=1.0, step=0.01)
@@ -405,9 +399,10 @@ def _render_economy_v1(st, summary: pd.DataFrame) -> None:
         output_vat_rate = c3.number_input("销项税率", value=0.13, min_value=0.0, max_value=1.0, step=0.01)
         other_operating_cost = c4.number_input("其他运行成本（万元/年）", value=0.0, min_value=0.0, step=10.0)
 
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         replacement_ratio = c1.number_input("储能更换投资比例", value=0.50, min_value=0.0, max_value=1.0, step=0.05)
         replacement_vat_rate = c2.number_input("储能更换进项税率", value=0.13, min_value=0.0, max_value=1.0, step=0.01)
+        replacement_calendar_life = c3.number_input("储能电池日历寿命（年）", value=15.0, min_value=1.0, max_value=40.0, step=1.0)
 
         st.caption("其他经营收入可输入负值；负值在 V1 中不产生进项税，按收入抵减或额外经营性支出处理。")
         default_other = pd.DataFrame(
@@ -440,6 +435,7 @@ def _render_economy_v1(st, summary: pd.DataFrame) -> None:
         wind_capex_per_kw_with_vat=wind_capex,
         pv_capex_per_kw_with_vat=pv_capex,
         bess_capex_per_kwh_with_vat=bess_capex,
+        dedicated_connection_line_investment_with_vat=dedicated_connection_line,
         other_fixed_asset_investment_with_vat=other_fixed_asset,
         construction_input_vat_rate=construction_vat_rate,
         wind_om_cost_per_kw_year=wind_om,
@@ -452,6 +448,7 @@ def _render_economy_v1(st, summary: pd.DataFrame) -> None:
         other_operating_revenues=other_revenues,
         bess_replacement_cost_ratio=replacement_ratio,
         bess_replacement_input_vat_rate=replacement_vat_rate,
+        bess_calendar_life_years=replacement_calendar_life,
         urban_maintenance_tax_rate=urban_tax_rate,
         income_tax_rate=income_tax_rate,
         discount_rate=discount_rate,
@@ -464,6 +461,7 @@ def _render_economy_v1(st, summary: pd.DataFrame) -> None:
             "summary": economic_summary,
             "annual_cashflows": annual_cashflows,
         }
+        st.session_state.pop("download_payloads", None)
 
     economy_result = st.session_state.get("economy_v1_result")
     if not economy_result:
@@ -475,37 +473,63 @@ def _render_economy_v1(st, summary: pd.DataFrame) -> None:
         st.info("当前没有可展示的经济性结果。")
         return
 
+    context_columns = [
+        column
+        for column in ["scenario_id", "方案类型", "pv_capacity", "wind_capacity", "bess_energy"]
+        if column in summary.columns
+    ]
+    display_economic_summary = economic_summary.copy()
+    if len(context_columns) > 1:
+        display_economic_summary = display_economic_summary.merge(
+            summary[context_columns].drop_duplicates("scenario_id"),
+            on="scenario_id",
+            how="left",
+        )
+
     display_columns = [
         "scenario_id",
+        "方案类型",
+        "pv_capacity",
+        "wind_capacity",
+        "bess_energy",
         "fnpv",
         "firr",
         "firr_status",
         "static_payback_year",
         "dynamic_payback_year",
         "construction_cash_outflow",
+        "dedicated_connection_line_investment_with_vat",
         "annual_operating_revenue_with_vat",
         "annual_operating_cost_with_vat",
         "bess_replacement_operation_year",
+        "bess_replacement_operation_years",
+        "bess_replacement_count",
     ]
-    st.subheader("经济性汇总")
-    st.dataframe(localize_columns(economic_summary[display_columns]), use_container_width=True, hide_index=True)
-    _display_mapping_expander(st, display_columns, "经济性汇总字段对应关系")
+    display_columns = [column for column in display_columns if column in display_economic_summary.columns]
+    st.success("经济性 V1 已计算。方案总表下载会自动在原方案总表后追加经济性字段。")
 
-    selected_id = st.selectbox("选择方案下载经济性年度明细", economic_summary["scenario_id"].astype(str).tolist())
-    annual = annual_cashflows[selected_id]
+    with st.expander("高级：经济性汇总表和年度现金流下载", expanded=False):
+        st.dataframe(
+            localize_columns(format_display_frame(display_economic_summary[display_columns])),
+            use_container_width=True,
+            hide_index=True,
+        )
+        _display_mapping_expander(st, display_columns, "经济性汇总字段对应关系")
 
-    st.download_button(
-        "下载经济性结果 Excel",
-        data=_build_excel_bytes(
-            {
-                "经济性汇总": localize_columns(economic_summary),
-                f"年度现金流_{selected_id}": localize_columns(annual),
-            }
-        ),
-        file_name="economic_evaluation_v1.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="download_economy_v1",
-    )
+        selected_id = st.selectbox("选择方案下载经济性年度明细", economic_summary["scenario_id"].astype(str).tolist())
+        annual = annual_cashflows[selected_id]
+
+        st.download_button(
+            "下载所选方案年度现金流 Excel",
+            data=_build_excel_bytes(
+                {
+                    f"年度现金流_{selected_id}": localize_columns(annual),
+                }
+            ),
+            file_name=f"annual_cashflow_{selected_id}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_economy_v1",
+        )
 
 
 def main() -> None:
@@ -624,6 +648,9 @@ def main() -> None:
         }
         scenario_count = estimate_scenario_count(scenario_grid)
         st.metric("方案数量预估", scenario_count)
+        if scenario_count == 0:
+            st.error("当前容量范围没有可用候选方案：至少需要配置光伏或风电容量，纯储能/无绿电来源组合不会进入候选池。")
+            scenario_grid = None
         if scenario_count > warn_threshold:
             st.warning(f"本次配置将生成 {scenario_count} 个方案，可能计算较慢，建议增大步长或缩小范围。")
     except Exception as exc:  # noqa: BLE001 - UI should show friendly text
@@ -810,9 +837,9 @@ def main() -> None:
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("总方案数", batch_result.scenario_count)
     c2.metric("达标方案数", int(summary["pass_policy"].sum()))
-    c3.metric("最高绿电占比", f"{summary['green_load_rate'].max():.2%}")
-    c4.metric("最低弃电率", f"{summary['curtail_rate'].min():.2%}")
-    c5.metric("最低下网比例", f"{summary['grid_import_rate'].min():.2%}")
+    c3.metric("最高绿电占比", f"{summary['green_load_rate'].max():.1%}")
+    c4.metric("最低弃电率", f"{summary['curtail_rate'].min():.1%}")
+    c5.metric("最低下网比例", f"{summary['grid_import_rate'].min():.1%}")
 
     with st.expander("高级：结果表、筛选与下载", expanded=False):
         if st.checkbox("准备下载文件", value=False, help="生成 Excel/ZIP 可能需要等待，默认不占用主界面。"):

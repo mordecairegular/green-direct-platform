@@ -26,7 +26,10 @@ def test_generate_scenarios_from_grid():
 
     scenarios = generate_scenarios(grid)
 
-    assert len(scenarios) == 8
+    assert len(scenarios) == 6
+    assert all(scenario.pv_capacity > 0 or scenario.wind_capacity > 0 for scenario in scenarios)
+    assert scenarios[0].pv_capacity == 0
+    assert scenarios[0].wind_capacity == 10
     assert scenarios[0].bess_energy == 0
     assert scenarios[-1].bess_energy == 4
 
@@ -41,8 +44,8 @@ def test_batch_runner_collects_summary_and_hourly_details():
 
     result = run_batch(_curves(), grid, policy_params=PolicyParams(allow_export=False))
 
-    assert result.scenario_count == 8
-    assert len(result.summary) == 8
+    assert result.scenario_count == 6
+    assert len(result.summary) == 6
     assert not result.errors.shape[0]
     assert set(result.hourly_details) == set(result.summary["scenario_id"])
 
@@ -71,4 +74,4 @@ def test_batch_runner_reports_progress():
 
     run_batch(_curves(), grid, progress_callback=lambda done, total, scenario: calls.append((done, total, scenario.scenario_id)))
 
-    assert calls == [(1, 2, "S0001"), (2, 2, "S0002")]
+    assert calls == [(1, 1, "S0001")]

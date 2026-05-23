@@ -6,6 +6,8 @@ uses these Chinese labels for display and user-facing ad-hoc downloads.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 
 
@@ -82,10 +84,176 @@ FIELD_LABELS = {
     "static_payback_year": "静态回收期(年)",
     "dynamic_payback_year": "动态回收期(年)",
     "construction_cash_outflow": "建设投资现金流出(万元)",
+    "dedicated_connection_line_investment_with_vat": "送出线路工程投资(万元,含税)",
+    "bess_replacement_depreciation": "储能更换折旧(万元)",
+    "dedicated_connection_line_depreciation": "送出线路折旧(万元)",
     "annual_operating_revenue_with_vat": "年营业收入(万元,含税)",
     "annual_operating_cost_with_vat": "年运行成本(万元,含税)",
-    "bess_replacement_operation_year": "储能更换运营年",
+    "bess_replacement_operation_year": "首次储能更换运营年",
+    "bess_replacement_operation_years": "储能更换运营年列表",
+    "bess_replacement_count": "储能更换次数",
 }
+
+
+PERCENT_COLUMNS = {
+    "grid_import_rate",
+    "self_use_rate",
+    "green_load_rate",
+    "export_rate",
+    "curtail_rate",
+    "final_soc",
+    "min_soc",
+    "max_soc",
+    "soc_start",
+    "soc_end",
+    "firr",
+}
+
+ENERGY_COLUMNS = {
+    "total_load_energy",
+    "load_energy",
+    "grid_import_energy",
+    "total_renewable_generation",
+    "pv_station_use_energy",
+    "wind_station_use_energy",
+    "station_use_energy",
+    "direct_self_use_energy",
+    "self_use_energy",
+    "grid_export_energy",
+    "export_cap_energy",
+    "curtail_energy",
+    "curtail_due_to_export_cap_energy",
+    "curtail_due_to_exchange_limit_energy",
+    "exchange_import_shortfall_energy",
+    "bess_charge_energy",
+    "bess_discharge_to_load",
+    "bess_loss_energy",
+    "bess_energy",
+}
+
+MONEY_COLUMNS = {
+    "fnpv",
+    "construction_cash_outflow",
+    "annual_operating_revenue_with_vat",
+    "annual_operating_cost_with_vat",
+    "grid_export_revenue_with_vat",
+    "self_use_revenue_with_vat",
+    "other_operating_revenue_with_vat",
+    "operating_revenue_with_vat",
+    "operating_revenue_without_vat",
+    "wind_om_cost_with_vat",
+    "pv_om_cost_with_vat",
+    "bess_om_cost_with_vat",
+    "other_operating_cost_with_vat",
+    "operating_cost_with_vat",
+    "operating_cost_without_vat",
+    "construction_input_vat",
+    "bess_replacement_input_vat",
+    "input_vat",
+    "vat_credit_begin",
+    "vat_payable",
+    "vat_credit_end",
+    "urban_maintenance_tax",
+    "education_surcharge",
+    "local_education_surcharge",
+    "taxes_and_surcharges",
+    "wind_depreciation",
+    "pv_depreciation",
+    "bess_depreciation",
+    "bess_replacement_depreciation",
+    "dedicated_connection_line_depreciation",
+    "other_fixed_asset_depreciation",
+    "depreciation",
+    "profit_before_tax",
+    "loss_offset",
+    "taxable_income",
+    "income_tax",
+    "net_profit",
+    "bess_replacement_cash_outflow",
+    "net_cash_flow",
+    "cumulative_net_cash_flow",
+    "discounted_net_cash_flow",
+    "cumulative_discounted_net_cash_flow",
+}
+
+TWO_DECIMAL_COLUMNS = {
+    "pv_capacity",
+    "wind_capacity",
+    "bess_power",
+    "bess_duration",
+    "bess_c_rate",
+    "max_grid_import_power",
+    "max_grid_export_power",
+    "grid_exchange_power_limit",
+}
+
+ONE_DECIMAL_COLUMNS = {
+    "static_payback_year",
+    "dynamic_payback_year",
+    "replacement_year",
+}
+
+INTEGER_COLUMNS = {
+    "hour_index",
+    "bess_replacement_operation_year",
+    "bess_replacement_count",
+    "annual_equivalent_cycles",
+}
+
+
+def _is_blank(value: Any) -> bool:
+    if value is None:
+        return True
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _format_number(value: Any, digits: int, *, trim_trailing_zeros: bool = False) -> str:
+    if _is_blank(value):
+        return ""
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if pd.isna(numeric):
+        return ""
+    if numeric == float("inf") or numeric == float("-inf"):
+        return ""
+    formatted = f"{numeric:,.{digits}f}"
+    if trim_trailing_zeros and "." in formatted:
+        formatted = formatted.rstrip("0").rstrip(".")
+    return formatted
+
+
+def format_display_value(column: str, value: Any) -> Any:
+    if column in PERCENT_COLUMNS:
+        if _is_blank(value):
+            return ""
+        try:
+            return f"{float(value):.1%}"
+        except (TypeError, ValueError):
+            return str(value)
+    if column in ENERGY_COLUMNS or column in INTEGER_COLUMNS:
+        return _format_number(value, 0)
+    if column in MONEY_COLUMNS:
+        return _format_number(value, 0)
+    if column in ONE_DECIMAL_COLUMNS:
+        return _format_number(value, 1)
+    if column in TWO_DECIMAL_COLUMNS:
+        return _format_number(value, 2, trim_trailing_zeros=True)
+    if isinstance(value, (int, float)) and not _is_blank(value):
+        return _format_number(value, 2, trim_trailing_zeros=True)
+    return value
+
+
+def format_display_frame(df: pd.DataFrame) -> pd.DataFrame:
+    display = df.copy()
+    for column in display.columns:
+        if column in PERCENT_COLUMNS | ENERGY_COLUMNS | MONEY_COLUMNS | TWO_DECIMAL_COLUMNS | ONE_DECIMAL_COLUMNS | INTEGER_COLUMNS:
+            display[column] = display[column].map(lambda value, col=column: format_display_value(col, value))
+    return display
 
 
 def localize_columns(df: pd.DataFrame) -> pd.DataFrame:

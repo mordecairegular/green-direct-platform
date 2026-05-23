@@ -31,7 +31,7 @@ def build_multi_policy_comparison(summary: pd.DataFrame) -> ChartResult:
     names = {"self_use_rate": "自发自用率", "green_load_rate": "绿电占用电比例", "export_rate": "上网比例"}
     chart["指标"] = chart["指标"].map(names)
     fig = px.bar(chart, x="scenario_id", y="比例", color="指标", barmode="group", title="多方案政策指标对比")
-    fig.update_yaxes(tickformat=".0%")
+    fig.update_yaxes(tickformat=".1%")
     return _result("M01", "多方案政策指标对比图", fig, chart, required)
 
 
@@ -45,6 +45,7 @@ def build_multi_capacity_comparison(summary: pd.DataFrame) -> ChartResult:
     names = {"pv_capacity": "光伏容量", "wind_capacity": "风电容量", "bess_power": "储能功率", "bess_energy": "储能容量"}
     chart["容量项"] = chart["容量项"].map(names)
     fig = px.bar(chart, x="scenario_id", y="数值", color="容量项", barmode="group", title="多方案容量配置对比")
+    fig.update_yaxes(tickformat=",.2f")
     return _result("M02", "多方案容量配置对比图", fig, chart, required)
 
 
@@ -58,6 +59,7 @@ def build_multi_renewable_flow_comparison(summary: pd.DataFrame) -> ChartResult:
     names = {"self_use_energy": "自发自用", "grid_export_energy": "上网", "curtail_energy": "弃电", "bess_loss_energy": "储能损耗"}
     chart["去向"] = chart["去向"].map(names)
     fig = px.bar(chart, x="scenario_id", y="电量", color="去向", title="多方案新能源去向对比")
+    fig.update_yaxes(tickformat=",.0f")
     return _result("M03", "多方案新能源去向对比图", fig, chart, required)
 
 
@@ -77,8 +79,8 @@ def build_curtailment_vs_self_consumption_scatter(summary: pd.DataFrame) -> Char
         title="弃电率 vs 自发自用率",
         labels={"self_use_rate": "自发自用率", "curtail_rate": "弃电率", "green_load_rate": "绿电占比"},
     )
-    fig.update_xaxes(tickformat=".0%")
-    fig.update_yaxes(tickformat=".0%")
+    fig.update_xaxes(tickformat=".1%")
+    fig.update_yaxes(tickformat=".1%")
     return _result("M05", "弃电率 vs 自发自用率散点图", fig, data[required], required)
 
 
@@ -89,4 +91,5 @@ def build_multi_battery_cycles_comparison(summary: pd.DataFrame) -> ChartResult:
     if missing:
         return missing_fields_result("M06", "储能等效循环次数对比图", missing)
     fig = px.bar(data, x="scenario_id", y="annual_equivalent_cycles", title="多方案储能等效循环次数对比")
+    fig.update_yaxes(tickformat=",.0f")
     return _result("M06", "储能等效循环次数对比图", fig, data[required], required)

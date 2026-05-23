@@ -142,6 +142,7 @@ Do not rush a full folder migration. Introduce these layers incrementally and ke
 - Keep `scenario_id` as the cross-module key.
 - Keep units explicit. Current power unit is 万千瓦, energy unit is 万千瓦时, and ratios are internal decimals.
 - Prefer structured diagnostics over plain error strings: severity, source, code, message, location, suggestion.
+- Do not force every uncertain data preparation or parameter derivation into the web UI. If a data transformation is easier, clearer, or more auditable in CSV/Excel templates, prefer a spreadsheet input path or discuss the boundary before adding more UI controls.
 
 ## Baseline Wind-PV-BESS Rules
 

@@ -563,6 +563,7 @@ scenario_grid = {
 说明：
 
 - `0` 小时储能用于表达无储能方案，UI 中可隐藏为“包含无储能方案”勾选项；
+- 当 `pv_capacity <= 0` 且 `wind_capacity <= 0` 时，方案会被跳过，候选池不包含无绿电来源或仅储能方案；
 - 当 `bess_power == 0` 且 `duration > 0` 时，方案会被跳过；
 - 当 `bess_power > 0` 且 `duration == 0` 时，方案会被跳过。
 
@@ -640,7 +641,7 @@ BatchResult(
 | `export_rate` | 上网比例 | 政策筛选 |
 | `curtail_rate` | 弃电率 | 技术对比 |
 | `annual_equivalent_cycles` | 储能年等效循环次数 | 储能利用分析 |
-| `replacement_year` | 按循环寿命估算的更换年份 | 后续经济性参考 |
+| `replacement_year` | 按循环寿命估算的更换年份 | 经济性评价会再与电池日历寿命取早 |
 | `max_grid_import_power` | 最大下网功率，万千瓦 | 接网分析 |
 | `max_grid_export_power` | 最大上网功率，万千瓦 | 接网分析 |
 | `grid_exchange_power_limit` | 与电网交换功率限制，万千瓦 | 接网约束说明 |
@@ -849,7 +850,9 @@ result = evaluate_scenario_economy(summary_row, EconomicParams())
 economic_summary, annual_cashflows = evaluate_batch_economy(summary_df, EconomicParams())
 ```
 
-`EconomicResult.annual_cashflow` 是年度明细表。`EconomicResult.metrics` 包含 FNPV、FIRR、静态投资回收期、动态投资回收期等汇总指标。
+`EconomicResult.annual_cashflow` 是年度明细表。`EconomicResult.metrics` 包含 FNPV、FIRR、静态投资回收期、动态投资回收期、建设投资现金流出、送出线路工程投资、首次储能更换年、储能更换年列表和更换次数等汇总指标。
+
+V1 已单列 `dedicated_connection_line_investment_with_vat` 作为送出线路工程投资，单位为万元、含税，发生在 Year 0。该字段不应混入 `other_fixed_asset_investment_with_vat`。年度现金流中送出线路按 20 年直线折旧，字段为 `dedicated_connection_line_depreciation`。
 
 经济性模块应遵守：
 
@@ -857,6 +860,8 @@ economic_summary, annual_cashflows = evaluate_batch_economy(summary_df, Economic
 - 可以生成独立经济性结果表，并通过 `scenario_id` 与技术结果关联；
 - V1 不考虑贷款、流动资金、残值回收、无形资产摊销、留抵退税和复杂融资；
 - 运行成本 V1 不考虑进项税，建设投资和储能更换按已确认口径处理进项税；
+- 储能更换取循环寿命和默认 15 年日历寿命先到者，换后重新开始计算；
+- FIRR 多次变号时先判断是否只有唯一稳定 IRR 根，只有多个根或无稳定根时才返回不可可靠计算；
 - 经济性排序不应替代技术达标判断，两者应并列展示。
 
 ## 19. 后续报告模块接入建议

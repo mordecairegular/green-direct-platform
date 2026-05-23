@@ -60,6 +60,8 @@ def generate_scenarios(raw_grid: dict | ScenarioGrid, *, scenario_prefix: str = 
     index = 1
     for pv_capacity in values_from_range(grid.pv_capacity):
         for wind_capacity in values_from_range(grid.wind_capacity):
+            if pv_capacity <= 0 and wind_capacity <= 0:
+                continue
             for bess_power in values_from_range(grid.bess_power):
                 for duration in grid.bess_duration_hours:
                     if duration < 0:

@@ -7,6 +7,7 @@ table. It does not mutate or recompute technical dispatch results.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 import math
 from typing import Any, Mapping
 
@@ -73,20 +74,54 @@ def _other_revenue_for_year(
     return revenue_with_vat, revenue_without_vat, output_vat
 
 
-def _replacement_operation_year(summary: Mapping[str, Any], params: EconomicParams) -> int | None:
+def _replacement_cycle_interval_years(summary: Mapping[str, Any], params: EconomicParams) -> float:
+    replacement_year = _value(summary, "replacement_year", math.inf)
+    if math.isfinite(replacement_year) and replacement_year > 0:
+        return replacement_year
+    cycles = _value(summary, "annual_equivalent_cycles")
+    return params.bess_cycle_life / cycles if cycles > 0 else math.inf
+
+
+def _replacement_operation_years(summary: Mapping[str, Any], params: EconomicParams) -> tuple[int, ...]:
     bess_energy = _value(summary, "bess_energy")
     if bess_energy <= 0:
-        return None
-    replacement_year = _value(summary, "replacement_year", math.inf)
-    if not math.isfinite(replacement_year) or replacement_year <= 0:
-        cycles = _value(summary, "annual_equivalent_cycles")
-        replacement_year = params.bess_cycle_life / cycles if cycles > 0 else math.inf
-    if not math.isfinite(replacement_year) or replacement_year <= 0:
-        return None
-    operation_year = int(math.ceil(replacement_year))
-    if 1 <= operation_year < params.operation_years:
-        return operation_year
-    return None
+        return ()
+
+    cycle_interval = _replacement_cycle_interval_years(summary, params)
+    calendar_interval = float(params.bess_calendar_life_years)
+    if not math.isfinite(calendar_interval) or calendar_interval <= 0:
+        calendar_interval = math.inf
+    replacement_interval = min(cycle_interval, calendar_interval)
+    if not math.isfinite(replacement_interval) or replacement_interval <= 0:
+        return ()
+
+    replacement_years: list[int] = []
+    due_year = replacement_interval
+    guard = 0
+    while due_year < params.operation_years and guard < params.operation_years * 2 + 10:
+        operation_year = int(math.ceil(due_year))
+        if 1 <= operation_year < params.operation_years and operation_year not in replacement_years:
+            replacement_years.append(operation_year)
+        due_year += replacement_interval
+        guard += 1
+    return tuple(replacement_years)
+
+
+def _replacement_depreciation_for_year(
+    *,
+    replacement_years: tuple[int, ...],
+    replacement_depreciation_basis: float,
+    operation_year: int,
+    operation_years: int,
+) -> float:
+    depreciation = 0.0
+    for replacement_year in replacement_years:
+        if operation_year <= replacement_year:
+            continue
+        depreciation_years = operation_years - replacement_year
+        if depreciation_years > 0:
+            depreciation += replacement_depreciation_basis / depreciation_years
+    return depreciation
 
 
 def _calculate_payback(years: list[int], cashflows: list[float]) -> float | None:
@@ -109,16 +144,16 @@ def _npv(cashflows: list[float], rate: float) -> float:
     return sum(value / ((1 + rate) ** index) for index, value in enumerate(cashflows))
 
 
-def _calculate_irr(cashflows: list[float]) -> tuple[float | None, str]:
-    nonzero = [value for value in cashflows if abs(value) > 1e-9]
-    if not nonzero or not any(value < 0 for value in nonzero) or not any(value > 0 for value in nonzero):
-        return None, "IRR 无法可靠计算：现金流缺少有效正负变号。"
-    signs = [1 if value > 0 else -1 for value in nonzero]
-    sign_changes = sum(1 for left, right in zip(signs, signs[1:]) if left != right)
-    if sign_changes != 1:
-        return None, "IRR 无法可靠计算：现金流存在多次变号或变号结构不稳定。"
+def _linear_rates(start: float, end: float, count: int) -> list[float]:
+    if count <= 1:
+        return [start]
+    step = (end - start) / (count - 1)
+    return [start + step * index for index in range(count)]
 
-    candidates = [
+
+@lru_cache(maxsize=1)
+def _irr_candidate_rates() -> tuple[float, ...]:
+    base_rates = [
         -0.9999,
         -0.99,
         -0.95,
@@ -143,31 +178,86 @@ def _calculate_irr(cashflows: list[float]) -> tuple[float | None, str]:
         5.0,
         10.0,
     ]
-    values = [(rate, _npv(cashflows, rate)) for rate in candidates]
-    for rate, value in values:
-        if abs(value) < 1e-7:
-            return rate, "ok"
-    bracket: tuple[float, float] | None = None
-    for (left_rate, left_value), (right_rate, right_value) in zip(values, values[1:]):
-        if left_value * right_value < 0:
-            bracket = (left_rate, right_rate)
-            break
-    if bracket is None:
-        return None, "IRR 无法可靠计算：未找到稳定求解区间。"
+    rates = set(base_rates)
+    rates.update(_linear_rates(-0.9999, -0.90, 101))
+    rates.update(_linear_rates(-0.90, 0.0, 181))
+    rates.update(_linear_rates(0.0, 1.0, 1001))
+    rates.update(_linear_rates(1.0, 10.0, 901))
+    return tuple(sorted(rates))
 
-    low, high = bracket
+
+def _bisect_irr_root(cashflows: list[float], low: float, high: float) -> float | None:
     low_value = _npv(cashflows, low)
+    high_value = _npv(cashflows, high)
+    if not math.isfinite(low_value) or not math.isfinite(high_value):
+        return None
+    if abs(low_value) < 1e-8:
+        return low
+    if abs(high_value) < 1e-8:
+        return high
+    if low_value * high_value > 0:
+        return None
+
     for _ in range(200):
         mid = (low + high) / 2
         mid_value = _npv(cashflows, mid)
+        if not math.isfinite(mid_value):
+            return None
         if abs(mid_value) < 1e-8 or abs(high - low) < 1e-10:
-            return mid, "ok"
+            return mid
         if low_value * mid_value <= 0:
             high = mid
+            high_value = mid_value
         else:
             low = mid
             low_value = mid_value
-    return None, "IRR 无法可靠计算：数值迭代未收敛。"
+    return None
+
+
+def _deduplicate_roots(roots: list[float]) -> list[float]:
+    unique: list[float] = []
+    for root in sorted(roots):
+        if not unique or abs(root - unique[-1]) > 1e-7:
+            unique.append(root)
+    return unique
+
+
+def _calculate_irr(cashflows: list[float]) -> tuple[float | None, str]:
+    nonzero = [value for value in cashflows if abs(value) > 1e-9]
+    if not nonzero:
+        return None, "IRR 无法可靠计算：现金流全为0。"
+    if not any(value > 0 for value in nonzero):
+        return None, "IRR 无法可靠计算：现金流全为非正值，项目没有形成正向净现金流。"
+    if not any(value < 0 for value in nonzero):
+        return None, "IRR 无法可靠计算：现金流全为非负值，项目缺少初始投资流出。"
+
+    roots: list[float] = []
+    previous: tuple[float, float] | None = None
+    for rate in _irr_candidate_rates():
+        try:
+            value = _npv(cashflows, rate)
+        except (OverflowError, ZeroDivisionError):
+            previous = None
+            continue
+        if not math.isfinite(value):
+            previous = None
+            continue
+        if abs(value) < 1e-7:
+            roots.append(rate)
+        if previous is not None:
+            previous_rate, previous_value = previous
+            if previous_value * value < 0:
+                root = _bisect_irr_root(cashflows, previous_rate, rate)
+                if root is not None:
+                    roots.append(root)
+        previous = (rate, value)
+
+    unique_roots = _deduplicate_roots(roots)
+    if len(unique_roots) == 1:
+        return unique_roots[0], "ok"
+    if not unique_roots:
+        return None, "IRR 无法可靠计算：未找到稳定求解区间。"
+    return None, "IRR 无法可靠计算：现金流存在多个IRR解。"
 
 
 def evaluate_scenario_economy(
@@ -190,9 +280,14 @@ def evaluate_scenario_economy(
     wind_capex_with_vat = wind_capacity * economic_params.wind_capex_per_kw_with_vat
     pv_capex_with_vat = pv_capacity * economic_params.pv_capex_per_kw_with_vat
     bess_capex_with_vat = bess_energy * economic_params.bess_capex_per_kwh_with_vat
+    dedicated_connection_line_with_vat = economic_params.dedicated_connection_line_investment_with_vat
     other_fixed_asset_with_vat = economic_params.other_fixed_asset_investment_with_vat
     construction_cash_outflow = (
-        wind_capex_with_vat + pv_capex_with_vat + bess_capex_with_vat + other_fixed_asset_with_vat
+        wind_capex_with_vat
+        + pv_capex_with_vat
+        + bess_capex_with_vat
+        + dedicated_connection_line_with_vat
+        + other_fixed_asset_with_vat
     )
 
     wind_depreciation_basis, wind_input_vat = split_amount_with_vat(
@@ -210,15 +305,28 @@ def evaluate_scenario_economy(
         economic_params.construction_input_vat_rate,
         deductible_or_taxable=economic_params.construction_input_vat_deductible,
     )
+    dedicated_connection_line_depreciation_basis, dedicated_connection_line_input_vat = split_amount_with_vat(
+        dedicated_connection_line_with_vat,
+        economic_params.construction_input_vat_rate,
+        deductible_or_taxable=economic_params.construction_input_vat_deductible,
+    )
     other_depreciation_basis, other_input_vat = split_amount_with_vat(
         other_fixed_asset_with_vat,
         economic_params.construction_input_vat_rate,
         deductible_or_taxable=economic_params.construction_input_vat_deductible,
     )
-    construction_input_vat = wind_input_vat + pv_input_vat + bess_input_vat + other_input_vat
+    construction_input_vat = (
+        wind_input_vat + pv_input_vat + bess_input_vat + dedicated_connection_line_input_vat + other_input_vat
+    )
 
-    replacement_year = _replacement_operation_year(summary_map, economic_params)
+    replacement_years = _replacement_operation_years(summary_map, economic_params)
+    first_replacement_year = replacement_years[0] if replacement_years else None
     bess_replacement_cash_outflow = bess_capex_with_vat * economic_params.bess_replacement_cost_ratio
+    bess_replacement_depreciation_basis, _ = split_amount_with_vat(
+        bess_replacement_cash_outflow,
+        economic_params.bess_replacement_input_vat_rate,
+        deductible_or_taxable=economic_params.bess_replacement_input_vat_deductible,
+    )
 
     rows: list[dict[str, Any]] = []
     vat_credit_begin = 0.0
@@ -259,6 +367,8 @@ def evaluate_scenario_economy(
             "wind_depreciation": 0.0,
             "pv_depreciation": 0.0,
             "bess_depreciation": 0.0,
+            "bess_replacement_depreciation": 0.0,
+            "dedicated_connection_line_depreciation": 0.0,
             "other_fixed_asset_depreciation": 0.0,
             "depreciation": 0.0,
             "profit_before_tax": 0.0,
@@ -308,7 +418,9 @@ def evaluate_scenario_economy(
         )
         operating_cost_without_vat = operating_cost_with_vat
 
-        replacement_cash_outflow = bess_replacement_cash_outflow if operation_year == replacement_year else 0.0
+        replacement_cash_outflow = (
+            bess_replacement_cash_outflow if operation_year in replacement_years else 0.0
+        )
         _, replacement_input_vat = split_amount_with_vat(
             replacement_cash_outflow,
             economic_params.bess_replacement_input_vat_rate,
@@ -328,13 +440,28 @@ def evaluate_scenario_economy(
             wind_depreciation = wind_depreciation_basis / 20
             pv_depreciation = pv_depreciation_basis / 20
             bess_depreciation = bess_depreciation_basis / 20
+            dedicated_connection_line_depreciation = dedicated_connection_line_depreciation_basis / 20
             other_fixed_asset_depreciation = other_depreciation_basis / 20
         else:
             wind_depreciation = 0.0
             pv_depreciation = 0.0
             bess_depreciation = 0.0
+            dedicated_connection_line_depreciation = 0.0
             other_fixed_asset_depreciation = 0.0
-        depreciation = wind_depreciation + pv_depreciation + bess_depreciation + other_fixed_asset_depreciation
+        bess_replacement_depreciation = _replacement_depreciation_for_year(
+            replacement_years=replacement_years,
+            replacement_depreciation_basis=bess_replacement_depreciation_basis,
+            operation_year=operation_year,
+            operation_years=economic_params.operation_years,
+        )
+        depreciation = (
+            wind_depreciation
+            + pv_depreciation
+            + bess_depreciation
+            + bess_replacement_depreciation
+            + dedicated_connection_line_depreciation
+            + other_fixed_asset_depreciation
+        )
 
         profit_before_tax = operating_revenue_without_vat - operating_cost_without_vat - depreciation - taxes_and_surcharges
         loss_buckets = [
@@ -400,6 +527,8 @@ def evaluate_scenario_economy(
                 "wind_depreciation": wind_depreciation,
                 "pv_depreciation": pv_depreciation,
                 "bess_depreciation": bess_depreciation,
+                "bess_replacement_depreciation": bess_replacement_depreciation,
+                "dedicated_connection_line_depreciation": dedicated_connection_line_depreciation,
                 "other_fixed_asset_depreciation": other_fixed_asset_depreciation,
                 "depreciation": depreciation,
                 "profit_before_tax": profit_before_tax,
@@ -434,6 +563,7 @@ def evaluate_scenario_economy(
         "static_payback_year": _calculate_payback(years, cashflows),
         "dynamic_payback_year": _calculate_payback(years, discounted_cashflows),
         "construction_cash_outflow": construction_cash_outflow,
+        "dedicated_connection_line_investment_with_vat": dedicated_connection_line_with_vat,
         "annual_operating_revenue_with_vat": float(
             annual.loc[annual["period_type"] == "operation", "operating_revenue_with_vat"].iloc[0]
         )
@@ -444,7 +574,9 @@ def evaluate_scenario_economy(
         )
         if economic_params.operation_years > 0
         else 0.0,
-        "bess_replacement_operation_year": replacement_year,
+        "bess_replacement_operation_year": first_replacement_year,
+        "bess_replacement_operation_years": ",".join(str(year) for year in replacement_years),
+        "bess_replacement_count": len(replacement_years),
     }
     return EconomicResult(scenario_id=scenario_id, annual_cashflow=annual, metrics=metrics)
 
