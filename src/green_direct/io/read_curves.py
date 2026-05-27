@@ -73,13 +73,17 @@ def read_csv_auto_encoding(source: str | Path | BinaryIO | bytes) -> tuple[pd.Da
 
 def read_load_curve(
     source: str | Path | BinaryIO | bytes,
-    time_col: str,
-    value_col: str,
+    time_col: str | None = None,
+    value_col: str | None = None,
     *,
     validate_length: bool = True,
     time_params: TimeParams | None = None,
 ) -> CurveData:
     df, encoding = read_csv_auto_encoding(source)
+    if time_col is None:
+        time_col = df.columns[0]
+    if value_col is None:
+        value_col = df.columns[1]
     validate_required_columns(df, [time_col, value_col])
     timestamp = parse_timestamp_column(df, time_col)
     value = validate_load_values(df[value_col])
@@ -91,15 +95,19 @@ def read_load_curve(
 
 def read_pu_curve(
     source: str | Path | BinaryIO | bytes,
-    time_col: str,
-    value_col: str,
-    curve_name: str,
+    time_col: str | None = None,
+    value_col: str | None = None,
+    curve_name: str = "",
     *,
     validate_length: bool = True,
     cleaning: DataCleaningParams | None = None,
     time_params: TimeParams | None = None,
 ) -> CurveData:
     df, encoding = read_csv_auto_encoding(source)
+    if time_col is None:
+        time_col = df.columns[0]
+    if value_col is None:
+        value_col = df.columns[1]
     validate_required_columns(df, [time_col, value_col])
     timestamp = parse_timestamp_column(df, time_col)
     value, warnings = clean_pu_values(df[value_col], curve_name, cleaning)
@@ -116,12 +124,12 @@ def read_curve_set(
     pv_source: str | Path | BinaryIO | bytes,
     wind_source: str | Path | BinaryIO | bytes,
     *,
-    load_time_col: str,
-    load_value_col: str,
-    pv_time_col: str,
-    pv_value_col: str,
-    wind_time_col: str,
-    wind_value_col: str,
+    load_time_col: str | None = None,
+    load_value_col: str | None = None,
+    pv_time_col: str | None = None,
+    pv_value_col: str | None = None,
+    wind_time_col: str | None = None,
+    wind_value_col: str | None = None,
     validate_length: bool = True,
     cleaning: DataCleaningParams | None = None,
     time_params: TimeParams | None = None,

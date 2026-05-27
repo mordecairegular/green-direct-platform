@@ -183,6 +183,23 @@ Grid-connected projects may include diesel, although it is less common. Off-grid
 
 Lightweight economic ranking is now in scope as a scenario selection layer. Full financial evaluation can still be phased.
 
+Keep economic parameter ownership explicit:
+
+- Shared technical or economic inputs must not be placed under one recommendation perspective's advanced settings.
+- Perspective-specific calculations may reuse common inputs, but their cash-flow outputs must remain clearly named and separated.
+- In the UI, Year 0 construction investment inputs belong with basic economic parameters, not operating-period costs. Operating-period O&M and replacement costs belong under costs/expenses.
+- User-facing electricity price build-up fields should match bill items where possible, such as energy/market purchase price, line-loss fee, system operation fee, transmission and distribution tariff, and government fund surcharge. Avoid abstract labels like "avoidable" or "non-avoidable" in the UI unless they are shown only as internal documentation.
+- Use an electricity bill component section for bill-item inputs that support avoided grid cost and load-side savings calculations; do not force these fields into revenue/tax or O&M cost sections.
+- For single-entity avoided grid-purchase savings, subtract fees still payable for self-used green power. Transmission/distribution tariffs, policy cross-subsidies, and government funds must not be counted as avoided costs when the applicable project policy still requires payment. Under the current 1192 price-mechanism reading, system operation fees are paid by down-grid energy, so self-used green power should not be modeled as still paying per-kWh system operation fees by default.
+- For single-entity avoided purchase savings, default to one simple net avoided grid cost price input, and expose bill build-up only as an optional advanced mode.
+- Rarely used revenue inputs, such as other operating revenue, belong under revenue/tax but should default to an advanced collapsed area.
+- Economic inputs required by default recommendation seats, such as net avoided grid cost price and green power settlement price, should be visible in the common economy input area. Do not hide them behind a single-entity/load-side enable switch.
+- Hourly or 15-minute price curves should be handled through CSV/Excel uploads or templates as advanced inputs, not through row-by-row web UI entry.
+- A single economy run should calculate all currently implemented recommendation/economy perspectives; perspectives that are not implemented yet should be shown as pending rather than gated by separate basic switches.
+- The default load-side recommendation should be a tradable-benefit seat, not pure load-side benefit maximization. It must filter on a user-visible minimum acceptable power-side FIRR before sorting by load-side benefit. If that FIRR threshold is blank, show the seat as not sortable/pending rather than recommending a non-tradable scenario.
+- Do not reverse-solve the green power settlement price in Recommendation V1. Treat it as a user-provided input; price negotiation/equilibrium solving belongs to a later model.
+- BESS replacement investment ratio and replacement input VAT are common economy parameters, not single-entity-only parameters. BESS calendar life is not part of the current hourly dispatch; if exposed near BESS settings, explain that it affects economic replacement timing.
+
 Start with ranking-oriented outputs such as:
 
 - capex estimate;
@@ -221,6 +238,15 @@ The main result should be a small, explainable `RecommendationPortfolio`, with e
 - recommendation reason;
 - trade-off notes;
 - links to hourly ledger / charts / export files.
+
+Recommendation V1 default seats are:
+
+- same-entity FIRR best;
+- power-side FIRR best;
+- load-side tradable benefit best;
+- engineering representative scenario.
+
+After an economy run, build all four seats. If a seat cannot be ranked, show a pending or no-candidate status with a reason; do not silently omit the seat. If one scenario hits multiple seats, merge labels rather than duplicating cards, and keep the key metrics contributed by each matched seat.
 
 ## Chart Module Priority
 

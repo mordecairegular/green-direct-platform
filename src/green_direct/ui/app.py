@@ -16,13 +16,25 @@ if sys.path[0] != SRC_ROOT:  # pragma: no cover - import path guard for Streamli
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 from green_direct.batch.batch_runner import estimate_scenario_count, run_batch
-from green_direct.economy import EconomicParams, OtherOperatingRevenueItem, evaluate_batch_economy
+from green_direct.economy import (
+    AvoidedGridPurchaseParams,
+    EconomicParams,
+    OtherOperatingRevenueItem,
+    calc_avoided_grid_purchase_cash_price,
+    evaluate_batch_economy,
+    evaluate_batch_single_entity_pre_tax_economy,
+)
 from green_direct.export.csv_exporter import export_hourly_details_zip
 from green_direct.export.excel_exporter import export_summary_excel
 from green_direct.io.read_curves import read_csv_auto_encoding, read_curve_set
 from green_direct.io.validators import DataValidationError
 from green_direct.models.params import BessParams, DataCleaningParams, PerformanceParams, PolicyParams
-from green_direct.ui.field_labels import format_display_frame, localize_columns, mapping_frame
+from green_direct.recommendation import (
+    ENGINEERING_VIEW_LABELS,
+    RecommendationParams,
+    build_recommendation_result,
+)
+from green_direct.ui.field_labels import FIELD_LABELS, format_display_frame, localize_columns, mapping_frame
 from green_direct.visualization.chart_ui import render_chart_analysis
 
 
@@ -148,26 +160,87 @@ def _range_inputs(st, label: str, defaults: tuple[float, float, float]) -> dict:
     return {"start": start, "end": end, "step": step}
 
 
-def _merge_summary_with_economy(summary: pd.DataFrame, economy_summary: pd.DataFrame | None) -> pd.DataFrame:
-    if economy_summary is None or economy_summary.empty or "scenario_id" not in economy_summary.columns:
-        return summary
-    economy_columns = [column for column in economy_summary.columns if column != "scenario_id"]
-    renamed_economy = economy_summary.rename(
-        columns={column: f"{column}_economy" for column in economy_columns}
-    )
-    return summary.merge(renamed_economy, on="scenario_id", how="left")
+def _trim_number(value: float) -> str:
+    return f"{value:g}"
 
 
-def _build_download_payloads(batch_result, config_snapshot: dict, economy_summary: pd.DataFrame | None = None):
+def _float_text_input(
+    st,
+    label: str,
+    value: float,
+    *,
+    min_value: float | None = None,
+    max_value: float | None = None,
+    help: str | None = None,
+) -> float:
+    raw = st.text_input(label, value=_trim_number(value), help=help)
+    try:
+        parsed = float(str(raw).replace(",", "").strip())
+    except ValueError:
+        st.error(f"{label} 必须填写数字。")
+        st.stop()
+    if min_value is not None and parsed < min_value:
+        st.error(f"{label} 不能小于 {_trim_number(min_value)}。")
+        st.stop()
+    if max_value is not None and parsed > max_value:
+        st.error(f"{label} 不能大于 {_trim_number(max_value)}。")
+        st.stop()
+    return parsed
+
+
+def _percent_text_input(
+    st,
+    label: str,
+    value_percent: float,
+    *,
+    min_value: float = 0.0,
+    max_value: float = 100.0,
+    help: str | None = None,
+) -> float:
+    return _float_text_input(
+        st,
+        label,
+        value_percent,
+        min_value=min_value,
+        max_value=max_value,
+        help=help,
+    ) / 100
+
+
+def _optional_percent_text_input(
+    st,
+    label: str,
+    value_percent: float,
+    *,
+    min_value: float = 0.0,
+    max_value: float = 100.0,
+    help: str | None = None,
+) -> float | None:
+    raw = st.text_input(label, value=_trim_number(value_percent), help=help)
+    if str(raw).strip() == "":
+        return None
+    try:
+        parsed = float(str(raw).replace(",", "").strip())
+    except ValueError:
+        st.error(f"{label} 必须填写数字，或留空表示不对相关席位排序。")
+        st.stop()
+    if parsed < min_value:
+        st.error(f"{label} 不能小于 {_trim_number(min_value)}。")
+        st.stop()
+    if parsed > max_value:
+        st.error(f"{label} 不能大于 {_trim_number(max_value)}。")
+        st.stop()
+    return parsed / 100
+
+
+def _build_download_payloads(batch_result, config_snapshot: dict):
     with TemporaryDirectory() as tmp:
-        summary_for_export = _merge_summary_with_economy(batch_result.summary, economy_summary)
-        filename_prefix = "scenario_summary_with_economy" if economy_summary is not None and not economy_summary.empty else "scenario_summary"
         excel_path = export_summary_excel(
-            summary_for_export,
+            batch_result.summary,
             tmp,
             config_snapshot=config_snapshot,
             warnings=batch_result.warnings,
-            filename_prefix=filename_prefix,
+            filename_prefix="scenario_summary",
         )
         zip_path = export_hourly_details_zip(batch_result.hourly_details, tmp)
         return {
@@ -262,17 +335,12 @@ def _display_mapping_expander(st, columns: list[str], label: str = "字段对应
 
 
 def _get_download_payloads(st, batch_result, config_snapshot: dict):
-    economy_result = st.session_state.get("economy_v1_result")
-    economy_summary = economy_result.get("summary") if isinstance(economy_result, dict) else None
-    economy_signature = None
-    if isinstance(economy_summary, pd.DataFrame):
-        economy_signature = (len(economy_summary), tuple(economy_summary.columns))
-    signature = (id(batch_result), len(batch_result.summary), len(batch_result.hourly_details), economy_signature)
+    signature = (id(batch_result), len(batch_result.summary), len(batch_result.hourly_details))
     cached = st.session_state.get("download_payloads")
     if cached and cached.get("signature") == signature:
         return cached["payloads"]
     with st.spinner("正在准备下载文件..."):
-        payloads = _build_download_payloads(batch_result, config_snapshot, economy_summary)
+        payloads = _build_download_payloads(batch_result, config_snapshot)
         st.session_state["download_payloads"] = {"signature": signature, "payloads": payloads}
     return payloads
 
@@ -322,6 +390,314 @@ def _build_excel_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
     return output.getvalue()
 
 
+SINGLE_ENTITY_ANNUAL_COLUMNS = [
+    "scenario_id",
+    "year",
+    "operation_year",
+    "period_type",
+    "self_use_energy",
+    "grid_export_energy",
+    "net_avoided_grid_cost_price",
+    "avoided_grid_purchase_cash_price",
+    "self_use_saving",
+    "avoided_grid_purchase_cash_saving",
+    "environmental_value",
+    "grid_export_revenue_without_vat",
+    "other_external_revenue_without_vat",
+    "operating_cost_basis",
+    "bess_replacement_basis",
+    "bess_replacement_cash_outflow_with_vat",
+    "initial_investment_basis",
+    "construction_cash_outflow_with_vat",
+    "pre_tax_net_cash_flow",
+    "cumulative_net_cash_flow",
+    "discount_factor",
+    "discounted_net_cash_flow",
+    "cumulative_discounted_net_cash_flow",
+]
+
+
+def _label_for_column(column: str) -> str:
+    return FIELD_LABELS.get(column, column)
+
+
+def _value_from_frame(frame: pd.DataFrame, scenario_id: str, column: str):
+    if frame.empty or column not in frame.columns or "scenario_id" not in frame.columns:
+        return ""
+    matched = frame[frame["scenario_id"].astype(str) == str(scenario_id)]
+    if matched.empty:
+        return ""
+    value = matched.iloc[0][column]
+    if pd.isna(value):
+        return ""
+    return value
+
+
+def _build_scenario_info_frame(
+    scenario_id: str,
+    technical_summary: pd.DataFrame,
+    economic_summary: pd.DataFrame,
+) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+
+    def add(category: str, column: str, note: str = "") -> None:
+        rows.append(
+            {
+                "类别": category,
+                "项目": _label_for_column(column),
+                "英文字段": column,
+                "值": _value_from_frame(technical_summary, scenario_id, column)
+                if column in technical_summary.columns
+                else _value_from_frame(economic_summary, scenario_id, column),
+                "说明": note,
+            }
+        )
+
+    rows.append({"类别": "方案", "项目": "方案编号", "英文字段": "scenario_id", "值": scenario_id, "说明": ""})
+    add("方案", "方案类型")
+    add("容量", "pv_capacity")
+    add("容量", "wind_capacity")
+    add("容量", "bess_power")
+    add("容量", "bess_energy")
+    add("政策/技术指标", "pass_policy")
+    add("政策/技术指标", "fail_reasons")
+    add("政策/技术指标", "green_load_rate")
+    add("政策/技术指标", "self_use_rate")
+    add("政策/技术指标", "export_rate")
+    add("政策/技术指标", "curtail_rate")
+    add("电量", "self_use_energy")
+    add("电量", "grid_export_energy")
+    add("电量", "curtail_energy")
+    add("储能更换", "annual_equivalent_cycles")
+    add("储能更换", "replacement_year", "按循环寿命估算的更换年；经济性还会与电池日历寿命取早。")
+    add("同一主体经济性", "single_entity_firr_pre_tax")
+    add("同一主体经济性", "single_entity_firr_status")
+    add("同一主体经济性", "single_entity_fnpv_pre_tax")
+    add("同一主体经济性", "initial_investment_basis")
+    add("同一主体经济性", "construction_cash_outflow_with_vat")
+    add("同一主体经济性", "net_avoided_grid_cost_price")
+    add("同一主体经济性", "annual_self_use_saving")
+    add("同一主体经济性", "bess_replacement_operation_years")
+    return pd.DataFrame(rows)
+
+
+def _single_entity_field_descriptions(columns: list[str]) -> pd.DataFrame:
+    index_by_column = {column: idx for idx, column in enumerate(columns, start=1)}
+
+    def n(column: str) -> str:
+        return str(index_by_column[column])
+
+    descriptions = {
+        "scenario_id": "方案编号，用于与方案汇总表、逐小时明细表关联。",
+        "year": "项目年份。0 为建设期，1 至 N 为运营期。",
+        "operation_year": "运营年。建设期为 0。",
+        "period_type": "期间类型：construction 为建设期，operation 为运营期。",
+        "self_use_energy": "来自技术仿真的自发自用电量，运营期各年按代表年结果重复。",
+        "grid_export_energy": "来自技术仿真的上网电量，运营期各年按代表年结果重复。",
+        "net_avoided_grid_cost_price": "外部购电净成本单价。表示同一主体口径下每 1 kWh 自发自用绿电替代外部购电带来的税前净节费；简化模式为用户直接输入。组价模式公式：外部购电净成本单价=原外部购网电电量类成本单价-绿电直连自发自用仍需缴纳费用单价。",
+        "avoided_grid_purchase_cash_price": "少付电网电费现金单价。默认简化模式下与净成本单价相同；组价模式下为含税/附加现金口径，仅辅助展示。",
+        "self_use_saving": f"{n('self_use_saving')}={n('self_use_energy')}×{n('net_avoided_grid_cost_price')}。进入税前 FIRR 的自发自用购电节费。",
+        "avoided_grid_purchase_cash_saving": f"{n('avoided_grid_purchase_cash_saving')}={n('self_use_energy')}×{n('avoided_grid_purchase_cash_price')}。少付电网电量电费现金额，仅辅助展示，不进入税前 FIRR。",
+        "environmental_value": f"{n('environmental_value')}={n('self_use_energy')}×环境价值单价。默认环境价值单价为 0。",
+        "grid_export_revenue_without_vat": f"{n('grid_export_revenue_without_vat')}={n('grid_export_energy')}×上网含税电价÷(1+销项税率)。",
+        "other_external_revenue_without_vat": "其他外部收益，不含税口径。来自其他经营收入设置。",
+        "operating_cost_basis": "运行成本评价基础。当前 V1 运行成本不拆进项税。",
+        "bess_replacement_basis": f"储能更换评价基础。可抵扣时，约等于 {n('bess_replacement_cash_outflow_with_vat')}÷(1+储能更换进项税率)；用于税前 FIRR。",
+        "bess_replacement_cash_outflow_with_vat": "储能更换现金流出，含税展示口径。约等于储能容量×储能单位造价×储能更换投资比例，仅在触发更换年份发生。",
+        "initial_investment_basis": "Year 0 初始投资评价基础。可抵扣时为含税建设投资扣除进项税后的金额，进入税前 FIRR。",
+        "construction_cash_outflow_with_vat": "Year 0 含税建设投资现金流出，辅助展示，不直接作为税前 FIRR 的评价基础。",
+        "pre_tax_net_cash_flow": f"Year 0：{n('pre_tax_net_cash_flow')}=-{n('initial_investment_basis')}；运营期：{n('pre_tax_net_cash_flow')}={n('self_use_saving')}+{n('environmental_value')}+{n('grid_export_revenue_without_vat')}+{n('other_external_revenue_without_vat')}-{n('operating_cost_basis')}-{n('bess_replacement_basis')}。",
+        "cumulative_net_cash_flow": f"截至当年的 {n('pre_tax_net_cash_flow')} 累计值。",
+        "discount_factor": "折现系数 = 1÷(1+折现率)^年份。",
+        "discounted_net_cash_flow": f"{n('discounted_net_cash_flow')}={n('pre_tax_net_cash_flow')}×{n('discount_factor')}。",
+        "cumulative_discounted_net_cash_flow": f"截至当年的 {n('discounted_net_cash_flow')} 累计值。",
+    }
+    return pd.DataFrame(
+        [
+            {
+                "序号": index_by_column[column],
+                "英文字段": column,
+                "中文表头": _label_for_column(column),
+                "计算/含义说明": descriptions.get(column, ""),
+            }
+            for column in columns
+        ]
+    )
+
+
+def _build_single_entity_annual_workbook_bytes(
+    *,
+    scenario_id: str,
+    annual: pd.DataFrame,
+    technical_summary: pd.DataFrame,
+    economic_summary: pd.DataFrame,
+) -> bytes:
+    columns = [column for column in SINGLE_ENTITY_ANNUAL_COLUMNS if column in annual.columns]
+    numbered_names = {column: f"{idx}. {_label_for_column(column)}" for idx, column in enumerate(columns, start=1)}
+    annual_numbered = annual[columns].rename(columns=numbered_names)
+    scenario_info = _build_scenario_info_frame(scenario_id, technical_summary, economic_summary)
+    field_descriptions = _single_entity_field_descriptions(columns)
+
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        scenario_info.to_excel(writer, sheet_name="方案说明", index=False)
+        annual_numbered.to_excel(writer, sheet_name="年度现金流", index=False)
+        field_descriptions.to_excel(writer, sheet_name="字段说明", index=False)
+
+        workbook = writer.book
+        wrap = workbook.add_format({"text_wrap": True, "valign": "top"})
+        for sheet_name in ["方案说明", "年度现金流", "字段说明"]:
+            worksheet = writer.sheets[sheet_name]
+            worksheet.freeze_panes(1, 0)
+            worksheet.set_column(0, 0, 12)
+            worksheet.set_column(1, 1, 24)
+            worksheet.set_column(2, 2, 28)
+            worksheet.set_column(3, 3, 18)
+            worksheet.set_column(4, 4, 48, wrap)
+        writer.sheets["年度现金流"].freeze_panes(1, 4)
+        writer.sheets["字段说明"].set_column(3, 3, 90, wrap)
+    return output.getvalue()
+
+
+def _merge_result_context(result_summary: pd.DataFrame, technical_summary: pd.DataFrame) -> pd.DataFrame:
+    context_columns = [
+        column
+        for column in ["scenario_id", "方案类型", "pv_capacity", "wind_capacity", "bess_energy"]
+        if column in technical_summary.columns
+    ]
+    display_summary = result_summary.copy()
+    if len(context_columns) > 1:
+        display_summary = display_summary.merge(
+            technical_summary[context_columns].drop_duplicates("scenario_id"),
+            on="scenario_id",
+            how="left",
+        )
+    return display_summary
+
+
+def _render_recommendation_v1(
+    st,
+    summary: pd.DataFrame,
+    power_economy_summary: pd.DataFrame,
+    single_entity_summary: pd.DataFrame | None,
+    avoided_grid_params: AvoidedGridPurchaseParams,
+    economic_params: EconomicParams,
+    green_power_settlement_price_with_vat: float,
+    environmental_value_per_kwh: float,
+    min_power_side_acceptable_firr: float | None,
+) -> None:
+    st.markdown("---")
+    st.header("推荐方案 V1（试用）")
+    st.caption(
+        "默认构造同一主体 FIRR、电源侧 FIRR、负荷侧可成交收益、工程代表四个席位；"
+        "推荐只读取技术汇总和经济性结果，不改变逐小时调度。重复命中多个席位的方案会合并标签。"
+    )
+
+    view_label_to_key = {label: key for key, label in ENGINEERING_VIEW_LABELS.items()}
+    engineering_view_label = st.selectbox(
+        "工程代表方案视角",
+        list(view_label_to_key.keys()),
+        index=0,
+        help="第四个推荐席位的工程视角。默认低弃电，可切换政策达标最小投资、高绿电占比、高自发自用。",
+    )
+    engineering_view = view_label_to_key[engineering_view_label]
+
+    load_side_avoided_charge_price = calc_avoided_grid_purchase_cash_price(avoided_grid_params)
+    recommendation_params = RecommendationParams(
+        load_side_avoided_charge_price=load_side_avoided_charge_price,
+        green_power_settlement_price_with_vat=green_power_settlement_price_with_vat,
+        environmental_value_per_kwh=environmental_value_per_kwh,
+        min_power_side_acceptable_firr=min_power_side_acceptable_firr,
+        engineering_view=engineering_view,
+    )
+    portfolio, load_side_detail = build_recommendation_result(
+        summary,
+        power_economy_summary,
+        recommendation_params,
+        single_entity_summary=single_entity_summary,
+        economic_params=economic_params,
+    )
+
+    if portfolio.empty:
+        st.info("当前没有可展示的推荐结果。")
+        return
+    if min_power_side_acceptable_firr is None:
+        st.warning("电源侧最低可接受 FIRR 已留空，负荷侧可成交收益席位不参与默认排序。")
+
+    display_columns = [
+        "recommendation_rank",
+        "recommendation_labels",
+        "recommendation_status",
+        "scenario_id",
+        "方案类型",
+        "pv_capacity",
+        "wind_capacity",
+        "bess_energy",
+        "load_side_annual_benefit",
+        "load_side_saving_price",
+        "single_entity_firr_pre_tax",
+        "single_entity_static_payback_year",
+        "firr",
+        "power_side_firr_threshold",
+        "construction_cash_outflow",
+        "green_load_rate",
+        "self_use_rate",
+        "curtail_rate",
+        "recommendation_reason",
+        "risk_note",
+    ]
+    display_columns = [column for column in display_columns if column in portfolio.columns]
+    st.dataframe(
+        localize_columns(format_display_frame(portfolio[display_columns])),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    with st.expander("高级：推荐明细和下载", expanded=False):
+        st.download_button(
+            "下载推荐组合 Excel",
+            data=_build_excel_bytes(
+                {
+                    "推荐组合": localize_columns(portfolio),
+                    "电源侧经济性汇总": localize_columns(power_economy_summary),
+                    "同一主体经济性汇总": localize_columns(
+                        single_entity_summary if single_entity_summary is not None else pd.DataFrame()
+                    ),
+                    "负荷侧可成交收益明细": localize_columns(load_side_detail),
+                }
+            ),
+            file_name="recommendation_portfolio_v1.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_recommendation_portfolio_v1",
+        )
+        st.caption("负荷侧明细用于复核可成交性筛选、节约电费单价和电源侧 FIRR 门槛。")
+        detail_columns = [
+            "scenario_id",
+            "pass_policy",
+            "load_side_tradable",
+            "load_side_tradable_status",
+            "self_use_energy",
+            "load_side_avoided_charge_price",
+            "green_power_settlement_price_with_vat",
+            "load_side_saving_price",
+            "load_side_environmental_value",
+            "load_side_annual_benefit",
+            "firr",
+            "firr_status",
+            "power_side_firr_threshold",
+            "green_load_rate",
+            "curtail_rate",
+            "construction_cash_outflow",
+        ]
+        detail_columns = [column for column in detail_columns if column in load_side_detail.columns]
+        st.dataframe(
+            localize_columns(format_display_frame(load_side_detail[detail_columns])),
+            use_container_width=True,
+            hide_index=True,
+        )
+        _display_mapping_expander(st, display_columns, "推荐组合字段对应关系")
+
+
 def _render_data_status(st, statuses: list[dict]) -> None:
     status_df = pd.DataFrame(statuses)
     if status_df.empty:
@@ -354,75 +730,150 @@ def _render_data_status(st, statuses: list[dict]) -> None:
                 st.info(f"{item['曲线']}曲线存在负值，共 {item['负值点']} 个点，将按站用电参与计算。")
 
 
-def _render_economy_v1(st, summary: pd.DataFrame) -> None:
+def _render_economy_v1(st, summary: pd.DataFrame, bess_calendar_life_years: float = 15.0) -> None:
     st.markdown("---")
     st.header("经济性评价 V1")
     st.caption("经济性评价仅读取方案汇总结果，不重新计算逐小时调度。")
 
     with st.expander("经济性参数", expanded=False):
-        c1, c2, c3, c4 = st.columns(4)
+        st.markdown("#### 基本参数")
+        c1, c2, c3 = st.columns(3)
         operation_years = int(c1.number_input("运营期（年）", value=25, min_value=1, max_value=40, step=1))
-        discount_rate = c2.number_input("折现率", value=0.06, min_value=-0.99, max_value=1.0, step=0.005, format="%.3f")
-        income_tax_rate = c3.number_input("企业所得税率", value=0.25, min_value=0.0, max_value=1.0, step=0.01)
-        urban_area = c4.selectbox("城建税地区", ["县城、镇 5%", "市区 7%", "其他 1%"])
-        urban_tax_rate = {"市区 7%": 0.07, "县城、镇 5%": 0.05, "其他 1%": 0.01}[urban_area]
+        discount_rate = _percent_text_input(c2, "折现率（%）", 6, min_value=-99, max_value=100)
+        min_power_side_acceptable_firr = _optional_percent_text_input(
+            c3,
+            "电源侧最低可接受 FIRR（%）",
+            7,
+            min_value=0,
+            max_value=100,
+            help="用于负荷侧可成交收益席位筛选。留空时，该席位不参与默认排序。",
+        )
 
+        st.markdown("##### Year 0 建设投资")
         c1, c2, c3, c4 = st.columns(4)
-        wind_capex = c1.number_input("风电单位造价（元/kW，含税）", value=4500.0, min_value=0.0, step=100.0)
-        pv_capex = c2.number_input(
+        wind_capex = _float_text_input(c1, "风电单位造价（元/kW，含税）", 4500, min_value=0.0)
+        pv_capex = _float_text_input(
+            c2,
             "光伏单位造价（元/kW，含税）",
-            value=2500.0,
+            2500,
             min_value=0.0,
-            step=100.0,
             help="需与光伏标幺曲线容量基准匹配；直流侧曲线填直流侧造价，交流侧曲线填交流侧造价。",
         )
-        bess_capex = c3.number_input("储能单位造价（元/kWh，含税）", value=900.0, min_value=0.0, step=50.0)
-        dedicated_connection_line = c4.number_input("送出线路工程投资（万元，含税）", value=0.0, min_value=0.0, step=100.0)
+        bess_capex = _float_text_input(c3, "储能单位造价（元/kWh，含税）", 900, min_value=0.0)
+        dedicated_connection_line = _float_text_input(c4, "送出线路工程投资（万元，含税）", 0, min_value=0.0)
 
-        other_fixed_asset = st.number_input("其他固定资产投资（万元，含税）", value=0.0, min_value=0.0, step=100.0)
+        c1, c2 = st.columns(2)
+        other_fixed_asset = _float_text_input(c1, "其他固定资产投资（万元，含税）", 0, min_value=0.0)
+        construction_vat_rate = _percent_text_input(c2, "建设投资进项税率（%）", 10)
 
+        st.markdown("#### 成本费用")
         c1, c2, c3, c4 = st.columns(4)
-        construction_vat_rate = c1.number_input("建设投资进项税率", value=0.10, min_value=0.0, max_value=1.0, step=0.01)
-        wind_om = c2.number_input("风电运维成本（元/kW/年）", value=50.0, min_value=0.0, step=1.0)
-        pv_om = c3.number_input("光伏运维成本（元/kW/年）", value=25.0, min_value=0.0, step=1.0)
-        bess_om = c4.number_input("储能运维成本（元/kW/年）", value=18.0, min_value=0.0, step=1.0)
+        wind_om = _float_text_input(c1, "风电运维成本（元/kW/年）", 50, min_value=0.0)
+        pv_om = _float_text_input(c2, "光伏运维成本（元/kW/年）", 25, min_value=0.0)
+        bess_om = _float_text_input(c3, "储能运维成本（元/kW/年）", 18, min_value=0.0)
+        other_operating_cost = _float_text_input(c4, "其他运行成本（万元/年）", 0, min_value=0.0)
 
+        st.markdown("##### 储能更换")
+        st.caption("储能更换发生年份以日历寿命和循环寿命哪个先到为准；更换后重新开始计算下一次更换。")
+        c1, c2 = st.columns(2)
+        replacement_ratio = _percent_text_input(c1, "储能更换投资比例（%）", 50)
+        replacement_vat_rate = _percent_text_input(c2, "储能更换进项税率（%）", 13)
+        replacement_calendar_life = float(bess_calendar_life_years)
+
+        st.markdown("#### 收入和税金")
         c1, c2, c3, c4 = st.columns(4)
-        grid_export_price = c1.number_input("上网电价（元/kWh，含税）", value=0.25, min_value=0.0, step=0.01)
-        self_use_price = c2.number_input(
-            "自发自用电价（元/kWh，含税）",
-            value=0.40,
+        grid_export_price = _float_text_input(c1, "上网电价（元/kWh，含税）", 0.25, min_value=0.0)
+        self_use_price = _float_text_input(
+            c2,
+            "绿电结算价（元/kWh，含税）",
+            0.40,
             min_value=0.0,
-            step=0.01,
-            help="输入不含过网费的自发自用电价。",
+            help="原“自发自用电价”。电源侧视角中作为绿电售电收入，负荷侧视角中作为绿电购电成本。非用户到户电价，不含输配电价、政府基金及附加、系统运行费和容需量电费等。",
         )
-        output_vat_rate = c3.number_input("销项税率", value=0.13, min_value=0.0, max_value=1.0, step=0.01)
-        other_operating_cost = c4.number_input("其他运行成本（万元/年）", value=0.0, min_value=0.0, step=10.0)
+        net_avoided_grid_cost_price = _float_text_input(
+            c3,
+            "外部购电净成本单价（元/kWh）",
+            0.50,
+            min_value=0.0,
+            help=(
+                "用于同一主体口径估算每 1 kWh 自发自用绿电替代外部购电带来的税前净节费。"
+                "简化模式下直接使用本输入值；组价模式公式：外部购电净成本单价="
+                "原外部购网电电量类成本单价-绿电直连自发自用仍需缴纳费用单价。"
+                "不等同于负荷侧比较绿电结算价时使用的到户电能量全价。"
+            ),
+        )
+        environmental_value = _float_text_input(c4, "环境价值单价（元/kWh）", 0, min_value=0.0)
 
         c1, c2, c3 = st.columns(3)
-        replacement_ratio = c1.number_input("储能更换投资比例", value=0.50, min_value=0.0, max_value=1.0, step=0.05)
-        replacement_vat_rate = c2.number_input("储能更换进项税率", value=0.13, min_value=0.0, max_value=1.0, step=0.01)
-        replacement_calendar_life = c3.number_input("储能电池日历寿命（年）", value=15.0, min_value=1.0, max_value=40.0, step=1.0)
+        output_vat_rate = _percent_text_input(c1, "销项税率（%）", 13)
+        income_tax_rate = _percent_text_input(c2, "企业所得税率（%）", 25)
+        urban_area = c3.selectbox("城建税地区", ["县城、镇 5%", "市区 7%", "其他 1%"])
+        urban_tax_rate = {"市区 7%": 0.07, "县城、镇 5%": 0.05, "其他 1%": 0.01}[urban_area]
 
-        st.caption("其他经营收入可输入负值；负值在 V1 中不产生进项税，按收入抵减或额外经营性支出处理。")
-        default_other = pd.DataFrame(
-            [
-                {
-                    "名称": "",
-                    "金额(万元/年)": 0.0,
-                    "销项税率": 0.13,
-                    "发生规则": "every_year",
-                    "指定年份": "",
-                }
-            ]
-        )
-        other_revenue_df = st.data_editor(
-            st.session_state.get("economy_other_revenue_df", default_other),
-            num_rows="dynamic",
-            use_container_width=True,
-            key="economy_other_revenue_editor",
-        )
-        st.session_state["economy_other_revenue_df"] = other_revenue_df
+        with st.expander("高级：其他经营收入", expanded=False):
+            st.caption("一般项目可不填。可输入负值；负值在 V1 中不产生进项税，按收入抵减或额外经营性支出处理。")
+            default_other = pd.DataFrame(
+                [
+                    {
+                        "名称": "",
+                        "金额(万元/年)": 0.0,
+                        "销项税率": 0.13,
+                        "发生规则": "every_year",
+                        "指定年份": "",
+                    }
+                ]
+            )
+            other_revenue_df = st.data_editor(
+                st.session_state.get("economy_other_revenue_df", default_other),
+                num_rows="dynamic",
+                use_container_width=True,
+                key="economy_other_revenue_editor",
+            )
+            st.session_state["economy_other_revenue_df"] = other_revenue_df
+
+        st.markdown("#### 电费构成参数")
+        with st.expander("高级：电费清单组价和价格曲线", expanded=False):
+            use_grid_price_build_up = st.checkbox(
+                "按电费清单组价覆盖外部购电净成本单价",
+                value=False,
+                help="默认使用上方固定值；勾选后按电费清单中的电量电费项目组价。",
+            )
+            if use_grid_price_build_up:
+                c1, c2, c3 = st.columns(3)
+                energy_market_price = _float_text_input(c1, "电能量/市场购电价格（元/kWh，含税）", 0.40, min_value=0.0)
+                line_loss_price = _float_text_input(c2, "上网环节线损费用（元/kWh，含税）", 0, min_value=0.0)
+                system_operation_fee = _float_text_input(c3, "系统运行费用（元/kWh，含税）", 0, min_value=0.0)
+                c1, c2, c3 = st.columns(3)
+                transmission_distribution_tariff = _float_text_input(c1, "输配电价（元/kWh，含税）", 0.15, min_value=0.0)
+                gov_fund_surcharge = _float_text_input(c2, "政府性基金及附加（元/kWh）", 0.03, min_value=0.0, help="按无增值税电量附加处理。")
+                grid_purchase_vat_rate = _percent_text_input(c3, "电网购电增值税率（%）", 13)
+                st.caption("以下为绿电直连自发自用电量仍需缴纳的费用。1192 号文系统运行费暂按下网电量缴纳，自发自用绿电不在这里设置系统运行费扣减。")
+                c1, c2 = st.columns(2)
+                retained_transmission_distribution_tariff = _float_text_input(
+                    c1,
+                    "绿电仍缴输配电价（元/kWh，含税）",
+                    transmission_distribution_tariff,
+                    min_value=0.0,
+                )
+                retained_gov_fund_surcharge = _float_text_input(
+                    c2,
+                    "绿电仍缴政府性基金及附加（元/kWh）",
+                    gov_fund_surcharge,
+                    min_value=0.0,
+                )
+                net_avoided_grid_cost_price_for_calc = None
+            else:
+                energy_market_price = 0.0
+                line_loss_price = 0.0
+                system_operation_fee = 0.0
+                transmission_distribution_tariff = 0.0
+                gov_fund_surcharge = 0.0
+                retained_transmission_distribution_tariff = 0.0
+                retained_gov_fund_surcharge = 0.0
+                grid_purchase_vat_rate = 0.13
+                net_avoided_grid_cost_price_for_calc = net_avoided_grid_cost_price
+            st.caption("容需量电费和力调电费 V1 默认不参与节费测算：它们通常不随自发自用电量按 kWh 线性变化，后续作为高级模型单独研究。")
+            st.caption("绿电结算价曲线、外部购电净成本曲线和上网电价曲线后续按 CSV/Excel 上传处理，不做网页逐项录入。当前页面先使用固定价。")
 
     try:
         other_revenues = _build_other_revenue_items(other_revenue_df)
@@ -453,82 +904,212 @@ def _render_economy_v1(st, summary: pd.DataFrame) -> None:
         income_tax_rate=income_tax_rate,
         discount_rate=discount_rate,
     )
+    avoided_grid_params = AvoidedGridPurchaseParams(
+        net_avoided_grid_cost_price=net_avoided_grid_cost_price_for_calc,
+        energy_market_price_with_vat=energy_market_price,
+        line_loss_price_with_vat=line_loss_price,
+        system_operation_fee_with_vat=system_operation_fee,
+        transmission_distribution_tariff_with_vat=transmission_distribution_tariff,
+        gov_fund_surcharge=gov_fund_surcharge,
+        green_direct_retained_transmission_distribution_tariff_with_vat=retained_transmission_distribution_tariff,
+        green_direct_retained_gov_fund_surcharge=retained_gov_fund_surcharge,
+        grid_purchase_vat_rate=grid_purchase_vat_rate,
+        environmental_value_per_kwh=environmental_value,
+    )
 
-    if st.button("计算经济性 V1", key="run_economy_v1"):
-        with st.spinner("正在计算经济性年度现金流..."):
-            economic_summary, annual_cashflows = evaluate_batch_economy(summary, params)
-        st.session_state["economy_v1_result"] = {
-            "summary": economic_summary,
-            "annual_cashflows": annual_cashflows,
-        }
-        st.session_state.pop("download_payloads", None)
+    if st.button("计算经济性 V1（当前已实现视角）", key="run_economy_v1_all"):
+        try:
+            with st.spinner("正在计算电源侧和同一主体经济性年度现金流..."):
+                economic_summary, annual_cashflows = evaluate_batch_economy(summary, params)
+                single_entity_summary, single_entity_annual_cashflows = (
+                    evaluate_batch_single_entity_pre_tax_economy(
+                        summary,
+                        avoided_grid_params=avoided_grid_params,
+                        params=params,
+                    )
+                )
+            st.session_state["economy_v1_result"] = {
+                "summary": economic_summary,
+                "annual_cashflows": annual_cashflows,
+            }
+            st.session_state["single_entity_economy_result"] = {
+                "summary": single_entity_summary,
+                "annual_cashflows": single_entity_annual_cashflows,
+            }
+            st.session_state.pop("download_payloads", None)
+        except ValueError as exc:
+            st.error(f"经济性参数有误：{exc}")
 
     economy_result = st.session_state.get("economy_v1_result")
-    if not economy_result:
+    single_entity_result = st.session_state.get("single_entity_economy_result")
+    if not economy_result and not single_entity_result:
         return
 
-    economic_summary = economy_result["summary"]
-    annual_cashflows = economy_result["annual_cashflows"]
-    if economic_summary.empty:
-        st.info("当前没有可展示的经济性结果。")
-        return
+    if economy_result:
+        economic_summary = economy_result["summary"]
+        annual_cashflows = economy_result["annual_cashflows"]
+        if not economic_summary.empty:
+            display_economic_summary = _merge_result_context(economic_summary, summary)
+            display_columns = [
+                "scenario_id",
+                "方案类型",
+                "pv_capacity",
+                "wind_capacity",
+                "bess_energy",
+                "fnpv",
+                "firr",
+                "firr_status",
+                "static_payback_year",
+                "dynamic_payback_year",
+                "construction_cash_outflow",
+                "dedicated_connection_line_investment_with_vat",
+                "annual_operating_revenue_with_vat",
+                "annual_operating_cost_with_vat",
+                "bess_replacement_operation_year",
+                "bess_replacement_operation_years",
+                "bess_replacement_count",
+            ]
+            display_columns = [column for column in display_columns if column in display_economic_summary.columns]
+            st.success("电源侧经济性 V1 已计算。技术方案汇总表仍保持纯技术指标，经济性结果请在本区单独下载。")
 
-    context_columns = [
-        column
-        for column in ["scenario_id", "方案类型", "pv_capacity", "wind_capacity", "bess_energy"]
-        if column in summary.columns
-    ]
-    display_economic_summary = economic_summary.copy()
-    if len(context_columns) > 1:
-        display_economic_summary = display_economic_summary.merge(
-            summary[context_columns].drop_duplicates("scenario_id"),
-            on="scenario_id",
-            how="left",
+            with st.expander("高级：电源侧经济性汇总表和年度现金流下载", expanded=False):
+                st.dataframe(
+                    localize_columns(format_display_frame(display_economic_summary[display_columns])),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                _display_mapping_expander(st, display_columns, "电源侧经济性汇总字段对应关系")
+
+                st.download_button(
+                    "下载电源侧经济性汇总 Excel",
+                    data=_build_excel_bytes(
+                        {
+                            "电源侧经济性汇总": localize_columns(display_economic_summary[display_columns]),
+                        }
+                    ),
+                    file_name="power_side_economic_summary.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="download_power_side_economy_summary",
+                )
+
+                selected_id = st.selectbox(
+                    "选择方案下载电源侧年度明细",
+                    economic_summary["scenario_id"].astype(str).tolist(),
+                    key="power_side_annual_select",
+                )
+                annual = annual_cashflows[selected_id]
+
+                st.download_button(
+                    "下载所选方案电源侧年度现金流 Excel",
+                    data=_build_excel_bytes(
+                        {
+                            f"电源侧年度现金流_{selected_id}": localize_columns(annual),
+                        }
+                    ),
+                    file_name=f"power_side_annual_cashflow_{selected_id}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="download_economy_v1",
+                )
+
+    if single_entity_result:
+        single_entity_summary = single_entity_result["summary"]
+        single_entity_annual_cashflows = single_entity_result["annual_cashflows"]
+        if not single_entity_summary.empty:
+            display_single_entity_summary = _merge_result_context(single_entity_summary, summary)
+            single_entity_columns = [
+                "scenario_id",
+                "方案类型",
+                "pv_capacity",
+                "wind_capacity",
+                "bess_energy",
+                "single_entity_fnpv_pre_tax",
+                "single_entity_firr_pre_tax",
+                "single_entity_firr_status",
+                "single_entity_static_payback_year",
+                "single_entity_dynamic_payback_year",
+                "initial_investment_basis",
+                "construction_cash_outflow_with_vat",
+                "annual_self_use_saving",
+                "annual_avoided_grid_purchase_cash_saving",
+                "annual_environmental_value",
+                "annual_grid_export_revenue_without_vat",
+                "annual_operating_cost_basis",
+                "net_avoided_grid_cost_price",
+                "avoided_grid_purchase_cash_price",
+                "energy_market_price_with_vat",
+                "line_loss_price_with_vat",
+                "system_operation_fee_with_vat",
+                "transmission_distribution_tariff_with_vat",
+                "gov_fund_surcharge",
+                "green_direct_retained_transmission_distribution_tariff_with_vat",
+                "green_direct_retained_gov_fund_surcharge",
+                "bess_replacement_operation_year",
+                "bess_replacement_operation_years",
+                "bess_replacement_count",
+            ]
+            single_entity_columns = [
+                column for column in single_entity_columns if column in display_single_entity_summary.columns
+            ]
+            st.success("同一主体税前经济性已计算。该结果不并入技术方案概览表，也不覆盖电源侧经济性。")
+
+            with st.expander("高级：同一主体税前经济性汇总表和年度现金流下载", expanded=False):
+                st.dataframe(
+                    localize_columns(format_display_frame(display_single_entity_summary[single_entity_columns])),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                _display_mapping_expander(st, single_entity_columns, "同一主体经济性汇总字段对应关系")
+
+                st.download_button(
+                    "下载同一主体税前经济性汇总 Excel",
+                    data=_build_excel_bytes(
+                        {
+                            "同一主体经济性汇总": localize_columns(
+                                display_single_entity_summary[single_entity_columns]
+                            ),
+                        }
+                    ),
+                    file_name="single_entity_pre_tax_economic_summary.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="download_single_entity_summary",
+                )
+
+                selected_id = st.selectbox(
+                    "选择方案下载同一主体年度明细",
+                    single_entity_summary["scenario_id"].astype(str).tolist(),
+                    key="single_entity_annual_select",
+                )
+                annual = single_entity_annual_cashflows[selected_id]
+
+                st.download_button(
+                    "下载所选方案同一主体年度现金流 Excel",
+                    data=_build_single_entity_annual_workbook_bytes(
+                        scenario_id=selected_id,
+                        annual=annual,
+                        technical_summary=summary,
+                        economic_summary=single_entity_summary,
+                    ),
+                    file_name=f"single_entity_pre_tax_annual_cashflow_{selected_id}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="download_single_entity_annual_cashflow",
+                )
+
+    if economy_result and not economy_result["summary"].empty:
+        recommendation_single_entity_summary = (
+            single_entity_result["summary"]
+            if single_entity_result and not single_entity_result["summary"].empty
+            else None
         )
-
-    display_columns = [
-        "scenario_id",
-        "方案类型",
-        "pv_capacity",
-        "wind_capacity",
-        "bess_energy",
-        "fnpv",
-        "firr",
-        "firr_status",
-        "static_payback_year",
-        "dynamic_payback_year",
-        "construction_cash_outflow",
-        "dedicated_connection_line_investment_with_vat",
-        "annual_operating_revenue_with_vat",
-        "annual_operating_cost_with_vat",
-        "bess_replacement_operation_year",
-        "bess_replacement_operation_years",
-        "bess_replacement_count",
-    ]
-    display_columns = [column for column in display_columns if column in display_economic_summary.columns]
-    st.success("经济性 V1 已计算。方案总表下载会自动在原方案总表后追加经济性字段。")
-
-    with st.expander("高级：经济性汇总表和年度现金流下载", expanded=False):
-        st.dataframe(
-            localize_columns(format_display_frame(display_economic_summary[display_columns])),
-            use_container_width=True,
-            hide_index=True,
-        )
-        _display_mapping_expander(st, display_columns, "经济性汇总字段对应关系")
-
-        selected_id = st.selectbox("选择方案下载经济性年度明细", economic_summary["scenario_id"].astype(str).tolist())
-        annual = annual_cashflows[selected_id]
-
-        st.download_button(
-            "下载所选方案年度现金流 Excel",
-            data=_build_excel_bytes(
-                {
-                    f"年度现金流_{selected_id}": localize_columns(annual),
-                }
-            ),
-            file_name=f"annual_cashflow_{selected_id}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="download_economy_v1",
+        _render_recommendation_v1(
+            st,
+            summary,
+            economy_result["summary"],
+            recommendation_single_entity_summary,
+            avoided_grid_params=avoided_grid_params,
+            economic_params=params,
+            green_power_settlement_price_with_vat=self_use_price,
+            environmental_value_per_kwh=environmental_value,
+            min_power_side_acceptable_firr=min_power_side_acceptable_firr,
         )
 
 
@@ -616,6 +1197,14 @@ def main() -> None:
             eta_charge = st.number_input("充电效率", value=0.95, min_value=0.000001, max_value=1.0, step=0.01)
             eta_discharge = st.number_input("放电效率", value=0.95, min_value=0.000001, max_value=1.0, step=0.01)
             cycle_life = st.number_input("循环寿命", value=6000.0, min_value=0.0, step=100.0)
+            bess_calendar_life = st.number_input(
+                "电池日历寿命（年）",
+                value=15.0,
+                min_value=1.0,
+                max_value=40.0,
+                step=1.0,
+                help="当前不参与小时调度，只在经济性评价中与循环寿命共同决定储能更换年份。",
+            )
 
         with st.expander("上网与政策约束", expanded=False):
             allow_export = st.checkbox("允许上网", value=True)
@@ -735,6 +1324,7 @@ def main() -> None:
             st.session_state["config_snapshot"] = {
                 "scenario_grid": demo_grid,
                 "bess": BessParams().__dict__,
+                "bess_calendar_life_years": 15.0,
                 "policy": PolicyParams(export_control_mode="annual_cap_runtime").__dict__,
                 "warnings": demo_curves.warnings,
                 "demo": True,
@@ -807,6 +1397,7 @@ def main() -> None:
             st.session_state["config_snapshot"] = {
                 "scenario_grid": scenario_grid,
                 "bess": bess_params.__dict__,
+                "bess_calendar_life_years": bess_calendar_life,
                 "policy": policy_params.__dict__,
                 "warnings": curves.warnings,
             }
@@ -892,7 +1483,7 @@ def main() -> None:
                 "逐小时明细字段对应关系",
             )
 
-    _render_economy_v1(st, summary)
+    _render_economy_v1(st, summary, bess_calendar_life_years=bess_calendar_life)
 
     render_chart_analysis(
         st,

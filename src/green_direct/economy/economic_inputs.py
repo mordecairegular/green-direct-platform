@@ -32,6 +32,26 @@ class OtherOperatingRevenueItem:
 
 
 @dataclass(frozen=True)
+class AvoidedGridPurchaseParams:
+    """Inputs for avoided grid-purchase savings in the single-entity view.
+
+    Prices use yuan/kWh. Scenario energy uses the project unit 万kWh, so
+    energy * price naturally gives 万元.
+    """
+
+    net_avoided_grid_cost_price: float | None = None
+    energy_market_price_with_vat: float = 0.0
+    line_loss_price_with_vat: float = 0.0
+    system_operation_fee_with_vat: float = 0.0
+    transmission_distribution_tariff_with_vat: float = 0.0
+    gov_fund_surcharge: float = 0.0
+    green_direct_retained_transmission_distribution_tariff_with_vat: float = 0.0
+    green_direct_retained_gov_fund_surcharge: float = 0.0
+    grid_purchase_vat_rate: float = 0.13
+    environmental_value_per_kwh: float = 0.0
+
+
+@dataclass(frozen=True)
 class EconomicParams:
     """V1 simplified annual project cash-flow parameters.
 

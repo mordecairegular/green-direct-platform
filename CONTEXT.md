@@ -28,6 +28,14 @@ _Avoid_: Customer when the role specifically means electricity consumer.
 The additional investment and operating arrangement introduced by adding green direct power to a baseline energy supply pattern. It is evaluated by comparing incremental cost, savings, revenue, and optional environmental value against the no-project or grid-purchase baseline.
 _Avoid_: Total project cost when the analysis is explicitly incremental.
 
+**Avoided Grid Purchase Benefit**:
+The economic benefit created when renewable self-use reduces external grid purchase under a **Single-Entity Structure**. It should be based on the avoided external purchase cost, not on an internal green power settlement price.
+_Avoid_: Internal sale revenue in a single-entity consolidated view.
+
+**Net Avoided Grid Cost Price**:
+The unit price used to value **Avoided Grid Purchase Benefit** after removing cost components that are not treated as avoidable in the active model and after excluding deductible VAT where applicable. It is a planning-model assumption and should be reported with its simplification boundary.
+_Avoid_: Total electricity bill divided by total load.
+
 **Dedicated Connection Line Investment**:
 The Year 0 investment for the power delivery line or dedicated connection works required to connect the power-side assets to the load-side project or grid connection point. It is a required green direct project cost driver and should be modeled separately from **Other Fixed Asset Investment**. In the first version, users enter the total amount with VAT directly.
 _Avoid_: Other fixed asset investment.
@@ -40,6 +48,14 @@ _Avoid_: Catch-all for required line connection works.
 Optional value associated with green electricity attributes, such as green certificates, carbon-related savings, or other user-defined environmental income or avoided cost. The exact policy term should be named explicitly once confirmed for the project jurisdiction and use case.
 _Avoid_: Carbon tax as a generic placeholder.
 
+**Green Power Settlement Price**:
+The price used to settle green electricity self-used by the load. For the **Power-Side Investor**, it is revenue. For the **Load-Side User**, it is procurement cost. For a **Single-Entity Structure**, it should not be double-counted as internal revenue. In Chinese UI text, this may be explained as the self-use electricity settlement price.
+_Avoid_: Self-use price when the role of the price is unclear.
+
+**Load Grid Purchase Price**:
+The price the load would pay for electricity purchased from the grid under the baseline or remaining grid-purchase arrangement. It is the comparison price for load-side savings and the starting input for single-entity avoided purchase cost. The default simple input for single-entity analysis is **Net Avoided Grid Cost Price**. If the user enables bill build-up mode, user-facing fields should match bill items such as energy/market purchase price, line-loss fee, system operation fee, transmission and distribution tariff, and government fund surcharge.
+_Avoid_: Export price; green power settlement price.
+
 **Recommendation Perspective**:
 The economic or engineering viewpoint used to select and rank scenarios, such as whole-project incremental benefit, power-side investment return, or load-side energy benefit. The default recommendation portfolio may include scenarios from multiple perspectives without forcing the user to choose one first.
 _Avoid_: Advanced parameter when referring to the business viewpoint itself.
@@ -51,6 +67,10 @@ _Avoid_: Default recommendation when referring to a single-viewpoint ranking lis
 **Policy-Compliant Minimum-Investment Scenario**:
 A scenario that satisfies the active policy and feasibility constraints while minimizing upfront investment. It is useful across investment structures because all parties care about the least-capital path to compliance.
 _Avoid_: Cheapest scenario when the metric specifically means initial investment rather than lifecycle cost or net present value.
+
+**Policy-Compliant Candidate Set**:
+The scenario set eligible for recommendation after applying active policy and feasibility constraints. Default recommendation slots should rank within this set; non-compliant scenarios belong in diagnostics or sensitivity review, not ordinary recommendation ranking.
+_Avoid_: Ranking failed scenarios together with compliant recommendation candidates.
 
 **High Self-Use Scenario**:
 A scenario that maximizes renewable self-use rate, where self-use is renewable energy consumed by the load either directly or through renewable-charged BESS. Under green direct policy export caps, it is related to but still not identical to **Low-Curtailment Scenario** because export within the cap, storage losses, and final stored energy can change curtailment without equally changing self-use delivered to load.
@@ -73,11 +93,11 @@ A perspective-specific ranking rule for the current **Power-Side Investment Retu
 _Avoid_: NPV-first ranking when describing the default power-side V1 recommendation.
 
 **Load-Side Benefit Scenario**:
-A recommendation slot that selects the scenario most beneficial to the **Load-Side User**, considering green electricity received, comparison with grid purchase cost, and optional **Environmental-Value Benefit** assumptions. The first version may use fixed prices, but the concept must allow hourly or sub-hourly grid purchase price profiles.
+A recommendation slot that selects the scenario most beneficial to the **Load-Side User**, considering green electricity received, comparison between **Load Grid Purchase Price** and **Green Power Settlement Price**, and optional **Environmental-Value Benefit** assumptions. When the load side bears no initial investment, this scenario should be ranked by annual or lifecycle energy benefit rather than FIRR. The first version may use fixed prices, but the concept must allow hourly or sub-hourly price profiles.
 _Avoid_: Consumer saving scenario when environmental value is included.
 
 **Time-Resolved Price Profile**:
-A price input series aligned to the simulation time step, such as 8760 hourly prices or future 15-minute prices. It may apply to grid purchase, export settlement, self-use settlement, or other market-linked energy values.
+A price input series aligned to the simulation time step, such as 8760 hourly prices or future 15-minute prices. It may apply to grid purchase, export settlement, green power settlement, or other market-linked energy values. **Environmental-Value Benefit** is currently treated as a scalar user assumption rather than a time-resolved profile.
 _Avoid_: TOU tariff when the profile may be arbitrary or sub-hourly.
 
 **Spreadsheet-Prepared Input**:
