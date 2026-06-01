@@ -43,7 +43,7 @@
 如果本次任务会开发经济性评价模块，还必须追加：
 
 ```text
-经济性评价 V1 口径已于 2026-05-21 确认，并于 2026-05-22 更新储能更换与 FIRR 求解口径。请先阅读 docs/references/economic_evaluation/00_README_使用说明.md 和 docs/references/economic_evaluation/经济性评价V1计算口径_合并版.md。V1 是不考虑贷款的年度项目投资现金流模型，Year 0 建设、默认运营期 25 年，运行成本无进项税，储能更换进项税保留；储能更换取循环寿命和默认 15 年日历寿命先到者，换后重新开始计算；FIRR 不使用折现率，且多次变号时应先判断是否只有唯一稳定 IRR 根；经济性评价不得修改技术调度结果。
+经济性评价 V1 口径已于 2026-05-21 确认，并于 2026-05-22 更新储能更换与 FIRR 求解口径。请先阅读 docs/ECONOMY_RECOMMENDATION_V1_MAP.md、docs/references/economic_evaluation/00_README_使用说明.md 和 docs/references/economic_evaluation/经济性评价V1计算口径_合并版.md。V1 是不考虑贷款的年度项目投资现金流模型，Year 0 建设、默认运营期 25 年，运行成本无进项税，储能更换进项税保留；储能更换取循环寿命和默认 15 年日历寿命先到者，换后重新开始计算；FIRR 不使用折现率，且多次变号时应先判断是否只有唯一稳定 IRR 根；经济性评价不得修改技术调度结果。注意同一主体 `net_avoided_grid_cost_price` 与负荷侧 `load_side_avoided_charge_price` 是两个不同价格口径，不要混用。
 ```
 
 如果本次任务会继续开发图表或推荐展示，还建议追加：
@@ -103,6 +103,8 @@
 ### 4.3 当前接口和产品打磨记录
 
 - `docs/SOFTWARE_OVERVIEW_AND_INTERFACE.md`
+- `docs/ECONOMY_RECOMMENDATION_V1_MAP.md`
+- `docs/WEB_APP_WORKFLOW_AND_UI_RESTRUCTURE.md`
 - `notes/PRODUCT_POLISH_LOG.md`
 
 ### 4.4 V0.1 技术基线
@@ -325,7 +327,7 @@ git status --short
 
 ## 11. 当前交接摘要
 
-截至 2026-05-27：
+截至 2026-05-28：
 
 - 已完成 V0.1 风光储技术测算基线；
 - 已形成图表模块初步能力；
@@ -359,5 +361,11 @@ git status --short
 - 2026-05-27 已修正 `外部购电净成本单价` 组价公式：该参数不是原外部购网电全部电量类费用，而是 `原外部购网电电量类成本单价 - 绿电直连自发自用仍需缴纳费用单价`。若自发自用绿电仍缴输配电价和政府性基金及附加，这两项不能算作节省。1192 号文系统运行费暂按下网电量缴纳，自发自用绿电不作为“绿电仍缴系统运行费用”扣减；代码已新增 `green_direct_retained_*` 字段并在组价模式中扣减；
 - 2026-05-27 已确认负荷侧默认席位改为 `负荷侧可成交收益最优`：新增基础参数 `电源侧最低可接受 FIRR`，默认 7%，字段建议 `min_power_side_acceptable_firr`。本席位先筛政策达标、负荷侧收益为正、电源侧 FIRR 可可靠计算且不低于最低可接受 FIRR，再按负荷侧年度综合用能收益排序。若用户清空最低 FIRR，则不对本席位排序并提示缺少可成交性约束。V1 暂不反算绿电结算价，只在用户给定价格条件下排序；
 - 2026-05-27 已实现推荐方案 V1 试用并补齐四个默认席位：`同一主体 FIRR 最优`、`电源侧 FIRR 最优`、`负荷侧可成交收益最优` 和可切换的 `工程代表方案`。页面经济性区域下方新增 `推荐方案 V1（试用）`；完成经济性评价后应同时构造四个席位，同一方案命中多个席位时合并标签，不应静默漏掉同一主体或电源侧 FIRR 席位。合并标签时必须同时保留各席位贡献的关键指标，不能出现命中负荷侧席位但负荷侧收益字段缺失的推荐表。推荐组合 Excel 包含推荐组合、电源侧经济性汇总、同一主体经济性汇总和负荷侧可成交收益明细；
+- 2026-05-28 已新增经济性评价与推荐 V1 导览文档 `docs/ECONOMY_RECOMMENDATION_V1_MAP.md`，用于给第一次接触项目的人说明参数、含义、代码入口、推荐席位和计算方式；
+- 2026-05-28 已新增价格曲线模板草案 `docs/templates/price_curves/price_curve_template.csv` 和说明 `docs/templates/price_curves/README.md`。当前只作为字段评审草案，尚未接入读取和计算；
+- 2026-05-28 已调整推荐默认口径：工程代表方案默认改为 `政策达标最小投资`；同一主体席位保留 FIRR 默认视角，并支持切换为 `同一主体动态回收期最短`；固定价模式默认减少用户输入，由外部购电净成本口径内部派生负荷侧筛选价，需要精确区分时再使用高级覆盖或电费清单组价；
+- 2026-05-28 已在 Streamlit 初步落地四阶段工作流：`欢迎页`、`技术仿真`、`经济性评价`、`推荐方案与详细分析`。技术仿真页不再继续渲染经济性和图表；经济性页计算成功后保存 `recommendation_v1_inputs`；推荐页集中展示推荐组合和图表分析；
+- 2026-05-28 已新增第一层服务抽象 `src/green_direct/services/study_runner.py`：`run_economic_study()` 统一执行电源侧和同一主体经济性，`build_recommendation_study()` 统一构造推荐组合，`RecommendationInputSnapshot` 保存推荐所需的价格和门槛输入；
+- 2026-05-28 已把推荐页的运行时序图表初步拆成 `典型季节日`、`关键运行日`、`全年8760曲线`，全年曲线支持范围滑块和曲线开关。后续仍建议把图表模块改为直接消费推荐组合；
 - 2026-05-25 已新增独立方案遍历试用程序入口：`src/green_direct/services/batch_trial_runner.py`、`src/green_direct/ui/batch_trial_gui.py`、`packaging/pyinstaller/run_batch_trial_tool.py`、`GreenDirectBatchTrial.spec` 和 `scripts/build_batch_trial_exe.ps1`。该入口只包装三条 CSV 读取、风光储容量枚举、逐小时技术仿真、方案概览 Excel 和全部方案逐小时详表 ZIP，不代表长期主产品要回到全量枚举表优先；配套说明见 `docs/BATCH_TRIAL_TOOL_USER_GUIDE.md` 和 `docs/BATCH_TRIAL_DISPATCH_AND_CALCULATION.md`；
-- 下一步建议继续完善 `recommendation/` 模块的数据模型和导出契约，并逐步把当前 `visualization/chart_ui.py` 中临时代表方案选择逻辑迁出 UI。
+- 下一步建议继续抽出服务层和 `StudyResult` / `ResultStore`，完善 `recommendation/` 模块的数据模型和导出契约，并逐步把当前 `visualization/chart_ui.py` 中临时代表方案选择逻辑迁出 UI。

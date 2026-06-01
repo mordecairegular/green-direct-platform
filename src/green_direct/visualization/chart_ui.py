@@ -10,6 +10,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from green_direct.visualization.chart_data import adapt_hourly, select_day as select_operating_day
+
 
 COLORS = {
     "pv": "#f4c20d",
@@ -504,10 +506,7 @@ def _select_day(hourly: pd.DataFrame, season: str) -> pd.DataFrame:
     return month_data[month_data["timestamp"].dt.date == selected_date].head(24)
 
 
-def _render_operation(st, hourly: pd.DataFrame) -> None:
-    st.subheader("运行时序")
-    season = st.radio("典型日", ["春季", "夏季", "秋季", "冬季"], index=1, horizontal=True, key="insight_typical_day")
-    day = _select_day(hourly, season)
+def _render_day_operation_chart(st, day: pd.DataFrame, title: str) -> None:
     if day.empty:
         st.info("当前方案没有可用于运行时序的逐小时数据。")
         return
@@ -516,7 +515,9 @@ def _render_operation(st, hourly: pd.DataFrame) -> None:
     fig.add_bar(x=x, y=_series_or_zero(day, "pv_generation_power"), name="光伏可发", marker_color=COLORS["pv"], row=1, col=1)
     fig.add_bar(x=x, y=_series_or_zero(day, "wind_generation_power"), name="风电可发", marker_color=COLORS["wind"], row=1, col=1)
     fig.add_bar(x=x, y=_series_or_zero(day, "bess_discharge_power"), name="储能放电", marker_color=COLORS["bess"], row=1, col=1)
+    fig.add_bar(x=x, y=_series_or_zero(day, "grid_import_power"), name="电网下网", marker_color="#8d99ae", row=1, col=1)
     fig.add_bar(x=x, y=-_series_or_zero(day, "bess_charge_power"), name="储能充电", marker_color="#7bdcb5", row=1, col=1)
+    fig.add_bar(x=x, y=-_series_or_zero(day, "grid_export_power"), name="上网", marker_color="#5c677d", row=1, col=1)
     fig.add_bar(x=x, y=-_series_or_zero(day, "curtail_power"), name="弃电", marker_color=COLORS["curtail"], row=1, col=1)
     fig.add_scatter(x=x, y=_series_or_zero(day, "load_power"), name="负荷", mode="lines", line=dict(color=COLORS["line"], width=3), row=1, col=1)
     fig.add_scatter(
@@ -528,25 +529,100 @@ def _render_operation(st, hourly: pd.DataFrame) -> None:
         row=2,
         col=1,
     )
-    fig.update_layout(title=f"24H 典型日运行策略 · {season}", barmode="relative", height=620, legend=dict(orientation="h"))
+    fig.update_layout(title=title, barmode="relative", height=620, legend=dict(orientation="h"))
     fig.update_yaxes(title_text="万kW", tickformat=",.2f", row=1, col=1)
     fig.update_yaxes(title_text="SOC", tickformat=".1%", row=2, col=1)
     st.plotly_chart(fig, use_container_width=True)
 
-    with st.expander("查看 8760h 策略曲线", expanded=False):
-        sample = hourly.copy()
-        sample["timestamp"] = pd.to_datetime(sample["timestamp"], errors="coerce")
-        fig2 = go.Figure()
-        fig2.add_scatter(x=sample["timestamp"], y=_series_or_zero(sample, "load_power"), name="负荷", line=dict(color=COLORS["line"]))
-        fig2.add_scatter(x=sample["timestamp"], y=_series_or_zero(sample, "renewable_power"), name="新能源净可用", line=dict(color=COLORS["wind"]))
-        fig2.add_scatter(x=sample["timestamp"], y=_series_or_zero(sample, "soc_end"), name="SOC", yaxis="y2", line=dict(color="#4a9d8f"))
-        fig2.update_layout(
-            height=420,
-            yaxis=dict(title="万kW", tickformat=",.2f"),
-            yaxis2=dict(title="SOC", overlaying="y", side="right", tickformat=".1%"),
-            legend=dict(orientation="h"),
+
+def _render_full_year_operation(st, hourly: pd.DataFrame) -> None:
+    if hourly.empty:
+        st.info("当前方案没有可用于全年曲线的逐小时数据。")
+        return
+    options = {
+        "负荷": ("load_power", COLORS["line"], "y"),
+        "新能源净可用": ("renewable_power", COLORS["wind"], "y"),
+        "下网": ("grid_import_power", "#8d99ae", "y"),
+        "上网": ("grid_export_power", "#5c677d", "y"),
+        "弃电": ("curtail_power", COLORS["curtail"], "y"),
+        "SOC": ("soc_end", "#4a9d8f", "y2"),
+    }
+    selected = st.multiselect(
+        "显示曲线",
+        list(options.keys()),
+        default=["负荷", "新能源净可用", "下网", "SOC"],
+        key="insight_full_year_series",
+    )
+    fig = go.Figure()
+    for label in selected:
+        column, color, axis = options[label]
+        if column not in hourly.columns:
+            continue
+        fig.add_trace(
+            go.Scattergl(
+                x=hourly["timestamp"],
+                y=_series_or_zero(hourly, column),
+                name=label,
+                yaxis=axis,
+                mode="lines",
+                line=dict(color=color, width=1.4),
+            )
         )
-        st.plotly_chart(fig2, use_container_width=True)
+    fig.update_layout(
+        title="全年 8760/8784 小时运行曲线",
+        height=520,
+        yaxis=dict(title="万kW", tickformat=",.2f"),
+        yaxis2=dict(title="SOC", overlaying="y", side="right", tickformat=".1%", range=[0, 1]),
+        xaxis=dict(
+            rangeslider=dict(visible=True, thickness=0.08),
+            rangeselector=dict(
+                buttons=[
+                    dict(count=1, label="1周", step="day", stepmode="backward"),
+                    dict(count=1, label="1月", step="month", stepmode="backward"),
+                    dict(step="all", label="全年"),
+                ]
+            ),
+        ),
+        legend=dict(orientation="h"),
+        margin=dict(l=10, r=10, t=70, b=10),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption("可拖动底部范围条缩放时段；SOC 使用右轴，功率类曲线使用左轴。")
+
+
+def _render_operation(st, hourly: pd.DataFrame) -> None:
+    st.subheader("运行时序")
+    adapted = adapt_hourly(hourly).data
+    if "timestamp" not in adapted.columns:
+        st.info("当前方案缺少 timestamp，无法生成运行时序图。")
+        return
+    adapted["timestamp"] = pd.to_datetime(adapted["timestamp"], errors="coerce")
+    adapted = adapted.dropna(subset=["timestamp"])
+    if adapted.empty:
+        st.info("当前方案没有可用于运行时序的逐小时数据。")
+        return
+
+    tabs = st.tabs(["典型季节日", "关键运行日", "全年8760曲线"])
+    with tabs[0]:
+        season = st.radio(
+            "典型日",
+            ["春季", "夏季", "秋季", "冬季"],
+            index=1,
+            horizontal=True,
+            key="insight_typical_day",
+        )
+        day = _select_day(adapted, season)
+        _render_day_operation_chart(st, day, f"24H 典型日运行策略 · {season}")
+    with tabs[1]:
+        mode = st.selectbox(
+            "关键日类型",
+            ["最大负荷日", "最大弃电日", "最大下网日", "SOC 最低日", "SOC 最高日"],
+            key="insight_key_day_mode",
+        )
+        day, label = select_operating_day(adapted, mode=mode)
+        _render_day_operation_chart(st, day, f"24H 关键运行日 · {mode} · {label}")
+    with tabs[2]:
+        _render_full_year_operation(st, adapted)
 
 
 def _render_economy(st, selected_summary: pd.DataFrame, active_id: str, economy_summary: pd.DataFrame | None) -> None:

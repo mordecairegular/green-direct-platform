@@ -2,6 +2,7 @@
 
 from green_direct.recommendation.recommendation_engine import (
     ENGINEERING_VIEW_LABELS,
+    SINGLE_ENTITY_VIEW_LABELS,
     RecommendationParams,
     build_recommendation_portfolio,
     build_recommendation_result,
@@ -14,6 +15,7 @@ from green_direct.recommendation.recommendation_engine import (
 
 __all__ = [
     "ENGINEERING_VIEW_LABELS",
+    "SINGLE_ENTITY_VIEW_LABELS",
     "RecommendationParams",
     "build_recommendation_portfolio",
     "build_recommendation_result",

@@ -21,8 +21,6 @@ from green_direct.economy import (
     EconomicParams,
     OtherOperatingRevenueItem,
     calc_avoided_grid_purchase_cash_price,
-    evaluate_batch_economy,
-    evaluate_batch_single_entity_pre_tax_economy,
 )
 from green_direct.export.csv_exporter import export_hourly_details_zip
 from green_direct.export.excel_exporter import export_summary_excel
@@ -31,9 +29,9 @@ from green_direct.io.validators import DataValidationError
 from green_direct.models.params import BessParams, DataCleaningParams, PerformanceParams, PolicyParams
 from green_direct.recommendation import (
     ENGINEERING_VIEW_LABELS,
-    RecommendationParams,
-    build_recommendation_result,
+    SINGLE_ENTITY_VIEW_LABELS,
 )
+from green_direct.services import RecommendationInputSnapshot, build_recommendation_study, run_economic_study
 from green_direct.ui.field_labels import FIELD_LABELS, format_display_frame, localize_columns, mapping_frame
 from green_direct.visualization.chart_ui import render_chart_analysis
 
@@ -49,6 +47,7 @@ FILE_KEYWORDS = {
     "光伏": ["光伏", "pv", "solar"],
     "风电": ["风电", "wind"],
 }
+WORKFLOW_PAGES = ["欢迎页", "技术仿真", "经济性评价", "推荐方案与详细分析"]
 
 
 class _LocalSampleFile:
@@ -495,7 +494,7 @@ def _single_entity_field_descriptions(columns: list[str]) -> pd.DataFrame:
         "self_use_energy": "来自技术仿真的自发自用电量，运营期各年按代表年结果重复。",
         "grid_export_energy": "来自技术仿真的上网电量，运营期各年按代表年结果重复。",
         "net_avoided_grid_cost_price": "外部购电净成本单价。表示同一主体口径下每 1 kWh 自发自用绿电替代外部购电带来的税前净节费；简化模式为用户直接输入。组价模式公式：外部购电净成本单价=原外部购网电电量类成本单价-绿电直连自发自用仍需缴纳费用单价。",
-        "avoided_grid_purchase_cash_price": "少付电网电费现金单价。默认简化模式下与净成本单价相同；组价模式下为含税/附加现金口径，仅辅助展示。",
+        "avoided_grid_purchase_cash_price": "少付电网电费现金单价。同一主体简化模式下与净成本单价相同；组价模式下为含税/附加现金口径，仅辅助展示，不作为负荷侧可成交收益的固定价输入。",
         "self_use_saving": f"{n('self_use_saving')}={n('self_use_energy')}×{n('net_avoided_grid_cost_price')}。进入税前 FIRR 的自发自用购电节费。",
         "avoided_grid_purchase_cash_saving": f"{n('avoided_grid_purchase_cash_saving')}={n('self_use_energy')}×{n('avoided_grid_purchase_cash_price')}。少付电网电量电费现金额，仅辅助展示，不进入税前 FIRR。",
         "environmental_value": f"{n('environmental_value')}={n('self_use_energy')}×环境价值单价。默认环境价值单价为 0。",
@@ -580,8 +579,8 @@ def _render_recommendation_v1(
     summary: pd.DataFrame,
     power_economy_summary: pd.DataFrame,
     single_entity_summary: pd.DataFrame | None,
-    avoided_grid_params: AvoidedGridPurchaseParams,
     economic_params: EconomicParams,
+    load_side_avoided_charge_price: float,
     green_power_settlement_price_with_vat: float,
     environmental_value_per_kwh: float,
     min_power_side_acceptable_firr: float | None,
@@ -589,34 +588,45 @@ def _render_recommendation_v1(
     st.markdown("---")
     st.header("推荐方案 V1（试用）")
     st.caption(
-        "默认构造同一主体 FIRR、电源侧 FIRR、负荷侧可成交收益、工程代表四个席位；"
+        "默认构造同一主体、电源侧 FIRR、负荷侧可成交收益、工程代表四个席位；"
         "推荐只读取技术汇总和经济性结果，不改变逐小时调度。重复命中多个席位的方案会合并标签。"
     )
+
+    single_entity_label_to_key = {label: key for key, label in SINGLE_ENTITY_VIEW_LABELS.items()}
+    single_entity_view_label = st.selectbox(
+        "同一主体推荐视角",
+        list(single_entity_label_to_key.keys()),
+        index=0,
+        help="默认按 FIRR 最高；也可切换为动态回收期最短，用于查看更偏快速回收的方案。",
+    )
+    single_entity_view = single_entity_label_to_key[single_entity_view_label]
 
     view_label_to_key = {label: key for key, label in ENGINEERING_VIEW_LABELS.items()}
     engineering_view_label = st.selectbox(
         "工程代表方案视角",
         list(view_label_to_key.keys()),
         index=0,
-        help="第四个推荐席位的工程视角。默认低弃电，可切换政策达标最小投资、高绿电占比、高自发自用。",
+        help="第四个推荐席位的工程视角。默认政策达标最小投资，可切换低弃电、高绿电占比、高自发自用。",
     )
     engineering_view = view_label_to_key[engineering_view_label]
 
-    load_side_avoided_charge_price = calc_avoided_grid_purchase_cash_price(avoided_grid_params)
-    recommendation_params = RecommendationParams(
+    recommendation_inputs = RecommendationInputSnapshot(
+        economic_params=economic_params,
         load_side_avoided_charge_price=load_side_avoided_charge_price,
         green_power_settlement_price_with_vat=green_power_settlement_price_with_vat,
         environmental_value_per_kwh=environmental_value_per_kwh,
         min_power_side_acceptable_firr=min_power_side_acceptable_firr,
-        engineering_view=engineering_view,
     )
-    portfolio, load_side_detail = build_recommendation_result(
+    recommendation_result = build_recommendation_study(
         summary,
         power_economy_summary,
-        recommendation_params,
+        recommendation_inputs,
         single_entity_summary=single_entity_summary,
-        economic_params=economic_params,
+        single_entity_view=single_entity_view,
+        engineering_view=engineering_view,
     )
+    portfolio = recommendation_result.portfolio
+    load_side_detail = recommendation_result.load_side_detail
 
     if portfolio.empty:
         st.info("当前没有可展示的推荐结果。")
@@ -730,7 +740,13 @@ def _render_data_status(st, statuses: list[dict]) -> None:
                 st.info(f"{item['曲线']}曲线存在负值，共 {item['负值点']} 个点，将按站用电参与计算。")
 
 
-def _render_economy_v1(st, summary: pd.DataFrame, bess_calendar_life_years: float = 15.0) -> None:
+def _render_economy_v1(
+    st,
+    summary: pd.DataFrame,
+    bess_calendar_life_years: float = 15.0,
+    *,
+    render_recommendation: bool = True,
+) -> None:
     st.markdown("---")
     st.header("经济性评价 V1")
     st.caption("经济性评价仅读取方案汇总结果，不重新计算逐小时调度。")
@@ -834,9 +850,9 @@ def _render_economy_v1(st, summary: pd.DataFrame, bess_calendar_life_years: floa
         st.markdown("#### 电费构成参数")
         with st.expander("高级：电费清单组价和价格曲线", expanded=False):
             use_grid_price_build_up = st.checkbox(
-                "按电费清单组价覆盖外部购电净成本单价",
+                "按电费清单组价覆盖外部购电净成本和负荷侧可减少费用",
                 value=False,
-                help="默认使用上方固定值；勾选后按电费清单中的电量电费项目组价。",
+                help="默认使用上方固定值；勾选后按电费清单中的电量电费项目分别推导同一主体净成本口径和负荷侧现金口径。",
             )
             if use_grid_price_build_up:
                 c1, c2, c3 = st.columns(3)
@@ -872,6 +888,26 @@ def _render_economy_v1(st, summary: pd.DataFrame, bess_calendar_life_years: floa
                 retained_gov_fund_surcharge = 0.0
                 grid_purchase_vat_rate = 0.13
                 net_avoided_grid_cost_price_for_calc = net_avoided_grid_cost_price
+            override_load_side_avoided_charge = st.checkbox(
+                "单独覆盖负荷侧可减少购网费用单价",
+                value=False,
+                help=(
+                    "默认由上方固定价或电费清单组价内部推导；只有负荷侧账单口径与同一主体净节费口径明显不同时才需要覆盖。"
+                ),
+            )
+            if override_load_side_avoided_charge:
+                load_side_avoided_charge_price_override = _float_text_input(
+                    st,
+                    "负荷侧可减少购网费用单价（元/kWh）",
+                    net_avoided_grid_cost_price,
+                    min_value=0.0,
+                    help=(
+                        "用于负荷侧可成交收益席位，表示绿电替代购网电后，负荷侧每 1 kWh "
+                        "自发自用绿电可减少的电量类购网费用现金口径。"
+                    ),
+                )
+            else:
+                load_side_avoided_charge_price_override = None
             st.caption("容需量电费和力调电费 V1 默认不参与节费测算：它们通常不随自发自用电量按 kWh 线性变化，后续作为高级模型单独研究。")
             st.caption("绿电结算价曲线、外部购电净成本曲线和上网电价曲线后续按 CSV/Excel 上传处理，不做网页逐项录入。当前页面先使用固定价。")
 
@@ -916,26 +952,36 @@ def _render_economy_v1(st, summary: pd.DataFrame, bess_calendar_life_years: floa
         grid_purchase_vat_rate=grid_purchase_vat_rate,
         environmental_value_per_kwh=environmental_value,
     )
+    derived_load_side_avoided_charge_price = calc_avoided_grid_purchase_cash_price(
+        avoided_grid_params
+    )
+    load_side_avoided_charge_price_for_calc = (
+        load_side_avoided_charge_price_override
+        if load_side_avoided_charge_price_override is not None
+        else derived_load_side_avoided_charge_price
+    )
 
     if st.button("计算经济性 V1（当前已实现视角）", key="run_economy_v1_all"):
         try:
             with st.spinner("正在计算电源侧和同一主体经济性年度现金流..."):
-                economic_summary, annual_cashflows = evaluate_batch_economy(summary, params)
-                single_entity_summary, single_entity_annual_cashflows = (
-                    evaluate_batch_single_entity_pre_tax_economy(
-                        summary,
-                        avoided_grid_params=avoided_grid_params,
-                        params=params,
-                    )
+                economic_study_result = run_economic_study(
+                    summary,
+                    economic_params=params,
+                    avoided_grid_params=avoided_grid_params,
+                    load_side_avoided_charge_price=load_side_avoided_charge_price_for_calc,
+                    green_power_settlement_price_with_vat=self_use_price,
+                    environmental_value_per_kwh=environmental_value,
+                    min_power_side_acceptable_firr=min_power_side_acceptable_firr,
                 )
             st.session_state["economy_v1_result"] = {
-                "summary": economic_summary,
-                "annual_cashflows": annual_cashflows,
+                "summary": economic_study_result.power_summary,
+                "annual_cashflows": economic_study_result.power_annual_cashflows,
             }
             st.session_state["single_entity_economy_result"] = {
-                "summary": single_entity_summary,
-                "annual_cashflows": single_entity_annual_cashflows,
+                "summary": economic_study_result.single_entity_summary,
+                "annual_cashflows": economic_study_result.single_entity_annual_cashflows,
             }
+            st.session_state["recommendation_v1_inputs"] = economic_study_result.recommendation_inputs.to_session_dict()
             st.session_state.pop("download_payloads", None)
         except ValueError as exc:
             st.error(f"经济性参数有误：{exc}")
@@ -1094,7 +1140,7 @@ def _render_economy_v1(st, summary: pd.DataFrame, bess_calendar_life_years: floa
                     key="download_single_entity_annual_cashflow",
                 )
 
-    if economy_result and not economy_result["summary"].empty:
+    if render_recommendation and economy_result and not economy_result["summary"].empty:
         recommendation_single_entity_summary = (
             single_entity_result["summary"]
             if single_entity_result and not single_entity_result["summary"].empty
@@ -1105,12 +1151,123 @@ def _render_economy_v1(st, summary: pd.DataFrame, bess_calendar_life_years: floa
             summary,
             economy_result["summary"],
             recommendation_single_entity_summary,
-            avoided_grid_params=avoided_grid_params,
             economic_params=params,
+            load_side_avoided_charge_price=load_side_avoided_charge_price_for_calc,
             green_power_settlement_price_with_vat=self_use_price,
             environmental_value_per_kwh=environmental_value,
             min_power_side_acceptable_firr=min_power_side_acceptable_firr,
         )
+
+
+def _render_workflow_navigation(st) -> str:
+    with st.sidebar:
+        st.markdown("### 工作流")
+        page = st.radio(
+            "工作流阶段",
+            WORKFLOW_PAGES,
+            key="workflow_page",
+            label_visibility="collapsed",
+        )
+        batch_result = st.session_state.get("batch_result")
+        economy_result = st.session_state.get("economy_v1_result")
+        st.caption(f"技术仿真：{'已完成' if batch_result else '未完成'}")
+        st.caption(
+            "经济性评价："
+            f"{'已完成' if economy_result and not economy_result.get('summary', pd.DataFrame()).empty else '未完成'}"
+        )
+    return page
+
+
+def _go_to_workflow_page(st, page: str) -> None:
+    st.session_state["workflow_page"] = page
+    if hasattr(st, "rerun"):
+        st.rerun()
+
+
+def _get_bess_calendar_life_years(st) -> float:
+    snapshot = st.session_state.get("config_snapshot", {})
+    try:
+        return float(snapshot.get("bess_calendar_life_years", 15.0))
+    except (TypeError, ValueError):
+        return 15.0
+
+
+def _summary_from_batch_result(batch_result) -> pd.DataFrame:
+    summary = batch_result.summary
+    if summary.empty:
+        return summary
+    return _add_scenario_type(summary)
+
+
+def _render_missing_step(st, target_page: str, message: str) -> None:
+    st.info(message)
+    if st.button(f"进入{target_page}", key=f"go_{target_page}"):
+        _go_to_workflow_page(st, target_page)
+
+
+def _render_welcome_page(st) -> None:
+    st.header("绿电直连 / 微电网方案策划与推荐平台")
+    st.caption("当前版本优先打通技术仿真、经济性评价、推荐组合和代表方案分析，不把全量枚举表作为主入口。")
+
+    batch_result = st.session_state.get("batch_result")
+    economy_result = st.session_state.get("economy_v1_result")
+    summary = _summary_from_batch_result(batch_result) if batch_result else pd.DataFrame()
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("技术仿真", "已完成" if batch_result else "待开始")
+    c2.metric("经济性评价", "已完成" if economy_result and not economy_result.get("summary", pd.DataFrame()).empty else "待开始")
+    c3.metric("方案数量", int(batch_result.scenario_count) if batch_result else 0)
+    c4.metric("达标方案", int(summary["pass_policy"].sum()) if not summary.empty and "pass_policy" in summary.columns else 0)
+
+    st.markdown(
+        """
+        **推荐使用路径**
+
+        1. 技术仿真：上传负荷、光伏、风电曲线，设置风光储遍历范围和政策约束。
+        2. 经济性评价：输入少量核心经济参数，默认用一个外部购电净成本口径派生负荷侧节费口径。
+        3. 推荐方案与详细分析：查看四个推荐席位、用户指定方案、能量流向和运行曲线。
+        """
+    )
+    if st.button("开始技术仿真", type="primary", key="welcome_start_technical"):
+        _go_to_workflow_page(st, "技术仿真")
+
+
+def _render_recommendation_analysis_page(st, batch_result, summary: pd.DataFrame) -> None:
+    st.header("推荐方案与详细分析")
+    st.caption("这里集中展示推荐组合、用户指定方案和逐小时图表分析。全量枚举表仍保留在技术仿真页的高级区域。")
+
+    economy_result = st.session_state.get("economy_v1_result")
+    single_entity_result = st.session_state.get("single_entity_economy_result")
+    recommendation_inputs = st.session_state.get("recommendation_v1_inputs")
+    if not economy_result or economy_result.get("summary", pd.DataFrame()).empty:
+        _render_missing_step(st, "经济性评价", "请先完成经济性评价，再生成推荐席位和经济性图表。")
+        return
+    if not recommendation_inputs:
+        _render_missing_step(st, "经济性评价", "请重新运行一次经济性评价，以保存推荐席位所需的价格和门槛参数。")
+        return
+
+    recommendation_single_entity_summary = (
+        single_entity_result["summary"]
+        if single_entity_result and not single_entity_result["summary"].empty
+        else None
+    )
+    _render_recommendation_v1(
+        st,
+        summary,
+        economy_result["summary"],
+        recommendation_single_entity_summary,
+        economic_params=recommendation_inputs["economic_params"],
+        load_side_avoided_charge_price=recommendation_inputs["load_side_avoided_charge_price"],
+        green_power_settlement_price_with_vat=recommendation_inputs["green_power_settlement_price_with_vat"],
+        environmental_value_per_kwh=recommendation_inputs["environmental_value_per_kwh"],
+        min_power_side_acceptable_firr=recommendation_inputs["min_power_side_acceptable_firr"],
+    )
+    render_chart_analysis(
+        st,
+        batch_result,
+        summary,
+        economy_result=economy_result,
+    )
 
 
 def main() -> None:
@@ -1118,6 +1275,31 @@ def main() -> None:
 
     st.set_page_config(page_title="绿电直连风光储方案策划平台", layout="wide")
     st.title("绿电直连风光储方案策划与测算平台")
+    workflow_page = _render_workflow_navigation(st)
+
+    if workflow_page == "欢迎页":
+        _render_welcome_page(st)
+        return
+
+    if workflow_page in {"经济性评价", "推荐方案与详细分析"}:
+        batch_result = st.session_state.get("batch_result")
+        if not batch_result:
+            _render_missing_step(st, "技术仿真", "请先完成技术仿真，经济性评价和推荐分析会读取技术仿真的方案汇总。")
+            return
+        summary = _summary_from_batch_result(batch_result)
+        if summary.empty:
+            st.warning("没有成功生成方案结果，请回到技术仿真页检查输入数据和方案范围。")
+            return
+        if workflow_page == "经济性评价":
+            _render_economy_v1(
+                st,
+                summary,
+                bess_calendar_life_years=_get_bess_calendar_life_years(st),
+                render_recommendation=False,
+            )
+        else:
+            _render_recommendation_analysis_page(st, batch_result, summary)
+        return
 
     with st.sidebar:
         with st.expander("数据上传", expanded=True):
@@ -1483,14 +1665,9 @@ def main() -> None:
                 "逐小时明细字段对应关系",
             )
 
-    _render_economy_v1(st, summary, bess_calendar_life_years=bess_calendar_life)
-
-    render_chart_analysis(
-        st,
-        batch_result,
-        summary,
-        economy_result=st.session_state.get("economy_v1_result"),
-    )
+    st.info("技术仿真已完成。下一步请进入“经济性评价”设置经济参数并生成推荐所需的经济结果。")
+    if st.button("进入经济性评价", key="technical_go_economy"):
+        _go_to_workflow_page(st, "经济性评价")
 
 
 if __name__ == "__main__":

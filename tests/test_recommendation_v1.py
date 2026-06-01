@@ -163,6 +163,20 @@ def test_engineering_representative_defaults_to_low_curtail_policy_passed_candid
     assert selected["recommendation_status"] == "selected"
 
 
+def test_engineering_representative_handles_partial_metric_columns():
+    summary = _summary().drop(columns=["curtail_energy"])
+
+    selected = select_engineering_representative(
+        summary,
+        "low_curtail",
+        power_economy_summary=_power_economy(),
+        economic_params=EconomicParams(),
+    )
+
+    assert selected["scenario_id"] == "S_LOW_CURTAIL"
+    assert selected["recommendation_status"] == "selected"
+
+
 def test_power_side_firr_recommendation_selects_highest_policy_passed_reliable_firr():
     selected = select_power_side_firr_recommendation(
         _summary(),
@@ -188,6 +202,26 @@ def test_single_entity_firr_recommendation_selects_highest_policy_passed_reliabl
     assert "同一主体 FIRR 最优" in selected["recommendation_labels"]
 
 
+def test_single_entity_recommendation_can_rank_by_dynamic_payback():
+    single_entity = _single_entity_economy()
+    single_entity.loc[
+        single_entity["scenario_id"] == "S_HIGH_LOAD_LOW_FIRR",
+        "single_entity_dynamic_payback_year",
+    ] = 6.0
+
+    selected = select_single_entity_firr_recommendation(
+        _summary(),
+        single_entity,
+        power_economy_summary=_power_economy(),
+        economic_params=EconomicParams(),
+        rank_mode="dynamic_payback",
+    )
+
+    assert selected["scenario_id"] == "S_HIGH_LOAD_LOW_FIRR"
+    assert selected["recommendation_status"] == "selected"
+    assert "同一主体动态回收期最短" in selected["recommendation_labels"]
+
+
 def test_recommendation_result_builds_four_default_seats_after_economy_run():
     portfolio, _ = build_recommendation_result(
         _summary(),
@@ -205,7 +239,7 @@ def test_recommendation_result_builds_four_default_seats_after_economy_run():
     assert "同一主体 FIRR 最优" in labels
     assert "电源侧 FIRR 最优" in labels
     assert "负荷侧可成交收益最优" in labels
-    assert "低弃电工程代表" in labels
+    assert "政策达标最小投资" in labels
     assert set(portfolio["recommendation_status"]) == {"selected"}
 
 

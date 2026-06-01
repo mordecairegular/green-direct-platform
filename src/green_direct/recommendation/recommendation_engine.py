@@ -16,10 +16,15 @@ from green_direct.economy import EconomicParams
 
 
 ENGINEERING_VIEW_LABELS = {
-    "low_curtail": "低弃电工程代表",
     "min_investment": "政策达标最小投资",
+    "low_curtail": "低弃电工程代表",
     "high_green_load": "高绿电占比",
     "high_self_use": "高自发自用",
+}
+
+SINGLE_ENTITY_VIEW_LABELS = {
+    "firr": "同一主体 FIRR 最优",
+    "dynamic_payback": "同一主体动态回收期最短",
 }
 
 
@@ -31,7 +36,8 @@ class RecommendationParams:
     green_power_settlement_price_with_vat: float
     environmental_value_per_kwh: float = 0.0
     min_power_side_acceptable_firr: float | None = 0.07
-    engineering_view: str = "low_curtail"
+    single_entity_view: str = "firr"
+    engineering_view: str = "min_investment"
 
 
 def _scenario_id_series(frame: pd.DataFrame) -> pd.Series:
@@ -404,12 +410,16 @@ def select_single_entity_firr_recommendation(
     *,
     power_economy_summary: pd.DataFrame | None = None,
     economic_params: EconomicParams | None = None,
+    rank_mode: str = "firr",
 ) -> dict[str, Any]:
     """Select the same-investor FIRR recommendation seat."""
 
+    rank_mode = rank_mode if rank_mode in SINGLE_ENTITY_VIEW_LABELS else "firr"
+    seat_id = "single_entity_dynamic_payback_best" if rank_mode == "dynamic_payback" else "single_entity_firr_best"
+    seat_label = SINGLE_ENTITY_VIEW_LABELS[rank_mode]
     seat = _base_recommendation_row(
-        seat_id="single_entity_firr_best",
-        seat_label="同一主体 FIRR 最优",
+        seat_id=seat_id,
+        seat_label=seat_label,
         status="pending",
         reason="待同一主体税前经济性评价。",
     )
@@ -429,25 +439,40 @@ def select_single_entity_firr_recommendation(
         return {
             **seat,
             "recommendation_status": "no_candidate",
-            "recommendation_reason": "没有政策达标方案，无法选择同一主体 FIRR 最优方案。",
+            "recommendation_reason": f"没有政策达标方案，无法选择{seat_label}方案。",
         }
-    if "single_entity_firr_pre_tax" not in candidates.columns:
+    sort_metric = (
+        "single_entity_dynamic_payback_year"
+        if rank_mode == "dynamic_payback"
+        else "single_entity_firr_pre_tax"
+    )
+    if sort_metric not in candidates.columns:
         return seat
 
-    firr_reliable = _finite_numeric(candidates, "single_entity_firr_pre_tax")
-    if "single_entity_firr_status" in candidates.columns:
-        firr_reliable &= candidates["single_entity_firr_status"].astype(str).eq("ok")
-    candidates = candidates[firr_reliable].copy()
+    metric_reliable = _finite_numeric(candidates, sort_metric)
+    if rank_mode == "firr" and "single_entity_firr_status" in candidates.columns:
+        metric_reliable &= candidates["single_entity_firr_status"].astype(str).eq("ok")
+    candidates = candidates[metric_reliable].copy()
     if candidates.empty:
         return {
             **seat,
             "recommendation_status": "no_candidate",
-            "recommendation_reason": "政策达标方案中没有 FIRR 状态为 ok 且数值可靠的同一主体经济性结果。",
+            "recommendation_reason": f"政策达标方案中没有可可靠计算的{seat_label}经济性结果。",
         }
 
-    best = _sort_by_available_columns(
-        candidates,
-        [
+    if rank_mode == "dynamic_payback":
+        sort_plan = [
+            ("single_entity_dynamic_payback_year", True),
+            ("single_entity_firr_pre_tax", False),
+            ("single_entity_static_payback_year", True),
+            ("single_entity_fnpv_pre_tax", False),
+            ("initial_investment_basis", True),
+            ("green_load_rate", False),
+            ("curtail_rate", True),
+        ]
+        reason = "在政策达标且同一主体动态回收期可计算的候选集中，动态回收期最短。"
+    else:
+        sort_plan = [
             ("single_entity_firr_pre_tax", False),
             ("single_entity_static_payback_year", True),
             ("single_entity_dynamic_payback_year", True),
@@ -455,15 +480,17 @@ def select_single_entity_firr_recommendation(
             ("initial_investment_basis", True),
             ("green_load_rate", False),
             ("curtail_rate", True),
-        ],
-    ).iloc[0]
+        ]
+        reason = "在政策达标且同一主体税前 FIRR 可可靠计算的候选集中，FIRR 最高。"
+
+    best = _sort_by_available_columns(candidates, sort_plan).iloc[0]
     row = best.to_dict()
     row.update(
         {
-            "seat_id": "single_entity_firr_best",
-            "recommendation_labels": "同一主体 FIRR 最优",
+            "seat_id": seat_id,
+            "recommendation_labels": seat_label,
             "recommendation_status": "selected",
-            "recommendation_reason": "在政策达标且同一主体税前 FIRR 可可靠计算的候选集中，FIRR 最高。",
+            "recommendation_reason": reason,
             "risk_note": "",
         }
     )
@@ -472,19 +499,31 @@ def select_single_entity_firr_recommendation(
 
 def _sort_engineering_candidates(candidates: pd.DataFrame, view: str) -> pd.DataFrame:
     if view == "min_investment":
-        columns = ["construction_cash_outflow", "green_load_rate", "curtail_rate"]
-        ascending = [True, False, True]
+        sort_plan = [
+            ("construction_cash_outflow", True),
+            ("green_load_rate", False),
+            ("curtail_rate", True),
+        ]
     elif view == "high_green_load":
-        columns = ["green_load_rate", "self_use_energy", "construction_cash_outflow"]
-        ascending = [False, False, True]
+        sort_plan = [
+            ("green_load_rate", False),
+            ("self_use_energy", False),
+            ("construction_cash_outflow", True),
+        ]
     elif view == "high_self_use":
-        columns = ["self_use_rate", "curtail_rate", "construction_cash_outflow"]
-        ascending = [False, True, True]
+        sort_plan = [
+            ("self_use_rate", False),
+            ("curtail_rate", True),
+            ("construction_cash_outflow", True),
+        ]
     else:
-        columns = ["curtail_rate", "curtail_energy", "construction_cash_outflow", "green_load_rate"]
-        ascending = [True, True, True, False]
-    columns = [column for column in columns if column in candidates.columns]
-    return candidates.sort_values(columns, ascending=ascending, na_position="last")
+        sort_plan = [
+            ("curtail_rate", True),
+            ("curtail_energy", True),
+            ("construction_cash_outflow", True),
+            ("green_load_rate", False),
+        ]
+    return _sort_by_available_columns(candidates, sort_plan)
 
 
 def select_engineering_representative(
@@ -601,6 +640,7 @@ def build_recommendation_result(
             single_entity_summary,
             power_economy_summary=power_economy_summary,
             economic_params=economic_params,
+            rank_mode=params.single_entity_view,
         ),
         select_power_side_firr_recommendation(
             summary,

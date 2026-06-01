@@ -82,7 +82,12 @@ def calc_net_avoided_grid_cost_price(params: AvoidedGridPurchaseParams) -> float
 
 
 def calc_avoided_grid_purchase_cash_price(params: AvoidedGridPurchaseParams) -> float:
-    """Return the cash price avoided before stripping deductible VAT."""
+    """Return the cash price avoided before stripping deductible VAT.
+
+    In fixed net-price mode this returns the same user-entered value for
+    same-entity auxiliary display. Load-side tradable-benefit ranking should
+    pass an explicit load-side avoided charge price through RecommendationParams.
+    """
 
     validate_avoided_grid_purchase_params(params)
     if params.net_avoided_grid_cost_price is not None:
