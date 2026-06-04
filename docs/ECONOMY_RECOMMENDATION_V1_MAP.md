@@ -1,6 +1,6 @@
 # 经济性评价与推荐 V1 模块导览
 
-状态：2026-05-28 复核版  
+状态：2026-06-01 复核版
 目标读者：第一次接触本项目、需要快速理解经济性评价和推荐席位如何运行的开发者或复核人员。
 
 本文不是新的计算口径平行版本，而是把已落地代码、权威口径文档和推荐席位串成一张地图。若发现本文与代码不一致，以代码和对应测试为准，并同步修正文档。
@@ -29,7 +29,7 @@
 | `src/green_direct/economy/single_entity_evaluator.py` | 同一主体税前增量现金流 | `evaluate_single_entity_pre_tax_economy`, `evaluate_batch_single_entity_pre_tax_economy` |
 | `src/green_direct/recommendation/recommendation_engine.py` | 四个默认推荐席位 | `build_recommendation_result`, `RecommendationParams` |
 | `src/green_direct/services/study_runner.py` | 经济性评价和推荐组合的服务层编排 | `run_economic_study`, `build_recommendation_study`, `RecommendationInputSnapshot` |
-| `src/green_direct/ui/app.py` | Streamlit 四阶段工作流、参数收集、计算按钮、展示和下载 | `WORKFLOW_PAGES`, `_render_economy_v1`, `_render_recommendation_analysis_page`, `_render_recommendation_v1` |
+| `src/green_direct/ui/app.py` | Streamlit 五阶段工作流、参数收集、计算按钮、展示和下载 | `WORKFLOW_PAGES`, `_render_economy_v1`, `_render_recommendation_analysis_page`, `_render_exports_and_reports_page`, `_render_recommendation_v1` |
 | `src/green_direct/ui/field_labels.py` | 字段中文名和显示格式 | `FIELD_LABELS`, `format_display_frame` |
 
 相关测试：
@@ -40,7 +40,7 @@
 | `tests/test_single_entity_economy.py` | 同一主体节费、税前 FIRR、价税分离、环境价值 |
 | `tests/test_recommendation_v1.py` | 推荐席位排序、负荷侧可成交门槛、席位合并 |
 | `tests/test_study_runner.py` | 服务层经济性编排、推荐输入快照和推荐组合构建 |
-| `tests/test_ui_import.py` | UI 导入和同一主体年度现金流导出结构 |
+| `tests/test_ui_import.py` | UI 导入、页面状态兼容、简版报告和同一主体年度现金流导出结构 |
 
 ## 3. 数据流
 

@@ -160,6 +160,12 @@ src/green_direct/services/study_runner.py
 4. `StudyRunner` 初期内部仍调用 `run_batch`；
 5. 输出 `StudyResult` 包装 `BatchResult`、diagnostics 和 config。
 
+当前落地状态（2026-06-04）：
+
+- 已在 `src/green_direct/services/study_runner.py` 定义 `TechnicalStudyInput`、`TechnicalStudyResult`、`StudyResult` 和 `run_technical_study()`；
+- `run_technical_study()` 已按迁移方式第 4、5 点先包装现有 `read_curve_set()` / `run_batch()`，并输出配置快照和结构化输入诊断；
+- `HourlyEnergyLedger` 字段标准仍沿用现有 hourly_detail，尚未单独抽出 `domain/ledger.py`；图表、推荐和导出页仍保留 `batch_result` 兼容读取，后续逐步迁移到 `StudyResult`。
+
 好处：
 
 - UI、图表、报告不再直接依赖底层 batch 结构；

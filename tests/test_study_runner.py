@@ -2,7 +2,14 @@ import pandas as pd
 import pytest
 
 from green_direct.economy import AvoidedGridPurchaseParams, EconomicParams
-from green_direct.services import build_recommendation_study, run_economic_study
+from green_direct.models.params import PolicyParams
+from green_direct.services import (
+    StudyResult,
+    TechnicalStudyInput,
+    build_recommendation_study,
+    run_economic_study,
+    run_technical_study,
+)
 
 
 def _summary() -> pd.DataFrame:
@@ -26,6 +33,54 @@ def _summary() -> pd.DataFrame:
             }
         ]
     )
+
+
+def _curve_csv(values: list[float], column: str) -> bytes:
+    frame = pd.DataFrame(
+        {
+            "时间": pd.date_range("2020-01-01", periods=len(values), freq="h"),
+            column: values,
+        }
+    )
+    return frame.to_csv(index=False).encode("utf-8-sig")
+
+
+def test_technical_study_wraps_curve_reading_batch_run_and_study_result():
+    grid = {
+        "pv_capacity": {"start": 0, "end": 1, "step": 1},
+        "wind_capacity": {"start": 0, "end": 1, "step": 1},
+        "bess_power": {"start": 0, "end": 0, "step": 1},
+        "bess_duration_hours": [0],
+    }
+
+    technical = run_technical_study(
+        TechnicalStudyInput(
+            load_source=_curve_csv([10.0, 10.0], "负荷"),
+            pv_source=_curve_csv([1.0, -0.01], "光伏"),
+            wind_source=_curve_csv([0.0, 1.0], "风电"),
+            load_time_col="时间",
+            load_value_col="负荷",
+            pv_time_col="时间",
+            pv_value_col="光伏",
+            wind_time_col="时间",
+            wind_value_col="风电",
+            scenario_grid=grid,
+            policy_params=PolicyParams(allow_export=False),
+            validate_length=False,
+            config_metadata={"demo": True},
+        ),
+        study_id="study-test",
+    )
+    study = StudyResult.from_technical(technical)
+
+    assert technical.study_id == "study-test"
+    assert technical.scenario_count == 3
+    assert set(technical.hourly_details) == set(technical.summary["scenario_id"])
+    assert technical.config_snapshot["demo"] is True
+    assert technical.config_snapshot["policy"]["allow_export"] is False
+    assert technical.input_diagnostics.warnings_as_messages()
+    assert study.batch_result is technical.batch_result
+    assert study.summary.equals(technical.summary)
 
 
 def test_economic_study_preserves_recommendation_input_snapshot():

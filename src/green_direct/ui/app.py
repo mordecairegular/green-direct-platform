@@ -2,20 +2,25 @@
 
 from __future__ import annotations
 
+import html
 from io import BytesIO
+from numbers import Number
 from pathlib import Path
 import re
 import sys
 from tempfile import TemporaryDirectory
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 SRC_ROOT = str(Path(__file__).resolve().parents[2])
 if sys.path[0] != SRC_ROOT:  # pragma: no cover - import path guard for Streamlit and installed packages
     sys.path.insert(0, SRC_ROOT)
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
-from green_direct.batch.batch_runner import estimate_scenario_count, run_batch
+from green_direct.batch.batch_runner import estimate_scenario_count
 from green_direct.economy import (
     AvoidedGridPurchaseParams,
     EconomicParams,
@@ -24,16 +29,40 @@ from green_direct.economy import (
 )
 from green_direct.export.csv_exporter import export_hourly_details_zip
 from green_direct.export.excel_exporter import export_summary_excel
-from green_direct.io.read_curves import read_csv_auto_encoding, read_curve_set
+from green_direct.io.read_curves import read_csv_auto_encoding
 from green_direct.io.validators import DataValidationError
 from green_direct.models.params import BessParams, DataCleaningParams, PerformanceParams, PolicyParams
 from green_direct.recommendation import (
     ENGINEERING_VIEW_LABELS,
     SINGLE_ENTITY_VIEW_LABELS,
 )
-from green_direct.services import RecommendationInputSnapshot, build_recommendation_study, run_economic_study
+from green_direct.services import (
+    RecommendationInputSnapshot,
+    StudyResult,
+    TechnicalStudyInput,
+    build_recommendation_study,
+    run_economic_study,
+    run_technical_study,
+)
 from green_direct.ui.field_labels import FIELD_LABELS, format_display_frame, localize_columns, mapping_frame
+from green_direct.visualization.chart_data import adapt_hourly, select_typical_season_day
+from green_direct.visualization.export_charts import chart_to_html_bytes, chart_to_meta_markdown
+from green_direct.visualization.heatmap_charts import build_heatmap_chart
 from green_direct.visualization.chart_ui import render_chart_analysis
+from green_direct.visualization.multi_scenario_charts import (
+    build_curtailment_vs_self_consumption_scatter,
+    build_multi_capacity_comparison,
+    build_multi_policy_comparison,
+    build_multi_renewable_flow_comparison,
+)
+from green_direct.visualization.single_scenario_charts import (
+    build_daily_balance_chart,
+    build_grid_exchange_chart,
+    build_monthly_load_source_chart,
+    build_monthly_renewable_flow_chart,
+    build_policy_bar_chart,
+    build_soc_chart,
+)
 
 
 TIME_COLUMN_CANDIDATES = ["时间", "timestamp", "time", "日期时间", "日期", "datetime"]
@@ -47,7 +76,629 @@ FILE_KEYWORDS = {
     "光伏": ["光伏", "pv", "solar"],
     "风电": ["风电", "wind"],
 }
-WORKFLOW_PAGES = ["欢迎页", "技术仿真", "经济性评价", "推荐方案与详细分析"]
+WORKFLOW_PAGES = ["欢迎页", "方案仿真", "经济性测算", "方案推荐及图表概览", "图表下载和报告生成"]
+WORKFLOW_PAGE_KEY = "workflow_page"
+WORKFLOW_PAGE_TARGET_KEY = "_workflow_page_target"
+WORKFLOW_PAGE_ALIASES = {
+    "技术仿真": "方案仿真",
+    "经济性评价": "经济性测算",
+    "推荐方案与详细分析": "方案推荐及图表概览",
+    "方案推荐与图表概览": "方案推荐及图表概览",
+    "图表与报告": "图表下载和报告生成",
+}
+WORKFLOW_PAGE_META = {
+    "欢迎页": {
+        "index": "01",
+        "title": "欢迎页",
+        "subtitle": "查看项目状态、数据准备情况和下一步工作入口。",
+    },
+    "方案仿真": {
+        "index": "02",
+        "title": "方案仿真",
+        "subtitle": "上传曲线、配置候选方案池和政策约束，生成技术仿真结果。",
+    },
+    "经济性测算": {
+        "index": "03",
+        "title": "经济性测算",
+        "subtitle": "读取技术结果，输入经济参数并计算已实现的经济性视角。",
+    },
+    "方案推荐及图表概览": {
+        "index": "04",
+        "title": "方案推荐及图表概览",
+        "subtitle": "围绕代表方案展示推荐席位、关键指标、能量流向和运行曲线。",
+    },
+    "图表下载和报告生成": {
+        "index": "05",
+        "title": "图表下载和报告生成",
+        "subtitle": "集中导出复核数据、图表包和简版说明报告。",
+    },
+}
+
+WORKBENCH_CSS = """
+<style>
+:root {
+    --gd-navy: #08213f;
+    --gd-navy-2: #0b2b52;
+    --gd-line: #d9e2ec;
+    --gd-muted: #667085;
+    --gd-text: #172033;
+    --gd-surface: #ffffff;
+    --gd-bg: #f4f7fb;
+    --gd-accent: #d8a20c;
+    --gd-green: #16a34a;
+    --gd-blue: #2474c7;
+    --gd-orange: #d97706;
+}
+[data-testid="stAppViewContainer"] {
+    background: var(--gd-bg);
+}
+[data-testid="stHeader"] {
+    display: none;
+    height: 0;
+    visibility: hidden;
+}
+#MainMenu,
+[data-testid="stToolbar"],
+[data-testid="stDecoration"],
+[data-testid="stStatusWidget"] {
+    display: none !important;
+}
+.block-container {
+    padding-top: 0.55rem;
+    padding-bottom: 1.4rem;
+    padding-left: 1.35rem;
+    padding-right: 1.35rem;
+    max-width: none;
+}
+[data-testid="stSidebar"] {
+    background: var(--gd-navy);
+    min-width: 248px !important;
+    max-width: 248px !important;
+    width: 248px !important;
+}
+[data-testid="stSidebar"] > div {
+    background: var(--gd-navy);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    min-width: 248px !important;
+    max-width: 248px !important;
+    width: 248px !important;
+}
+[data-testid="stSidebar"] * {
+    color: #e6eef8;
+}
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
+    color: #b9c7da;
+}
+[data-testid="stSidebar"] .stButton > button {
+    width: 100%;
+    min-height: 45px;
+    justify-content: flex-start;
+    color: #dbeafe !important;
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 7px;
+    padding: 8px 11px;
+    font-weight: 680;
+    line-height: 1.18;
+}
+[data-testid="stSidebar"] .stButton > button:hover {
+    color: #ffffff !important;
+    background: rgba(255, 255, 255, 0.11);
+    border-color: rgba(255, 255, 255, 0.18);
+}
+.gd-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 45px;
+    padding: 8px 11px;
+    border-radius: 7px;
+    margin: 0 0 6px 0;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.gd-nav-item.gd-nav-active {
+    background: #15529d;
+    border-color: rgba(255, 255, 255, 0.22);
+    box-shadow: inset 3px 0 0 #ff5b5b;
+}
+.gd-nav-index {
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 760;
+    min-width: 25px;
+}
+.gd-nav-title {
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 720;
+}
+.stButton > button,
+[data-testid="stDownloadButton"] button {
+    border-radius: 7px;
+    min-height: 38px;
+    border-color: #cbd5e1;
+    color: var(--gd-text);
+    font-weight: 650;
+}
+.stButton > button:hover,
+[data-testid="stDownloadButton"] button:hover {
+    border-color: #94a3b8;
+    color: var(--gd-navy-2);
+}
+.stButton > button[kind="primary"] {
+    background: #ef4444;
+    border-color: #ef4444;
+    color: #ffffff;
+}
+.stButton > button[kind="primary"]:hover {
+    background: #dc2626;
+    border-color: #dc2626;
+    color: #ffffff;
+}
+[data-testid="stSidebar"] div[data-testid="stButton"] button,
+[data-testid="stSidebar"] button[kind="secondary"] {
+    width: 100% !important;
+    min-height: 45px !important;
+    justify-content: flex-start !important;
+    color: #dbeafe !important;
+    background: rgba(255, 255, 255, 0.055) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 7px !important;
+    padding: 8px 11px !important;
+    font-weight: 680 !important;
+    line-height: 1.18 !important;
+}
+[data-testid="stSidebar"] div[data-testid="stButton"] button:hover,
+[data-testid="stSidebar"] button[kind="secondary"]:hover {
+    color: #ffffff !important;
+    background: rgba(255, 255, 255, 0.11) !important;
+    border-color: rgba(255, 255, 255, 0.18) !important;
+}
+div[data-testid="stMetric"] {
+    background: var(--gd-surface);
+    border: 1px solid var(--gd-line);
+    border-radius: 8px;
+    padding: 12px 14px;
+}
+div[data-testid="stMetric"] label {
+    color: var(--gd-muted) !important;
+}
+div[data-testid="stMetricValue"] {
+    color: var(--gd-text);
+    font-size: 1.45rem;
+}
+div[data-testid="stExpander"] {
+    border-color: var(--gd-line);
+    border-radius: 8px;
+    background: var(--gd-surface);
+}
+.gd-sidebar-brand {
+    padding: 12px 4px 16px 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    margin-bottom: 14px;
+}
+.gd-sidebar-brand .gd-brand-title {
+    color: #ffffff;
+    font-size: 18px;
+    font-weight: 760;
+    line-height: 1.25;
+}
+.gd-sidebar-brand .gd-brand-subtitle {
+    color: #a9b8cf;
+    font-size: 12px;
+    margin-top: 6px;
+}
+.gd-sidebar-status {
+    margin-top: 18px;
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.05);
+}
+.gd-sidebar-status-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12px;
+    margin: 6px 0;
+}
+.gd-topbar {
+    display: grid;
+    grid-template-columns: minmax(240px, 1.25fr) repeat(6, minmax(110px, 0.75fr));
+    gap: 1px;
+    border: 1px solid var(--gd-line);
+    background: var(--gd-line);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+.gd-topbar-cell {
+    background: var(--gd-surface);
+    padding: 8px 11px;
+    min-height: 54px;
+}
+.gd-topbar-label {
+    color: var(--gd-muted);
+    font-size: 12px;
+    line-height: 1.2;
+}
+.gd-topbar-value {
+    color: var(--gd-text);
+    font-size: 14px;
+    font-weight: 720;
+    margin-top: 4px;
+}
+.gd-status-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 650;
+    white-space: nowrap;
+}
+.gd-status-ok { background: #e8f7ee; color: #116b35; }
+.gd-status-pending { background: #eef2f7; color: #475467; }
+.gd-status-warn { background: #fff4dd; color: #8a5200; }
+.gd-page-heading {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    margin: 10px 0 12px 0;
+}
+.gd-page-index {
+    min-width: 44px;
+    height: 34px;
+    border-radius: 6px;
+    background: var(--gd-navy-2);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 760;
+    font-size: 14px;
+}
+.gd-page-title {
+    color: var(--gd-text);
+    font-size: 24px;
+    font-weight: 760;
+    line-height: 1.2;
+}
+.gd-page-subtitle {
+    color: var(--gd-muted);
+    margin-top: 5px;
+    font-size: 14px;
+}
+.gd-section-eyebrow {
+    color: var(--gd-muted);
+    font-size: 12px;
+    letter-spacing: 0;
+    margin-bottom: 3px;
+}
+.gd-section-title {
+    color: var(--gd-text);
+    font-size: 17px;
+    font-weight: 720;
+    margin-bottom: 4px;
+}
+.gd-section-copy {
+    color: var(--gd-muted);
+    font-size: 12px;
+    margin-bottom: 8px;
+}
+.gd-callout {
+    border-left: 4px solid var(--gd-accent);
+    background: #fffaf0;
+    color: #344054;
+    padding: 10px 12px;
+    border-radius: 6px;
+    margin: 10px 0 14px 0;
+    font-size: 13px;
+}
+.gd-rec-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(265px, 1fr));
+    gap: 12px;
+    margin: 8px 0 10px 0;
+}
+.gd-rec-card {
+    background: #ffffff;
+    border: 1px solid var(--gd-line);
+    border-radius: 8px;
+    padding: 11px 13px;
+    min-height: 186px;
+}
+.gd-rec-card:first-child {
+    border-color: #d8a20c;
+    box-shadow: inset 0 3px 0 #d8a20c;
+}
+.gd-rec-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: flex-start;
+}
+.gd-rec-titleline {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+.gd-rec-rank {
+    min-width: 24px;
+    height: 24px;
+    border-radius: 5px;
+    background: var(--gd-navy-2);
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 760;
+}
+.gd-rec-labels {
+    color: var(--gd-blue);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.25;
+}
+.gd-rec-id {
+    color: var(--gd-text);
+    font-size: 18px;
+    font-weight: 760;
+    margin-top: 3px;
+}
+.gd-rec-capacity {
+    color: #475467;
+    font-size: 12px;
+    margin-top: 3px;
+}
+.gd-rec-reason {
+    color: #344054;
+    font-size: 12px;
+    min-height: 29px;
+    margin: 7px 0 6px 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.gd-rec-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px 8px;
+}
+.gd-rec-metric {
+    border-top: 1px solid #edf2f7;
+    padding-top: 6px;
+}
+.gd-rec-metric span {
+    display: block;
+    color: var(--gd-muted);
+    font-size: 11px;
+}
+.gd-rec-metric strong {
+    color: var(--gd-text);
+    font-size: 14px;
+    overflow-wrap: anywhere;
+}
+.gd-risk-note {
+    color: #7a4a00;
+    background: #fff7e6;
+    border-radius: 6px;
+    padding: 7px 9px;
+    margin-top: 10px;
+    font-size: 12px;
+}
+.gd-dashboard-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 8px 0 8px 0;
+}
+.gd-dashboard-title {
+    color: var(--gd-text);
+    font-size: 18px;
+    font-weight: 760;
+}
+.gd-dashboard-subtitle {
+    color: var(--gd-muted);
+    font-size: 12px;
+    margin-top: 2px;
+}
+.gd-chart-panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 42px;
+    margin-bottom: 4px;
+}
+.gd-chart-panel-title {
+    color: var(--gd-text);
+    font-size: 16px;
+    font-weight: 740;
+}
+.gd-chart-panel-note {
+    color: var(--gd-muted);
+    font-size: 12px;
+    margin-top: 2px;
+}
+.gd-chart-panel-tag {
+    border: 1px solid var(--gd-line);
+    border-radius: 999px;
+    color: #475467;
+    background: #f8fafc;
+    font-size: 12px;
+    padding: 3px 9px;
+    white-space: nowrap;
+}
+.gd-download-handoff {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin: 10px 0 12px 0;
+}
+.gd-download-card {
+    border: 1px solid var(--gd-line);
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 13px;
+    min-height: 104px;
+}
+.gd-download-card strong {
+    display: block;
+    color: var(--gd-text);
+    font-size: 15px;
+    margin-bottom: 6px;
+}
+.gd-download-card span {
+    color: var(--gd-muted);
+    font-size: 12px;
+    line-height: 1.45;
+}
+.gd-export-selected {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    border: 1px solid var(--gd-line);
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 11px 13px;
+    margin: 8px 0 12px 0;
+}
+.gd-export-selected strong {
+    color: var(--gd-text);
+}
+.gd-export-selected span {
+    color: var(--gd-muted);
+    font-size: 12px;
+}
+.gd-export-panel-head {
+    min-height: 56px;
+    margin-bottom: 8px;
+}
+.gd-export-panel-head strong {
+    display: block;
+    color: var(--gd-text);
+    font-size: 16px;
+    margin-bottom: 4px;
+}
+.gd-export-panel-head span {
+    color: var(--gd-muted);
+    font-size: 12px;
+    line-height: 1.4;
+}
+.gd-export-note {
+    color: var(--gd-muted);
+    font-size: 12px;
+    margin-top: 8px;
+}
+.gd-bottom-status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    align-items: center;
+    border-top: 1px solid var(--gd-line);
+    color: #475467;
+    font-size: 12px;
+    padding-top: 10px;
+    margin-top: 12px;
+}
+.gd-bottom-status strong {
+    color: var(--gd-text);
+}
+.gd-sim-file-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin: 8px 0 2px 0;
+}
+.gd-sim-file-card {
+    border: 1px solid #e5edf6;
+    border-radius: 7px;
+    background: #f8fafc;
+    padding: 8px 9px;
+    min-height: 72px;
+}
+.gd-sim-file-card.gd-ready {
+    background: #f0f9f4;
+    border-color: #bbebcb;
+}
+.gd-sim-file-card strong {
+    display: block;
+    color: var(--gd-text);
+    font-size: 13px;
+}
+.gd-sim-file-card span {
+    display: block;
+    color: var(--gd-muted);
+    font-size: 11px;
+    line-height: 1.35;
+    margin-top: 4px;
+    overflow-wrap: anywhere;
+}
+.gd-sim-kpis {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin: 8px 0 0 0;
+}
+.gd-sim-kpi {
+    border: 1px solid #e5edf6;
+    border-radius: 7px;
+    background: #f8fafc;
+    padding: 8px 9px;
+    min-height: 58px;
+}
+.gd-sim-kpi span {
+    display: block;
+    color: var(--gd-muted);
+    font-size: 11px;
+}
+.gd-sim-kpi strong {
+    display: block;
+    color: var(--gd-text);
+    font-size: 18px;
+    line-height: 1.2;
+    margin-top: 3px;
+}
+.gd-run-state {
+    border: 1px solid #e5edf6;
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 10px 12px;
+    margin: 8px 0 10px 0;
+    color: #475467;
+    font-size: 13px;
+}
+.gd-run-state strong {
+    color: var(--gd-text);
+}
+.gd-field-note {
+    color: var(--gd-muted);
+    font-size: 12px;
+    line-height: 1.45;
+}
+@media (max-width: 900px) {
+    .gd-topbar {
+        grid-template-columns: 1fr;
+    }
+    .gd-rec-grid {
+        grid-template-columns: 1fr;
+    }
+    .gd-rec-metrics,
+    .gd-download-handoff,
+    .gd-sim-file-grid,
+    .gd-sim-kpis {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+"""
 
 
 class _LocalSampleFile:
@@ -57,6 +708,387 @@ class _LocalSampleFile:
 
     def getvalue(self) -> bytes:
         return self.path.read_bytes()
+
+
+def _safe_html_text(value) -> str:
+    return html.escape("" if value is None else str(value))
+
+
+def _inject_workbench_style(st) -> None:
+    st.markdown(WORKBENCH_CSS, unsafe_allow_html=True)
+
+
+def _is_present(value) -> bool:
+    if value is None:
+        return False
+    try:
+        return not bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return True
+
+
+def _compact_number(value, digits: int = 2) -> str:
+    if not _is_present(value):
+        return "-"
+    try:
+        text = f"{float(value):,.{digits}f}"
+        return text.rstrip("0").rstrip(".")
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _status_pill(text: str, state: str) -> str:
+    state_class = {
+        "ok": "gd-status-ok",
+        "warn": "gd-status-warn",
+        "pending": "gd-status-pending",
+    }.get(state, "gd-status-pending")
+    return f'<span class="gd-status-pill {state_class}">{_safe_html_text(text)}</span>'
+
+
+def _topbar_cell(label: str, value: str, detail: str | None = None) -> str:
+    detail_html = f'<div class="gd-topbar-label">{_safe_html_text(detail)}</div>' if detail else ""
+    return (
+        '<div class="gd-topbar-cell">'
+        f'<div class="gd-topbar-label">{_safe_html_text(label)}</div>'
+        f'<div class="gd-topbar-value">{value}</div>'
+        f"{detail_html}"
+        "</div>"
+    )
+
+
+def _data_range_status(batch_result) -> tuple[str, str]:
+    if not batch_result or not getattr(batch_result, "hourly_details", None):
+        return "待仿真", "未生成逐小时明细"
+
+    for hourly in batch_result.hourly_details.values():
+        if not isinstance(hourly, pd.DataFrame) or hourly.empty or "timestamp" not in hourly.columns:
+            continue
+        timestamps = pd.to_datetime(hourly["timestamp"], errors="coerce").dropna()
+        if timestamps.empty:
+            continue
+        start = timestamps.min().strftime("%Y-%m-%d")
+        end = timestamps.max().strftime("%Y-%m-%d")
+        return f"{start} ~ {end}", f"{len(timestamps)} 小时"
+
+    return "待复核", "逐小时明细缺少 timestamp"
+
+
+def _render_project_status_bar(st, current_page: str) -> None:
+    batch_result = st.session_state.get("batch_result")
+    economy_result = st.session_state.get("economy_v1_result")
+    summary = _summary_from_batch_result(batch_result) if batch_result else pd.DataFrame()
+
+    scenario_count = int(getattr(batch_result, "scenario_count", 0)) if batch_result else 0
+    passed_count = (
+        int(summary["pass_policy"].sum())
+        if not summary.empty and "pass_policy" in summary.columns
+        else 0
+    )
+    economy_done = bool(economy_result and not economy_result.get("summary", pd.DataFrame()).empty)
+    recommendation_ready = _workflow_step_done(st, "方案推荐及图表概览")
+    page_meta = WORKFLOW_PAGE_META.get(current_page, WORKFLOW_PAGE_META["欢迎页"])
+    data_range, data_range_detail = _data_range_status(batch_result)
+
+    cells = [
+        _topbar_cell(
+            "项目状态",
+            "绿电直连 / 微电网方案策划",
+            "工程工作台模式",
+        ),
+        _topbar_cell(
+            "当前模块",
+            f"{_safe_html_text(page_meta['index'])} {_safe_html_text(page_meta['title'])}",
+        ),
+        _topbar_cell(
+            "方案仿真",
+            _status_pill("已完成", "ok") if batch_result else _status_pill("未完成", "pending"),
+        ),
+        _topbar_cell(
+            "经济性测算",
+            _status_pill("已完成", "ok") if economy_done else _status_pill("待测算", "pending"),
+        ),
+        _topbar_cell(
+            "方案池",
+            f"{scenario_count} 个 / {passed_count} 达标",
+            "推荐图表仅围绕代表方案",
+        ),
+        _topbar_cell(
+            "数据时间",
+            _safe_html_text(data_range),
+            data_range_detail,
+        ),
+    ]
+    cells.append(
+        _topbar_cell(
+            "推荐与导出",
+            _status_pill("可查看", "ok") if recommendation_ready else _status_pill("待结果", "pending"),
+        )
+    )
+    st.markdown(f'<div class="gd-topbar">{"".join(cells)}</div>', unsafe_allow_html=True)
+
+
+def _render_page_heading(st, page: str, subtitle: str | None = None) -> None:
+    meta = WORKFLOW_PAGE_META.get(page, WORKFLOW_PAGE_META["欢迎页"])
+    st.markdown(
+        f"""
+        <div class="gd-page-heading">
+          <div class="gd-page-index">{_safe_html_text(meta["index"])}</div>
+          <div>
+            <div class="gd-page-title">{_safe_html_text(meta["title"])}</div>
+            <div class="gd-page-subtitle">{_safe_html_text(subtitle or meta["subtitle"])}</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_section_intro(st, eyebrow: str, title: str, copy: str | None = None) -> None:
+    copy_html = f'<div class="gd-section-copy">{_safe_html_text(copy)}</div>' if copy else ""
+    st.markdown(
+        f"""
+        <div class="gd-section-eyebrow">{_safe_html_text(eyebrow)}</div>
+        <div class="gd-section-title">{_safe_html_text(title)}</div>
+        {copy_html}
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _boolean_input(st, label: str, *, value: bool = False, help: str | None = None, key: str | None = None) -> bool:
+    toggle = getattr(st, "toggle", None)
+    if callable(toggle):
+        return bool(toggle(label, value=value, help=help, key=key))
+    return bool(st.checkbox(label, value=value, help=help, key=key))
+
+
+def _render_curve_overview_cards(st, curve_files: dict[str, object], curve_columns: dict[str, tuple[str | None, str | None]]) -> None:
+    cards: list[str] = []
+    for curve_name in ["负荷", "光伏", "风电"]:
+        file_obj = curve_files.get(curve_name)
+        time_col, value_col = curve_columns.get(curve_name, (None, None))
+        ready = file_obj is not None and time_col is not None and value_col is not None
+        file_name = getattr(file_obj, "name", "未选择") if file_obj is not None else "未选择"
+        detail = (
+            f"时间列 {time_col or '待确认'} / 数值列 {value_col or '待确认'}"
+            if file_obj is not None
+            else "批量上传或使用 Demo 后自动识别"
+        )
+        cards.append(
+            f'<div class="gd-sim-file-card {"gd-ready" if ready else ""}">'
+            f"<strong>{_safe_html_text(curve_name)}</strong>"
+            f"<span>{_safe_html_text(file_name)}</span>"
+            f"<span>{_safe_html_text(detail)}</span>"
+            "</div>"
+        )
+    st.markdown(f'<div class="gd-sim-file-grid">{"".join(cards)}</div>', unsafe_allow_html=True)
+
+
+def _render_simulation_kpis(st, scenario_count: int | None, scenario_grid: dict | None, duration_text: str) -> None:
+    count_text = "-" if scenario_count is None else f"{scenario_count:,}"
+    if scenario_grid:
+        pv_text = (
+            f"{_compact_number(scenario_grid['pv_capacity']['start'])}-"
+            f"{_compact_number(scenario_grid['pv_capacity']['end'])}"
+        )
+        wind_text = (
+            f"{_compact_number(scenario_grid['wind_capacity']['start'])}-"
+            f"{_compact_number(scenario_grid['wind_capacity']['end'])}"
+        )
+    else:
+        pv_text = "-"
+        wind_text = "-"
+    st.markdown(
+        f"""
+        <div class="gd-sim-kpis">
+          <div class="gd-sim-kpi"><span>当前表单方案数</span><strong>{_safe_html_text(count_text)}</strong></div>
+          <div class="gd-sim-kpi"><span>光伏 / 风电范围</span><strong>{_safe_html_text(pv_text)} / {_safe_html_text(wind_text)}</strong></div>
+          <div class="gd-sim-kpi"><span>储能时长</span><strong>{_safe_html_text(duration_text)}</strong></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_run_state(st, ready: bool, scenario_count: int | None, *, has_result: bool = False) -> None:
+    if ready:
+        text = f"输入已就绪，可开始测算。当前表单候选方案数 {scenario_count:,}。" if scenario_count is not None else "输入已就绪，可开始测算。"
+        state = "就绪"
+    elif has_result:
+        text = "当前已有仿真结果可继续经济测算；如需重新测算，请补齐或启用曲线输入。"
+        state = "已有结果"
+    else:
+        text = "请补齐负荷、光伏、风电三条曲线，并确认必要列名。"
+        state = "待输入"
+    st.markdown(
+        f'<div class="gd-run-state"><strong>{_safe_html_text(state)}</strong> · {_safe_html_text(text)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _capacity_config_text(row: pd.Series) -> str:
+    return (
+        f"光伏 {_compact_number(row.get('pv_capacity'))} 万kW · "
+        f"风电 {_compact_number(row.get('wind_capacity'))} 万kW · "
+        f"储能 {_compact_number(row.get('bess_power'))}/{_compact_number(row.get('bess_energy'))} 万kW/万kWh"
+    )
+
+
+def _recommendation_metric(label: str, value, *, rate: bool = False, digits: int = 2) -> str:
+    text = _format_report_value(value, rate=rate, digits=digits)
+    return (
+        '<div class="gd-rec-metric">'
+        f"<span>{_safe_html_text(label)}</span>"
+        f"<strong>{_safe_html_text(text)}</strong>"
+        "</div>"
+    )
+
+
+def _recommendation_economy_metric(row: pd.Series) -> str:
+    labels = str(row.get("recommendation_labels", ""))
+    if "负荷侧" in labels and _is_present(row.get("load_side_annual_benefit")):
+        return _recommendation_metric("负荷侧收益", row.get("load_side_annual_benefit"), digits=0)
+    if "同一主体" in labels and _is_present(row.get("single_entity_firr_pre_tax")):
+        return _recommendation_metric("同一主体FIRR", row.get("single_entity_firr_pre_tax"), rate=True)
+    if "电源侧" in labels and _is_present(row.get("firr")):
+        return _recommendation_metric("电源侧FIRR", row.get("firr"), rate=True)
+    for label, field, is_rate, digits in [
+        ("同一主体FIRR", "single_entity_firr_pre_tax", True, 2),
+        ("电源侧FIRR", "firr", True, 2),
+        ("负荷侧收益", "load_side_annual_benefit", False, 0),
+    ]:
+        if _is_present(row.get(field)):
+            return _recommendation_metric(label, row.get(field), rate=is_rate, digits=digits)
+    return _recommendation_metric("经济性", None)
+
+
+def _recommendation_status_display(status) -> tuple[str, str]:
+    normalized = str(status or "").strip().lower()
+    if normalized in {"selected", "ok", "recommended"}:
+        return "已入选", "ok"
+    if normalized in {"no_candidate", "failed", "fail", "blocked"}:
+        return "无候选", "warn"
+    if normalized in {"pending", "not_sortable", "not_ready"}:
+        return "待排序", "pending"
+    return str(status or "待复核"), "pending"
+
+
+def _render_recommendation_cards(st, portfolio: pd.DataFrame) -> None:
+    cards: list[str] = []
+    for display_index, (_, row) in enumerate(portfolio.head(6).iterrows(), start=1):
+        labels = row.get("recommendation_labels", "推荐方案")
+        status = row.get("recommendation_status", "selected")
+        status_text, status_state = _recommendation_status_display(status)
+        rank = row.get("recommendation_rank", display_index)
+        rank_text = _compact_number(rank, digits=0)
+        risk_note = row.get("risk_note")
+        risk_html = (
+            f'<div class="gd-risk-note">{_safe_html_text(risk_note)}</div>'
+            if _is_present(risk_note) and str(risk_note).strip()
+            else ""
+        )
+        metric_html = "".join(
+            [
+                _recommendation_metric("绿电占比", row.get("green_load_rate"), rate=True),
+                _recommendation_metric("自发自用率", row.get("self_use_rate"), rate=True),
+                _recommendation_metric("弃电率", row.get("curtail_rate"), rate=True),
+                _recommendation_metric("上网比例", row.get("export_rate"), rate=True),
+                _recommendation_economy_metric(row),
+            ]
+        )
+        cards.append(
+            '<div class="gd-rec-card">'
+            '<div class="gd-rec-top">'
+            "<div>"
+            '<div class="gd-rec-titleline">'
+            f'<span class="gd-rec-rank">{_safe_html_text(rank_text)}</span>'
+            f'<div class="gd-rec-labels">{_safe_html_text(labels)}</div>'
+            "</div>"
+            f'<div class="gd-rec-id">{_safe_html_text(row.get("scenario_id", "-"))}</div>'
+            f'<div class="gd-rec-capacity">{_safe_html_text(_capacity_config_text(row))}</div>'
+            "</div>"
+            f"{_status_pill(status_text, status_state)}"
+            "</div>"
+            f'<div class="gd-rec-reason">{_safe_html_text(row.get("recommendation_reason", ""))}</div>'
+            f'<div class="gd-rec-metrics">{metric_html}</div>'
+            f"{risk_html}"
+            "</div>"
+        )
+    st.markdown(f'<div class="gd-rec-grid">{"".join(cards)}</div>', unsafe_allow_html=True)
+
+
+def _recommendation_portfolio_display_columns(portfolio: pd.DataFrame) -> list[str]:
+    columns = [
+        "recommendation_rank",
+        "recommendation_labels",
+        "recommendation_status",
+        "scenario_id",
+        "方案类型",
+        "pv_capacity",
+        "wind_capacity",
+        "bess_energy",
+        "load_side_annual_benefit",
+        "load_side_saving_price",
+        "single_entity_firr_pre_tax",
+        "single_entity_static_payback_year",
+        "firr",
+        "power_side_firr_threshold",
+        "construction_cash_outflow",
+        "green_load_rate",
+        "self_use_rate",
+        "curtail_rate",
+        "export_rate",
+        "recommendation_reason",
+        "risk_note",
+    ]
+    return [column for column in columns if column in portfolio.columns]
+
+
+def _render_recommendation_detail_tables(st, recommendation_result) -> None:
+    if recommendation_result is None:
+        return
+    portfolio = getattr(recommendation_result, "portfolio", pd.DataFrame())
+    load_side_detail = getattr(recommendation_result, "load_side_detail", pd.DataFrame())
+    if not isinstance(portfolio, pd.DataFrame) or portfolio.empty:
+        return
+
+    with st.expander("高级：推荐组合明细与负荷侧复核", expanded=False):
+        display_columns = _recommendation_portfolio_display_columns(portfolio)
+        st.dataframe(
+            localize_columns(format_display_frame(portfolio[display_columns])),
+            use_container_width=True,
+            hide_index=True,
+        )
+        if isinstance(load_side_detail, pd.DataFrame) and not load_side_detail.empty:
+            st.caption(
+                "负荷侧明细用于复核可成交性筛选、节约电费单价和电源侧 FIRR 门槛；下载集中在“图表下载和报告生成”页。"
+            )
+            detail_columns = [
+                "scenario_id",
+                "pass_policy",
+                "load_side_tradable",
+                "load_side_tradable_status",
+                "self_use_energy",
+                "load_side_avoided_charge_price",
+                "green_power_settlement_price_with_vat",
+                "load_side_saving_price",
+                "load_side_environmental_value",
+                "load_side_annual_benefit",
+                "firr",
+                "firr_status",
+                "power_side_firr_threshold",
+                "green_load_rate",
+                "curtail_rate",
+                "construction_cash_outflow",
+            ]
+            detail_columns = [column for column in detail_columns if column in load_side_detail.columns]
+            st.dataframe(
+                localize_columns(format_display_frame(load_side_detail[detail_columns])),
+                use_container_width=True,
+                hide_index=True,
+            )
+        _display_mapping_expander(st, display_columns, "推荐组合字段对应关系")
 
 
 def _load_sample_curve_files() -> tuple[dict[str, _LocalSampleFile], list[str]]:
@@ -141,12 +1173,20 @@ def _guess_value_column(df: pd.DataFrame | None, time_col: str | None, curve_nam
     return None
 
 
-def _column_selector(st, label: str, df: pd.DataFrame | None, guessed: str | None):
+def _column_selector(
+    st,
+    label: str,
+    df: pd.DataFrame | None,
+    guessed: str | None,
+    *,
+    show_guess_caption: bool = True,
+):
     if df is None:
         return None
     columns = list(df.columns)
     if guessed in columns:
-        st.caption(f"{label}：已自动识别为 `{guessed}`")
+        if show_guess_caption:
+            st.caption(f"{label}：已自动识别为 `{guessed}`")
         return guessed
     return st.selectbox(label, columns, index=0)
 
@@ -584,30 +1624,33 @@ def _render_recommendation_v1(
     green_power_settlement_price_with_vat: float,
     environmental_value_per_kwh: float,
     min_power_side_acceptable_firr: float | None,
-) -> None:
-    st.markdown("---")
-    st.header("推荐方案 V1（试用）")
-    st.caption(
-        "默认构造同一主体、电源侧 FIRR、负荷侧可成交收益、工程代表四个席位；"
-        "推荐只读取技术汇总和经济性结果，不改变逐小时调度。重复命中多个席位的方案会合并标签。"
+):
+    _render_section_intro(
+        st,
+        "推荐组合",
+        "推荐方案",
+        (
+            "读取技术汇总和经济性结果生成代表席位；不改变逐小时调度，重复命中席位会合并标签。"
+        ),
     )
 
     single_entity_label_to_key = {label: key for key, label in SINGLE_ENTITY_VIEW_LABELS.items()}
-    single_entity_view_label = st.selectbox(
-        "同一主体推荐视角",
-        list(single_entity_label_to_key.keys()),
-        index=0,
-        help="默认按 FIRR 最高；也可切换为动态回收期最短，用于查看更偏快速回收的方案。",
-    )
-    single_entity_view = single_entity_label_to_key[single_entity_view_label]
-
     view_label_to_key = {label: key for key, label in ENGINEERING_VIEW_LABELS.items()}
-    engineering_view_label = st.selectbox(
-        "工程代表方案视角",
-        list(view_label_to_key.keys()),
-        index=0,
-        help="第四个推荐席位的工程视角。默认政策达标最小投资，可切换低弃电、高绿电占比、高自发自用。",
-    )
+    with st.expander("推荐席位设置", expanded=False):
+        c1, c2 = st.columns(2)
+        single_entity_view_label = c1.selectbox(
+            "同一主体推荐视角",
+            list(single_entity_label_to_key.keys()),
+            index=0,
+            help="默认按 FIRR 最高；也可切换为动态回收期最短，用于查看更偏快速回收的方案。",
+        )
+        engineering_view_label = c2.selectbox(
+            "工程代表方案视角",
+            list(view_label_to_key.keys()),
+            index=0,
+            help="第四个推荐席位的工程视角。默认政策达标最小投资，可切换低弃电、高绿电占比、高自发自用。",
+        )
+    single_entity_view = single_entity_label_to_key[single_entity_view_label]
     engineering_view = view_label_to_key[engineering_view_label]
 
     recommendation_inputs = RecommendationInputSnapshot(
@@ -625,87 +1668,20 @@ def _render_recommendation_v1(
         single_entity_view=single_entity_view,
         engineering_view=engineering_view,
     )
+    study_result = st.session_state.get("study_result")
+    if isinstance(study_result, StudyResult):
+        st.session_state["study_result"] = study_result.with_recommendation_result(recommendation_result)
     portfolio = recommendation_result.portfolio
-    load_side_detail = recommendation_result.load_side_detail
 
     if portfolio.empty:
         st.info("当前没有可展示的推荐结果。")
-        return
+        return recommendation_result
     if min_power_side_acceptable_firr is None:
         st.warning("电源侧最低可接受 FIRR 已留空，负荷侧可成交收益席位不参与默认排序。")
 
-    display_columns = [
-        "recommendation_rank",
-        "recommendation_labels",
-        "recommendation_status",
-        "scenario_id",
-        "方案类型",
-        "pv_capacity",
-        "wind_capacity",
-        "bess_energy",
-        "load_side_annual_benefit",
-        "load_side_saving_price",
-        "single_entity_firr_pre_tax",
-        "single_entity_static_payback_year",
-        "firr",
-        "power_side_firr_threshold",
-        "construction_cash_outflow",
-        "green_load_rate",
-        "self_use_rate",
-        "curtail_rate",
-        "recommendation_reason",
-        "risk_note",
-    ]
-    display_columns = [column for column in display_columns if column in portfolio.columns]
-    st.dataframe(
-        localize_columns(format_display_frame(portfolio[display_columns])),
-        use_container_width=True,
-        hide_index=True,
-    )
+    _render_recommendation_cards(st, portfolio)
 
-    with st.expander("高级：推荐明细和下载", expanded=False):
-        st.download_button(
-            "下载推荐组合 Excel",
-            data=_build_excel_bytes(
-                {
-                    "推荐组合": localize_columns(portfolio),
-                    "电源侧经济性汇总": localize_columns(power_economy_summary),
-                    "同一主体经济性汇总": localize_columns(
-                        single_entity_summary if single_entity_summary is not None else pd.DataFrame()
-                    ),
-                    "负荷侧可成交收益明细": localize_columns(load_side_detail),
-                }
-            ),
-            file_name="recommendation_portfolio_v1.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="download_recommendation_portfolio_v1",
-        )
-        st.caption("负荷侧明细用于复核可成交性筛选、节约电费单价和电源侧 FIRR 门槛。")
-        detail_columns = [
-            "scenario_id",
-            "pass_policy",
-            "load_side_tradable",
-            "load_side_tradable_status",
-            "self_use_energy",
-            "load_side_avoided_charge_price",
-            "green_power_settlement_price_with_vat",
-            "load_side_saving_price",
-            "load_side_environmental_value",
-            "load_side_annual_benefit",
-            "firr",
-            "firr_status",
-            "power_side_firr_threshold",
-            "green_load_rate",
-            "curtail_rate",
-            "construction_cash_outflow",
-        ]
-        detail_columns = [column for column in detail_columns if column in load_side_detail.columns]
-        st.dataframe(
-            localize_columns(format_display_frame(load_side_detail[detail_columns])),
-            use_container_width=True,
-            hide_index=True,
-        )
-        _display_mapping_expander(st, display_columns, "推荐组合字段对应关系")
+    return recommendation_result
 
 
 def _render_data_status(st, statuses: list[dict]) -> None:
@@ -747,11 +1723,12 @@ def _render_economy_v1(
     *,
     render_recommendation: bool = True,
 ) -> None:
-    st.markdown("---")
-    st.header("经济性评价 V1")
-    st.caption("经济性评价仅读取方案汇总结果，不重新计算逐小时调度。")
+    _render_page_heading(st, "经济性测算", "经济性测算仅读取方案汇总结果，不重新计算逐小时调度。")
+    economy_notice = st.session_state.pop("_economy_notice", None)
+    if economy_notice:
+        st.success(economy_notice)
 
-    with st.expander("经济性参数", expanded=False):
+    with st.expander("经济性参数工作台", expanded=True):
         st.markdown("#### 基本参数")
         c1, c2, c3 = st.columns(3)
         operation_years = int(c1.number_input("运营期（年）", value=25, min_value=1, max_value=40, step=1))
@@ -982,7 +1959,12 @@ def _render_economy_v1(
                 "annual_cashflows": economic_study_result.single_entity_annual_cashflows,
             }
             st.session_state["recommendation_v1_inputs"] = economic_study_result.recommendation_inputs.to_session_dict()
+            study_result = st.session_state.get("study_result")
+            if isinstance(study_result, StudyResult):
+                st.session_state["study_result"] = study_result.with_economic_result(economic_study_result)
             st.session_state.pop("download_payloads", None)
+            st.session_state["_economy_notice"] = "经济性 V1 已计算，推荐页和导出页已可读取经济性结果。"
+            st.rerun()
         except ValueError as exc:
             st.error(f"经济性参数有误：{exc}")
 
@@ -1016,46 +1998,15 @@ def _render_economy_v1(
                 "bess_replacement_count",
             ]
             display_columns = [column for column in display_columns if column in display_economic_summary.columns]
-            st.success("电源侧经济性 V1 已计算。技术方案汇总表仍保持纯技术指标，经济性结果请在本区单独下载。")
+            st.success("电源侧经济性 V1 已计算。技术方案汇总表仍保持纯技术指标；下载请前往“图表下载和报告生成”。")
 
-            with st.expander("高级：电源侧经济性汇总表和年度现金流下载", expanded=False):
+            with st.expander("高级：电源侧经济性汇总复核表", expanded=False):
                 st.dataframe(
                     localize_columns(format_display_frame(display_economic_summary[display_columns])),
                     use_container_width=True,
                     hide_index=True,
                 )
                 _display_mapping_expander(st, display_columns, "电源侧经济性汇总字段对应关系")
-
-                st.download_button(
-                    "下载电源侧经济性汇总 Excel",
-                    data=_build_excel_bytes(
-                        {
-                            "电源侧经济性汇总": localize_columns(display_economic_summary[display_columns]),
-                        }
-                    ),
-                    file_name="power_side_economic_summary.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="download_power_side_economy_summary",
-                )
-
-                selected_id = st.selectbox(
-                    "选择方案下载电源侧年度明细",
-                    economic_summary["scenario_id"].astype(str).tolist(),
-                    key="power_side_annual_select",
-                )
-                annual = annual_cashflows[selected_id]
-
-                st.download_button(
-                    "下载所选方案电源侧年度现金流 Excel",
-                    data=_build_excel_bytes(
-                        {
-                            f"电源侧年度现金流_{selected_id}": localize_columns(annual),
-                        }
-                    ),
-                    file_name=f"power_side_annual_cashflow_{selected_id}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="download_economy_v1",
-                )
 
     if single_entity_result:
         single_entity_summary = single_entity_result["summary"]
@@ -1098,47 +2049,13 @@ def _render_economy_v1(
             ]
             st.success("同一主体税前经济性已计算。该结果不并入技术方案概览表，也不覆盖电源侧经济性。")
 
-            with st.expander("高级：同一主体税前经济性汇总表和年度现金流下载", expanded=False):
+            with st.expander("高级：同一主体税前经济性汇总复核表", expanded=False):
                 st.dataframe(
                     localize_columns(format_display_frame(display_single_entity_summary[single_entity_columns])),
                     use_container_width=True,
                     hide_index=True,
                 )
                 _display_mapping_expander(st, single_entity_columns, "同一主体经济性汇总字段对应关系")
-
-                st.download_button(
-                    "下载同一主体税前经济性汇总 Excel",
-                    data=_build_excel_bytes(
-                        {
-                            "同一主体经济性汇总": localize_columns(
-                                display_single_entity_summary[single_entity_columns]
-                            ),
-                        }
-                    ),
-                    file_name="single_entity_pre_tax_economic_summary.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="download_single_entity_summary",
-                )
-
-                selected_id = st.selectbox(
-                    "选择方案下载同一主体年度明细",
-                    single_entity_summary["scenario_id"].astype(str).tolist(),
-                    key="single_entity_annual_select",
-                )
-                annual = single_entity_annual_cashflows[selected_id]
-
-                st.download_button(
-                    "下载所选方案同一主体年度现金流 Excel",
-                    data=_build_single_entity_annual_workbook_bytes(
-                        scenario_id=selected_id,
-                        annual=annual,
-                        technical_summary=summary,
-                        economic_summary=single_entity_summary,
-                    ),
-                    file_name=f"single_entity_pre_tax_annual_cashflow_{selected_id}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="download_single_entity_annual_cashflow",
-                )
 
     if render_recommendation and economy_result and not economy_result["summary"].empty:
         recommendation_single_entity_summary = (
@@ -1159,29 +2076,85 @@ def _render_economy_v1(
         )
 
 
+def _normalize_workflow_page(st) -> str:
+    current = st.session_state.pop(
+        WORKFLOW_PAGE_TARGET_KEY,
+        st.session_state.get(WORKFLOW_PAGE_KEY, WORKFLOW_PAGES[0]),
+    )
+    normalized = WORKFLOW_PAGE_ALIASES.get(current, current)
+    if normalized not in WORKFLOW_PAGES:
+        normalized = WORKFLOW_PAGES[0]
+    st.session_state[WORKFLOW_PAGE_KEY] = normalized
+    return normalized
+
+
+def _workflow_step_done(st, page: str) -> bool:
+    if page in {"欢迎页", "方案仿真"}:
+        return True
+    batch_result = st.session_state.get("batch_result")
+    if page == "经济性测算":
+        return bool(batch_result)
+    economy_result = st.session_state.get("economy_v1_result")
+    economy_done = bool(economy_result and not economy_result.get("summary", pd.DataFrame()).empty)
+    if page == "方案推荐及图表概览":
+        return bool(batch_result) and economy_done
+    if page == "图表下载和报告生成":
+        return bool(batch_result)
+    return False
+
+
 def _render_workflow_navigation(st) -> str:
+    page = _normalize_workflow_page(st)
     with st.sidebar:
-        st.markdown("### 工作流")
-        page = st.radio(
-            "工作流阶段",
-            WORKFLOW_PAGES,
-            key="workflow_page",
-            label_visibility="collapsed",
+        st.markdown(
+            """
+            <div class="gd-sidebar-brand">
+              <div class="gd-brand-title">绿电直连<br/>微电网策划平台</div>
+              <div class="gd-brand-subtitle">方案仿真 · 经济测算 · 推荐图表 · 报告导出</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
+        for workflow_item in WORKFLOW_PAGES:
+            meta = WORKFLOW_PAGE_META[workflow_item]
+            if workflow_item == page:
+                st.markdown(
+                    f"""
+                    <div class="gd-nav-item gd-nav-active">
+                      <div class="gd-nav-index">{_safe_html_text(meta["index"])}</div>
+                      <div class="gd-nav-title">{_safe_html_text(meta["title"])}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            elif st.button(
+                f"{meta['index']}  {meta['title']}",
+                key=f"workflow_nav_{meta['index']}",
+                help=meta["subtitle"],
+            ):
+                _go_to_workflow_page(st, workflow_item)
         batch_result = st.session_state.get("batch_result")
         economy_result = st.session_state.get("economy_v1_result")
-        st.caption(f"技术仿真：{'已完成' if batch_result else '未完成'}")
-        st.caption(
-            "经济性评价："
-            f"{'已完成' if economy_result and not economy_result.get('summary', pd.DataFrame()).empty else '未完成'}"
+        economy_done = bool(economy_result and not economy_result.get("summary", pd.DataFrame()).empty)
+        st.markdown(
+            f"""
+            <div class="gd-sidebar-status">
+              <div class="gd-sidebar-status-row"><span>方案仿真</span><strong>{'已完成' if batch_result else '未完成'}</strong></div>
+              <div class="gd-sidebar-status-row"><span>经济测算</span><strong>{'已完成' if economy_done else '未完成'}</strong></div>
+              <div class="gd-sidebar-status-row"><span>推荐图表</span><strong>{'可查看' if _workflow_step_done(st, '方案推荐及图表概览') else '待结果'}</strong></div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
     return page
 
 
 def _go_to_workflow_page(st, page: str) -> None:
-    st.session_state["workflow_page"] = page
-    if hasattr(st, "rerun"):
-        st.rerun()
+    # Queue the target so buttons can navigate without mutating a rendered widget key.
+    st.session_state[WORKFLOW_PAGE_TARGET_KEY] = WORKFLOW_PAGE_ALIASES.get(page, page)
+    rerun = getattr(st, "rerun", None)
+    if callable(rerun):
+        rerun()
 
 
 def _get_bess_calendar_life_years(st) -> float:
@@ -1206,16 +2179,19 @@ def _render_missing_step(st, target_page: str, message: str) -> None:
 
 
 def _render_welcome_page(st) -> None:
-    st.header("绿电直连 / 微电网方案策划与推荐平台")
-    st.caption("当前版本优先打通技术仿真、经济性评价、推荐组合和代表方案分析，不把全量枚举表作为主入口。")
+    _render_page_heading(
+        st,
+        "欢迎页",
+        "当前版本优先打通方案仿真、经济性测算、推荐组合、图表概览和报告下载，不把全量枚举表作为主入口。",
+    )
 
     batch_result = st.session_state.get("batch_result")
     economy_result = st.session_state.get("economy_v1_result")
     summary = _summary_from_batch_result(batch_result) if batch_result else pd.DataFrame()
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("技术仿真", "已完成" if batch_result else "待开始")
-    c2.metric("经济性评价", "已完成" if economy_result and not economy_result.get("summary", pd.DataFrame()).empty else "待开始")
+    c1.metric("方案仿真", "已完成" if batch_result else "待开始")
+    c2.metric("经济性测算", "已完成" if economy_result and not economy_result.get("summary", pd.DataFrame()).empty else "待开始")
     c3.metric("方案数量", int(batch_result.scenario_count) if batch_result else 0)
     c4.metric("达标方案", int(summary["pass_policy"].sum()) if not summary.empty and "pass_policy" in summary.columns else 0)
 
@@ -1223,27 +2199,353 @@ def _render_welcome_page(st) -> None:
         """
         **推荐使用路径**
 
-        1. 技术仿真：上传负荷、光伏、风电曲线，设置风光储遍历范围和政策约束。
-        2. 经济性评价：输入少量核心经济参数，默认用一个外部购电净成本口径派生负荷侧节费口径。
-        3. 推荐方案与详细分析：查看四个推荐席位、用户指定方案、能量流向和运行曲线。
+        1. 方案仿真：上传负荷、光伏、风电曲线，设置风光储遍历范围和政策约束。
+        2. 经济性测算：输入少量核心经济参数，默认用一个外部购电净成本口径派生负荷侧节费口径。
+        3. 方案推荐及图表概览：查看四个推荐席位、用户指定方案、能量流向和运行曲线。
+        4. 图表下载和报告生成：集中导出方案汇总、逐小时明细、经济性表和简版说明报告。
         """
     )
-    if st.button("开始技术仿真", type="primary", key="welcome_start_technical"):
-        _go_to_workflow_page(st, "技术仿真")
+    if st.button("开始方案仿真", type="primary", key="welcome_start_technical"):
+        _go_to_workflow_page(st, "方案仿真")
+
+
+def _valid_scenario_ids(summary: pd.DataFrame) -> list[str]:
+    if summary.empty or "scenario_id" not in summary.columns:
+        return []
+    return [str(item) for item in summary["scenario_id"].dropna().tolist()]
+
+
+def _first_report_scenario_id(summary: pd.DataFrame, recommendation_result) -> str | None:
+    valid_ids = _valid_scenario_ids(summary)
+    if not valid_ids:
+        return None
+    valid_set = set(valid_ids)
+    portfolio = getattr(recommendation_result, "portfolio", None)
+    if isinstance(portfolio, pd.DataFrame) and not portfolio.empty and "scenario_id" in portfolio.columns:
+        for raw_id in portfolio["scenario_id"].dropna().astype(str).tolist():
+            if raw_id in valid_set:
+                return raw_id
+    return valid_ids[0]
+
+
+def _scenario_status_text(summary: pd.DataFrame, scenario_id: str | None) -> str:
+    if scenario_id is None or summary.empty or "scenario_id" not in summary.columns:
+        return "暂无可用方案"
+    hit = summary[summary["scenario_id"].astype(str) == str(scenario_id)]
+    if hit.empty:
+        return str(scenario_id)
+    row = hit.iloc[0]
+    return f"{scenario_id} · {_capacity_config_text(row)}"
+
+
+def _scenario_short_label(row: pd.Series) -> str:
+    return (
+        f"{row.get('scenario_id', '-')}"
+        f"<br>光{_compact_number(row.get('pv_capacity'), 0)} 风{_compact_number(row.get('wind_capacity'), 0)}"
+        f"<br>储{_compact_number(row.get('bess_power'), 0)}/{_compact_number(row.get('bess_energy'), 0)}"
+    )
+
+
+def _representative_summary_for_dashboard(
+    summary: pd.DataFrame,
+    recommendation_result,
+    *,
+    max_items: int = 5,
+) -> pd.DataFrame:
+    if summary.empty or "scenario_id" not in summary.columns:
+        return pd.DataFrame()
+
+    selected_id = _first_report_scenario_id(summary, recommendation_result)
+    ids: list[str] = []
+    portfolio = getattr(recommendation_result, "portfolio", None)
+    if isinstance(portfolio, pd.DataFrame) and not portfolio.empty and "scenario_id" in portfolio.columns:
+        ids.extend(portfolio["scenario_id"].dropna().astype(str).tolist())
+    if selected_id is not None:
+        ids.append(str(selected_id))
+    ids = list(dict.fromkeys(ids))
+    if not ids:
+        return summary.head(max_items).copy()
+
+    comparison = summary[summary["scenario_id"].astype(str).isin(ids)].copy()
+    if comparison.empty:
+        return summary.head(max_items).copy()
+    order = {scenario_id: index for index, scenario_id in enumerate(ids)}
+    comparison["_display_order"] = comparison["scenario_id"].astype(str).map(order).fillna(len(order))
+    return comparison.sort_values("_display_order").drop(columns=["_display_order"]).head(max_items)
+
+
+def _build_compact_policy_comparison_figure(comparison: pd.DataFrame):
+    required = ["scenario_id", "green_load_rate", "self_use_rate", "curtail_rate", "export_rate"]
+    missing = [column for column in required if column not in comparison.columns]
+    if comparison.empty or missing:
+        return None, missing
+
+    labels = [_scenario_short_label(row) for _, row in comparison.iterrows()]
+    metrics = [
+        ("green_load_rate", "绿电占比", "#16a34a", False),
+        ("self_use_rate", "自发自用率", "#2563eb", False),
+        ("curtail_rate", "低弃电", "#f59e0b", True),
+        ("export_rate", "低上网", "#8b5cf6", True),
+    ]
+    fig = go.Figure()
+    for column, label, color, invert in metrics:
+        values = pd.to_numeric(comparison[column], errors="coerce").fillna(0.0)
+        if invert:
+            values = 1 - values
+        fig.add_bar(
+            x=labels,
+            y=values,
+            name=label,
+            marker_color=color,
+            text=[f"{value:.1%}" for value in values],
+            textposition="outside",
+            cliponaxis=False,
+        )
+    fig.update_layout(
+        barmode="group",
+        height=340,
+        margin=dict(l=42, r=18, t=16, b=84),
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        font=dict(family="Arial, sans-serif", size=12, color="#172033"),
+    )
+    fig.update_xaxes(tickfont=dict(size=11))
+    fig.update_yaxes(tickformat=".0%", range=[0, 1.08], gridcolor="#e5eaf0", title_text="比例")
+    return fig, []
+
+
+def _first_existing_column(data: pd.DataFrame, candidates: list[str]) -> str | None:
+    for column in candidates:
+        if column in data.columns:
+            return column
+    return None
+
+
+def _numeric_power(data: pd.DataFrame, column: str) -> pd.Series:
+    return pd.to_numeric(data[column], errors="coerce").fillna(0.0)
+
+
+def _build_compact_typical_day_figure(hourly: pd.DataFrame, season: str = "夏季"):
+    adapted = adapt_hourly(hourly)
+    selection = select_typical_season_day(adapted.data, season)
+    day = selection.day
+    if day.empty:
+        return None, selection.label, selection.method
+
+    if "timestamp" in day.columns:
+        timestamps = pd.to_datetime(day["timestamp"], errors="coerce")
+        hours = timestamps.dt.hour
+        x = list(range(len(day))) if hours.isna().any() else hours.astype(int)
+    else:
+        x = list(range(len(day)))
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    def add_power_trace(candidates: list[str], name: str, color: str, *, dash: str | None = None, negative: bool = False):
+        column = _first_existing_column(day, candidates)
+        if column is None:
+            return
+        values = _numeric_power(day, column)
+        if negative:
+            values = -values
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=values,
+                name=name,
+                mode="lines",
+                line=dict(color=color, width=2, dash=dash or "solid"),
+            ),
+            secondary_y=False,
+        )
+
+    add_power_trace(["load_power"], "负荷", "#174ea6")
+    add_power_trace(["pv_generation_power", "pv_power"], "光伏出力", "#f97316")
+    add_power_trace(["wind_generation_power", "wind_power"], "风电出力", "#16a34a")
+    add_power_trace(["bess_discharge_power"], "储能放电", "#ef4444")
+    add_power_trace(["bess_charge_power"], "储能充电(负值)", "#8b5cf6", negative=True)
+    add_power_trace(["grid_import_power"], "下网功率", "#0891b2", dash="dash")
+    add_power_trace(["grid_export_power"], "上网功率", "#a16207", dash="dot")
+    add_power_trace(["curtail_power"], "弃电功率", "#dc2626", dash="dash")
+
+    soc_column = _first_existing_column(day, ["soc_end"])
+    if soc_column is not None:
+        soc = pd.to_numeric(day[soc_column], errors="coerce").fillna(0.0)
+        if not soc.empty and soc.max() > 1:
+            soc = soc / 100
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=soc,
+                name="SOC",
+                mode="lines",
+                line=dict(color="#0f9f9a", width=2, dash="dash"),
+            ),
+            secondary_y=True,
+        )
+
+    fig.update_layout(
+        height=340,
+        margin=dict(l=42, r=42, t=16, b=84),
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=-0.32, xanchor="left", x=0),
+        font=dict(family="Arial, sans-serif", size=12, color="#172033"),
+    )
+    fig.update_xaxes(title_text="时间（时）", tickmode="array", tickvals=list(range(0, 24, 2)), gridcolor="#eef2f6")
+    fig.update_yaxes(title_text="功率（万kW）", gridcolor="#e5eaf0", secondary_y=False)
+    fig.update_yaxes(title_text="SOC", tickformat=".0%", range=[0, 1], secondary_y=True)
+    return fig, selection.label, selection.method
+
+
+def _render_recommendation_dashboard_overview(st, batch_result, summary: pd.DataFrame, recommendation_result) -> None:
+    report_scenario_id = _first_report_scenario_id(summary, recommendation_result)
+    comparison = _representative_summary_for_dashboard(summary, recommendation_result)
+    st.markdown(
+        """
+        <div class="gd-dashboard-bar">
+          <div>
+            <div class="gd-dashboard-title">代表方案图表概览</div>
+            <div class="gd-dashboard-subtitle">默认只围绕推荐组合和当前报告方案展示，不把全量枚举表作为主视图。</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    left, right = st.columns(2)
+    with left:
+        with st.container(border=True):
+            st.markdown(
+                """
+                <div class="gd-chart-panel-head">
+                  <div>
+                    <div class="gd-chart-panel-title">多方案关键指标对比</div>
+                    <div class="gd-chart-panel-note">绿电、自用、低弃电、低上网，数值越高越好。</div>
+                  </div>
+                  <div class="gd-chart-panel-tag">推荐组合</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            fig, missing = _build_compact_policy_comparison_figure(comparison)
+            if fig is None:
+                st.info(f"缺少字段，暂不能生成代表方案对比图：{', '.join(missing) if missing else '无代表方案'}")
+            else:
+                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+    with right:
+        with st.container(border=True):
+            hourly = getattr(batch_result, "hourly_details", {}).get(report_scenario_id) if report_scenario_id else None
+            fig = None
+            label = "待计算"
+            method = "缺少默认报告方案或逐小时明细。"
+            if isinstance(hourly, pd.DataFrame) and not hourly.empty:
+                fig, label, method = _build_compact_typical_day_figure(hourly, "夏季")
+            st.markdown(
+                f"""
+                <div class="gd-chart-panel-head">
+                  <div>
+                    <div class="gd-chart-panel-title">24H 典型日运行曲线</div>
+                    <div class="gd-chart-panel-note">夏季典型日 {label}，读取逐小时明细，不重新调度。</div>
+                  </div>
+                  <div class="gd-chart-panel-tag">{_safe_html_text(report_scenario_id or '待选')}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if fig is None:
+                st.info(method)
+            else:
+                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+
+def _render_recommendation_export_handoff(st, batch_result, summary: pd.DataFrame, recommendation_result) -> None:
+    report_scenario_id = _first_report_scenario_id(summary, recommendation_result)
+    has_hourly = bool(report_scenario_id and report_scenario_id in getattr(batch_result, "hourly_details", {}))
+    economy_result = st.session_state.get("economy_v1_result")
+    single_entity_result = st.session_state.get("single_entity_economy_result")
+    has_power_economy = bool(economy_result and isinstance(economy_result.get("summary"), pd.DataFrame) and not economy_result["summary"].empty)
+    has_single_entity = bool(
+        single_entity_result
+        and isinstance(single_entity_result.get("summary"), pd.DataFrame)
+        and not single_entity_result["summary"].empty
+    )
+
+    _render_section_intro(
+        st,
+        "导出状态",
+        "下载与报告",
+        "正式下载动作集中在最后一个页面；这里按推荐组合给出默认报告方案和可导出状态。",
+    )
+    cards = [
+        (
+            "逐小时 CSV",
+            "可用" if has_hourly else "待逐小时明细",
+            "所选方案逐小时明细，来自技术仿真台账。",
+        ),
+        (
+            "图表 HTML ZIP",
+            "可生成" if has_hourly else "待逐小时明细",
+            "图表包读取推荐组合和当前报告方案，不绘制全量枚举。",
+        ),
+        (
+            "简版报告",
+            "含经济性" if has_power_economy or has_single_entity else "仅技术部分",
+            "Markdown 报告读取技术汇总、经济性汇总和典型日口径说明。",
+        ),
+    ]
+    card_html = "".join(
+        (
+            '<div class="gd-download-card">'
+            f"<strong>{_safe_html_text(title)}</strong>"
+            f"<span>{_safe_html_text(status)} · {_safe_html_text(description)}</span>"
+            "</div>"
+        )
+        for title, status, description in cards
+    )
+    st.markdown(f'<div class="gd-download-handoff">{card_html}</div>', unsafe_allow_html=True)
+
+    if report_scenario_id is None:
+        st.info("当前没有可用于报告和下载的方案。")
+        return
+
+    st.caption(f"默认报告方案：{_scenario_status_text(summary, report_scenario_id)}")
+    if st.button("进入图表下载和报告生成", type="primary", key="recommendation_go_exports"):
+        st.session_state["export_report_scenario"] = report_scenario_id
+        _go_to_workflow_page(st, "图表下载和报告生成")
+
+
+def _render_recommendation_bottom_status(st, batch_result, summary: pd.DataFrame, recommendation_result) -> None:
+    report_scenario_id = _first_report_scenario_id(summary, recommendation_result)
+    hourly_count = len(getattr(batch_result, "hourly_details", {}) or {})
+    status_items = [
+        f"<strong>默认报告方案</strong> {_safe_html_text(_scenario_status_text(summary, report_scenario_id))}",
+        f"<strong>逐小时台账</strong> {_safe_html_text(str(hourly_count))} 个方案",
+        "<strong>数据来源</strong> batch_result.summary / hourly_details / economy_v1_result",
+        "<strong>版本号</strong> 待接入",
+        "<strong>帮助入口</strong> 待接入正式帮助页",
+    ]
+    st.markdown(f'<div class="gd-bottom-status">{"".join(f"<span>{item}</span>" for item in status_items)}</div>', unsafe_allow_html=True)
 
 
 def _render_recommendation_analysis_page(st, batch_result, summary: pd.DataFrame) -> None:
-    st.header("推荐方案与详细分析")
-    st.caption("这里集中展示推荐组合、用户指定方案和逐小时图表分析。全量枚举表仍保留在技术仿真页的高级区域。")
+    _render_page_heading(
+        st,
+        "方案推荐及图表概览",
+        "集中展示推荐组合、用户指定方案和逐小时图表分析；全量枚举表仅作为高级复核数据保留。",
+    )
 
     economy_result = st.session_state.get("economy_v1_result")
     single_entity_result = st.session_state.get("single_entity_economy_result")
     recommendation_inputs = st.session_state.get("recommendation_v1_inputs")
     if not economy_result or economy_result.get("summary", pd.DataFrame()).empty:
-        _render_missing_step(st, "经济性评价", "请先完成经济性评价，再生成推荐席位和经济性图表。")
+        _render_missing_step(st, "经济性测算", "请先完成经济性测算，再生成推荐席位和经济性图表。")
         return
     if not recommendation_inputs:
-        _render_missing_step(st, "经济性评价", "请重新运行一次经济性评价，以保存推荐席位所需的价格和门槛参数。")
+        _render_missing_step(st, "经济性测算", "请重新运行一次经济性测算，以保存推荐席位所需的价格和门槛参数。")
         return
 
     recommendation_single_entity_summary = (
@@ -1251,7 +2553,7 @@ def _render_recommendation_analysis_page(st, batch_result, summary: pd.DataFrame
         if single_entity_result and not single_entity_result["summary"].empty
         else None
     )
-    _render_recommendation_v1(
+    recommendation_result = _render_recommendation_v1(
         st,
         summary,
         economy_result["summary"],
@@ -1262,76 +2564,537 @@ def _render_recommendation_analysis_page(st, batch_result, summary: pd.DataFrame
         environmental_value_per_kwh=recommendation_inputs["environmental_value_per_kwh"],
         min_power_side_acceptable_firr=recommendation_inputs["min_power_side_acceptable_firr"],
     )
-    render_chart_analysis(
-        st,
-        batch_result,
-        summary,
-        economy_result=economy_result,
+    _render_recommendation_dashboard_overview(st, batch_result, summary, recommendation_result)
+    _render_recommendation_export_handoff(st, batch_result, summary, recommendation_result)
+    _render_recommendation_detail_tables(st, recommendation_result)
+    with st.expander("高级：完整图表分析与用户加入方案", expanded=False):
+        render_chart_analysis(
+            st,
+            batch_result,
+            summary,
+            economy_result=economy_result,
+            recommendation_portfolio=recommendation_result.portfolio if recommendation_result else None,
+        )
+    _render_recommendation_bottom_status(st, batch_result, summary, recommendation_result)
+
+
+def _format_report_value(value, *, rate: bool = False, digits: int = 2) -> str:
+    if value is None or pd.isna(value):
+        return "-"
+    if rate:
+        return f"{float(value):.{digits}%}"
+    if isinstance(value, Number):
+        text = f"{float(value):,.{digits}f}"
+        return text.rstrip("0").rstrip(".")
+    return str(value)
+
+
+def _row_for_scenario(data: pd.DataFrame | None, scenario_id: str) -> pd.Series | None:
+    if data is None or data.empty or "scenario_id" not in data.columns:
+        return None
+    matched = data[data["scenario_id"].astype(str) == str(scenario_id)]
+    if matched.empty:
+        return None
+    return matched.iloc[0]
+
+
+def _build_simple_report_markdown(
+    *,
+    summary: pd.DataFrame,
+    selected_scenario_id: str,
+    economy_summary: pd.DataFrame | None,
+    single_entity_summary: pd.DataFrame | None,
+) -> bytes:
+    technical = _row_for_scenario(summary, selected_scenario_id)
+    power_economy = _row_for_scenario(economy_summary, selected_scenario_id)
+    single_entity = _row_for_scenario(single_entity_summary, selected_scenario_id)
+
+    lines = [
+        "# 绿电直连方案简版说明报告",
+        "",
+        f"- 方案编号：`{selected_scenario_id}`",
+        "- 数据口径：技术、经济、图表均读取已生成的方案汇总和逐小时明细；本报告不重新调度。",
+        "- 四季典型日：采用季节中心日法，在各季完整 24 小时日期中选离季节平均曲线最近的真实日期；图表标题会标注 MM/DD。",
+        "",
+        "## 技术指标",
+        "",
+    ]
+    if technical is None:
+        lines.append("未找到该方案的技术汇总。")
+    else:
+        rows = [
+            ("方案类型", technical.get("方案类型")),
+            ("光伏容量(万kW)", technical.get("pv_capacity")),
+            ("风电容量(万kW)", technical.get("wind_capacity")),
+            ("储能功率(万kW)", technical.get("bess_power")),
+            ("储能容量(万kWh)", technical.get("bess_energy")),
+            ("政策达标", "是" if bool(technical.get("pass_policy", False)) else "否"),
+            ("绿电占比", _format_report_value(technical.get("green_load_rate"), rate=True)),
+            ("自发自用率", _format_report_value(technical.get("self_use_rate"), rate=True)),
+            ("上网比例", _format_report_value(technical.get("export_rate"), rate=True)),
+            ("弃电率", _format_report_value(technical.get("curtail_rate"), rate=True)),
+            ("自发自用电量(万kWh)", technical.get("self_use_energy")),
+            ("下网电量(万kWh)", technical.get("grid_import_energy")),
+            ("上网电量(万kWh)", technical.get("grid_export_energy")),
+            ("弃电量(万kWh)", technical.get("curtail_energy")),
+        ]
+        lines.extend(f"- {label}：{_format_report_value(value)}" for label, value in rows)
+
+    lines.extend(["", "## 经济性摘要", ""])
+    if power_economy is None and single_entity is None:
+        lines.append("尚未生成经济性结果，报告仅包含技术部分。")
+    if power_economy is not None:
+        lines.extend(
+            [
+                f"- 电源侧 FNPV(万元)：{_format_report_value(power_economy.get('fnpv'), digits=0)}",
+                f"- 电源侧 FIRR：{_format_report_value(power_economy.get('firr'), rate=True)}",
+                f"- 静态回收期(年)：{_format_report_value(power_economy.get('static_payback_year'), digits=1)}",
+                f"- 建设投资(万元)：{_format_report_value(power_economy.get('construction_cash_outflow'), digits=0)}",
+            ]
+        )
+    if single_entity is not None:
+        lines.extend(
+            [
+                f"- 同一主体税前 FIRR：{_format_report_value(single_entity.get('single_entity_firr_pre_tax'), rate=True)}",
+                f"- 同一主体税前 FNPV(万元)：{_format_report_value(single_entity.get('single_entity_fnpv_pre_tax'), digits=0)}",
+                f"- 外部购电净成本单价(元/kWh)：{_format_report_value(single_entity.get('net_avoided_grid_cost_price'), digits=4)}",
+            ]
+        )
+
+    lines.extend(
+        [
+            "",
+            "## 复核提示",
+            "",
+            "- 24H 运行曲线直接读取逐小时明细字段，不平滑、不插值、不重新计算储能调度。",
+            "- 年度 Sankey 中光伏/风电去向拆分仍是按年发电占比的展示近似；严格复核请看逐小时明细和负荷平衡字段。",
+            "- 若要复核某张图，请用本页导出的逐小时 CSV 按图表标题标注的日期过滤。",
+        ]
+    )
+    return "\n".join(lines).encode("utf-8-sig")
+
+
+def _safe_export_name(text: str) -> str:
+    return re.sub(r"[^0-9A-Za-z_.-]+", "_", text).strip("_") or "chart"
+
+
+def _comparison_summary_from_portfolio(
+    summary: pd.DataFrame,
+    selected_scenario_id: str,
+    recommendation_portfolio: pd.DataFrame | None,
+) -> pd.DataFrame:
+    if summary.empty or "scenario_id" not in summary.columns:
+        return summary
+
+    ids = [str(selected_scenario_id)]
+    if recommendation_portfolio is not None and not recommendation_portfolio.empty and "scenario_id" in recommendation_portfolio.columns:
+        ids = [
+            *recommendation_portfolio["scenario_id"].dropna().astype(str).tolist(),
+            str(selected_scenario_id),
+        ]
+    ids = list(dict.fromkeys(ids))
+    comparison = summary[summary["scenario_id"].astype(str).isin(ids)].copy()
+    if comparison.empty:
+        return summary[summary["scenario_id"].astype(str) == str(selected_scenario_id)].copy()
+    order = {scenario_id: index for index, scenario_id in enumerate(ids)}
+    comparison["_display_order"] = comparison["scenario_id"].astype(str).map(order).fillna(len(order))
+    return comparison.sort_values("_display_order").drop(columns=["_display_order"])
+
+
+def _default_export_scenario_id(
+    scenario_ids: list[str],
+    current_value: str | None,
+    recommendation_result,
+) -> str | None:
+    if not scenario_ids:
+        return None
+    scenario_ids = [str(item) for item in scenario_ids]
+    if current_value is not None and str(current_value) in scenario_ids:
+        return str(current_value)
+
+    portfolio = getattr(recommendation_result, "portfolio", None)
+    if isinstance(portfolio, pd.DataFrame) and not portfolio.empty and "scenario_id" in portfolio.columns:
+        valid_ids = set(scenario_ids)
+        for raw_id in portfolio["scenario_id"].dropna().astype(str).tolist():
+            if raw_id in valid_ids:
+                return raw_id
+    return scenario_ids[0]
+
+
+def _build_chart_html_zip(
+    summary: pd.DataFrame,
+    selected_scenario_id: str,
+    hourly: pd.DataFrame,
+    comparison_summary: pd.DataFrame | None = None,
+) -> bytes:
+    output = BytesIO()
+    selected_summary = _row_for_scenario(summary, selected_scenario_id)
+    comparison_summary = comparison_summary if comparison_summary is not None and not comparison_summary.empty else summary
+    chart_items = []
+    warnings: list[str] = []
+    season_export_keys = {"春季": "spring", "夏季": "summer", "秋季": "autumn", "冬季": "winter"}
+
+    if selected_summary is not None:
+        chart_items.append(("single_policy", build_policy_bar_chart(selected_summary)))
+
+    for season in ["春季", "夏季", "秋季", "冬季"]:
+        season_key = season_export_keys[season]
+        selection = select_typical_season_day(hourly, season)
+        if selection.day.empty or "timestamp" not in selection.day.columns:
+            warnings.append(f"{season}典型日未生成：{selection.method}")
+            continue
+        selected_date = pd.to_datetime(selection.day["timestamp"], errors="coerce").dropna().dt.date
+        if selected_date.empty:
+            warnings.append(f"{season}典型日未生成：无法解析选中日期。")
+            continue
+        result = build_daily_balance_chart(hourly, selected_date=selected_date.iloc[0])
+        result.chart_id = f"S03_{season_key}"
+        result.chart_name = f"{season}典型日源网荷储平衡图（{selection.label}）"
+        result.meta["typical_day_label"] = selection.label
+        result.meta["typical_day_season"] = season
+        result.meta["typical_day_method"] = selection.method
+        chart_items.append((f"typical_{season_key}_{selection.label}", result))
+
+    chart_items.extend(
+        [
+            ("soc_full_year", build_soc_chart(hourly)),
+            ("grid_exchange", build_grid_exchange_chart(hourly)),
+            ("monthly_load_source", build_monthly_load_source_chart(hourly)),
+            ("monthly_renewable_flow", build_monthly_renewable_flow_chart(hourly)),
+            ("heatmap_grid_import", build_heatmap_chart(hourly, "grid_import_power")),
+            ("multi_policy", build_multi_policy_comparison(comparison_summary)),
+            ("multi_capacity", build_multi_capacity_comparison(comparison_summary)),
+            ("multi_renewable_flow", build_multi_renewable_flow_comparison(comparison_summary)),
+            ("curtail_vs_self_use", build_curtailment_vs_self_consumption_scatter(comparison_summary)),
+        ]
     )
 
+    with ZipFile(output, mode="w", compression=ZIP_DEFLATED) as archive:
+        exported = 0
+        for base_name, result in chart_items:
+            if result.figure is None:
+                warnings.extend(result.warnings)
+                continue
+            prefix = _safe_export_name(f"{base_name}_{result.chart_id}")
+            archive.writestr(f"{prefix}.html", chart_to_html_bytes(result))
+            archive.writestr(f"{prefix}_meta.md", chart_to_meta_markdown(result).encode("utf-8-sig"))
+            exported += 1
+        if warnings:
+            archive.writestr("warnings.txt", "\n".join(warnings).encode("utf-8-sig"))
+        archive.writestr(
+            "README.md",
+            (
+                "# 图表 HTML 导出说明\n\n"
+                f"- 方案编号：`{selected_scenario_id}`\n"
+                f"- 多方案对比范围：{len(comparison_summary)} 个方案（推荐组合 + 当前报告方案）。\n"
+                f"- 已导出图表数量：{exported}\n"
+                "- HTML 图表只读消费方案汇总和逐小时明细，不重新计算调度。\n"
+                "- 四季典型日图表使用季节中心日法，并在文件名和 meta 中记录 MM/DD。\n"
+            ).encode("utf-8-sig"),
+        )
+    return output.getvalue()
 
-def main() -> None:
-    import streamlit as st
 
-    st.set_page_config(page_title="绿电直连风光储方案策划平台", layout="wide")
-    st.title("绿电直连风光储方案策划与测算平台")
-    workflow_page = _render_workflow_navigation(st)
+def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) -> None:
+    _render_page_heading(
+        st,
+        "图表下载和报告生成",
+        "集中下载技术结果、经济性结果、单方案逐小时复核数据，并生成可复核的简版说明报告。",
+    )
 
-    if workflow_page == "欢迎页":
-        _render_welcome_page(st)
+    scenario_ids = list(batch_result.hourly_details.keys())
+    if not scenario_ids:
+        st.warning("当前没有逐小时明细，无法生成图表复核数据。")
         return
 
-    if workflow_page in {"经济性评价", "推荐方案与详细分析"}:
-        batch_result = st.session_state.get("batch_result")
-        if not batch_result:
-            _render_missing_step(st, "技术仿真", "请先完成技术仿真，经济性评价和推荐分析会读取技术仿真的方案汇总。")
-            return
-        summary = _summary_from_batch_result(batch_result)
-        if summary.empty:
-            st.warning("没有成功生成方案结果，请回到技术仿真页检查输入数据和方案范围。")
-            return
-        if workflow_page == "经济性评价":
-            _render_economy_v1(
-                st,
+    economy_result = st.session_state.get("economy_v1_result")
+    single_entity_result = st.session_state.get("single_entity_economy_result")
+    economy_summary = (
+        economy_result.get("summary")
+        if economy_result and isinstance(economy_result.get("summary"), pd.DataFrame)
+        else None
+    )
+    single_entity_summary = (
+        single_entity_result.get("summary")
+        if single_entity_result and isinstance(single_entity_result.get("summary"), pd.DataFrame)
+        else None
+    )
+    recommendation_inputs = st.session_state.get("recommendation_v1_inputs")
+    recommendation_result_for_export = None
+    if recommendation_inputs and economy_summary is not None and not economy_summary.empty:
+        try:
+            recommendation_result_for_export = build_recommendation_study(
                 summary,
-                bess_calendar_life_years=_get_bess_calendar_life_years(st),
-                render_recommendation=False,
+                economy_summary,
+                RecommendationInputSnapshot(**recommendation_inputs),
+                single_entity_summary=single_entity_summary,
             )
-        else:
-            _render_recommendation_analysis_page(st, batch_result, summary)
-        return
+        except Exception:  # noqa: BLE001 - export page should continue without recommendation scope
+            recommendation_result_for_export = None
 
-    with st.sidebar:
-        with st.expander("数据上传", expanded=True):
-            use_sample_data = st.checkbox(
+    default_export_id = _default_export_scenario_id(
+        scenario_ids,
+        st.session_state.get("export_report_scenario"),
+        recommendation_result_for_export,
+    )
+    selected_index = scenario_ids.index(default_export_id) if default_export_id in scenario_ids else 0
+    selected_id = st.selectbox(
+        "选择报告和逐小时复核方案",
+        scenario_ids,
+        index=selected_index,
+        key="export_report_scenario",
+    )
+
+    hourly = batch_result.hourly_details[selected_id]
+    selected_status = _scenario_status_text(summary, selected_id)
+    st.markdown(
+        f"""
+        <div class="gd-export-selected">
+          <div>
+            <strong>当前导出方案：{_safe_html_text(selected_id)}</strong><br/>
+            <span>{_safe_html_text(selected_status)}</span>
+          </div>
+          <div>{_status_pill('逐小时明细可用', 'ok')}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    technical_col, chart_col, report_col = st.columns(3)
+    with technical_col:
+        with st.container(border=True):
+            st.markdown(
+                """
+                <div class="gd-export-panel-head">
+                  <strong>技术数据</strong>
+                  <span>下载当前方案逐小时台账；批量汇总包放在折叠区，避免默认页变重。</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.download_button(
+                "下载所选方案逐小时 CSV",
+                data=localize_columns(hourly).to_csv(index=False).encode("utf-8-sig"),
+                file_name=f"hourly_detail_{selected_id}.csv",
+                mime="text/csv",
+                key="export_selected_hourly_csv",
+            )
+            with st.expander("批量技术结果包", expanded=False):
+                st.caption("生成方案汇总 Excel 和全部逐小时明细 ZIP，适合归档或二次复核。")
+                if st.checkbox("准备方案汇总 Excel 和全部逐小时 ZIP", value=False, key="export_prepare_technical"):
+                    payloads = _get_download_payloads(st, batch_result, st.session_state.get("config_snapshot", {}))
+                    st.download_button(
+                        "下载方案汇总 Excel",
+                        data=payloads["excel_bytes"],
+                        file_name=payloads["excel_name"],
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="export_summary_excel",
+                    )
+                    st.download_button(
+                        "下载全部逐小时明细 ZIP",
+                        data=payloads["zip_bytes"],
+                        file_name=payloads["zip_name"],
+                        mime="application/zip",
+                        key="export_hourly_zip",
+                    )
+
+    with chart_col:
+        with st.container(border=True):
+            st.markdown(
+                """
+                <div class="gd-export-panel-head">
+                  <strong>图表包</strong>
+                  <span>导出当前方案单方案图、四季典型日图，以及推荐组合范围的多方案对比图。</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if st.checkbox("准备所选方案图表 HTML ZIP", value=False, key="export_prepare_chart_html"):
+                with st.spinner("正在生成图表 HTML ZIP..."):
+                    comparison_summary = _comparison_summary_from_portfolio(
+                        summary,
+                        selected_id,
+                        recommendation_result_for_export.portfolio if recommendation_result_for_export else None,
+                    )
+                    chart_zip = _build_chart_html_zip(summary, selected_id, hourly, comparison_summary=comparison_summary)
+                st.download_button(
+                    "下载所选方案图表 HTML ZIP",
+                    data=chart_zip,
+                    file_name=f"chart_html_{selected_id}.zip",
+                    mime="application/zip",
+                    key="export_selected_chart_html_zip",
+                    help="包含四季典型日平衡图、SOC、电网交换、月度流向、热力图和多方案对比图；每张图附带 meta 说明。",
+                )
+            st.markdown('<div class="gd-export-note">PNG 批量导出依赖后续图像导出环境，当前先提供可交互 HTML。</div>', unsafe_allow_html=True)
+
+    with report_col:
+        with st.container(border=True):
+            st.markdown(
+                """
+                <div class="gd-export-panel-head">
+                  <strong>经济与报告</strong>
+                  <span>汇总技术、经济性、推荐组合和简版说明报告，缺失结果按真实状态提示。</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            sheets = {"方案汇总": localize_columns(summary)}
+            if economy_summary is not None and not economy_summary.empty:
+                sheets["电源侧经济性汇总"] = localize_columns(economy_summary)
+            if single_entity_summary is not None and not single_entity_summary.empty:
+                sheets["同一主体经济性汇总"] = localize_columns(single_entity_summary)
+            st.download_button(
+                "下载技术+经济汇总 Excel",
+                data=_build_excel_bytes(sheets),
+                file_name="green_direct_technical_economy_summary.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="export_technical_economy_excel",
+            )
+            st.download_button(
+                "下载简版 Markdown 报告",
+                data=_build_simple_report_markdown(
+                    summary=summary,
+                    selected_scenario_id=selected_id,
+                    economy_summary=economy_summary,
+                    single_entity_summary=single_entity_summary,
+                ),
+                file_name=f"green_direct_report_{selected_id}.md",
+                mime="text/markdown",
+                key="export_simple_markdown_report",
+            )
+
+    with st.expander("高级：年度现金流与推荐组合导出", expanded=False):
+        st.caption("这里保留经济性复核文件和推荐组合 Excel，避免默认导出页过载。")
+        st.download_button(
+            "下载当前技术+经济汇总 Excel",
+            data=_build_excel_bytes(sheets),
+            file_name="green_direct_technical_economy_summary.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="export_technical_economy_excel_advanced",
+        )
+        power_annual_cashflows = (
+            economy_result.get("annual_cashflows")
+            if economy_result and isinstance(economy_result.get("annual_cashflows"), dict)
+            else {}
+        )
+        if selected_id in power_annual_cashflows:
+            st.download_button(
+                "下载所选方案电源侧年度现金流 Excel",
+                data=_build_excel_bytes(
+                    {
+                        f"电源侧年度现金流_{selected_id}": localize_columns(power_annual_cashflows[selected_id]),
+                    }
+                ),
+                file_name=f"power_side_annual_cashflow_{selected_id}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="export_power_side_annual_cashflow",
+            )
+
+        single_entity_annual_cashflows = (
+            single_entity_result.get("annual_cashflows")
+            if single_entity_result and isinstance(single_entity_result.get("annual_cashflows"), dict)
+            else {}
+        )
+        if selected_id in single_entity_annual_cashflows and single_entity_summary is not None:
+            st.download_button(
+                "下载所选方案同一主体年度现金流 Excel",
+                data=_build_single_entity_annual_workbook_bytes(
+                    scenario_id=selected_id,
+                    annual=single_entity_annual_cashflows[selected_id],
+                    technical_summary=summary,
+                    economic_summary=single_entity_summary,
+                ),
+                file_name=f"single_entity_pre_tax_annual_cashflow_{selected_id}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="export_single_entity_annual_cashflow",
+            )
+
+        if recommendation_inputs and economy_summary is not None and not economy_summary.empty:
+            try:
+                recommendation_result = recommendation_result_for_export
+                if recommendation_result is None:
+                    recommendation_result = build_recommendation_study(
+                        summary,
+                        economy_summary,
+                        RecommendationInputSnapshot(**recommendation_inputs),
+                        single_entity_summary=single_entity_summary,
+                    )
+                st.download_button(
+                    "下载推荐组合 Excel",
+                    data=_build_excel_bytes(
+                        {
+                            "推荐组合": localize_columns(recommendation_result.portfolio),
+                            "电源侧经济性汇总": localize_columns(economy_summary),
+                            "同一主体经济性汇总": localize_columns(
+                                single_entity_summary if single_entity_summary is not None else pd.DataFrame()
+                            ),
+                            "负荷侧可成交收益明细": localize_columns(recommendation_result.load_side_detail),
+                        }
+                    ),
+                    file_name="recommendation_portfolio_v1.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="export_recommendation_portfolio_v1",
+                )
+            except Exception as exc:  # noqa: BLE001 - export page should stay usable
+                st.info(f"推荐组合导出暂不可用：{exc}")
+
+
+def _render_simulation_page(st) -> None:
+    _render_page_heading(st, "方案仿真")
+    simulation_notice = st.session_state.pop("_simulation_notice", None)
+    if simulation_notice:
+        st.success(simulation_notice)
+
+    scenario_grid = None
+    scenario_count: int | None = None
+    warn_threshold = 5000
+    grid_exchange_power_limit = None
+
+    data_col, scenario_col, policy_col = st.columns([1.15, 1.08, 1.0])
+
+    with data_col:
+        with st.container(border=True):
+            _render_section_intro(
+                st,
+                "Input",
+                "数据曲线",
+                "优先批量上传三条曲线；手动覆盖、编码和列识别放入复核区。",
+            )
+            if st.session_state.pop("_simulation_force_sample_data", False):
+                st.session_state["simulation_use_sample_data"] = True
+            use_sample_data = _boolean_input(
+                st,
                 "使用内置示例数据（Demo）",
                 value=False,
                 help="使用 samples 目录中的负荷、光伏、风电示例曲线，适合快速体验测算和图表分析。",
+                key="simulation_use_sample_data",
             )
             sample_files: dict[str, object] = {}
             if use_sample_data:
                 sample_files, sample_messages = _load_sample_curve_files()
                 for message in sample_messages:
                     st.warning(message)
-                for curve_name, sample_file in sample_files.items():
-                    st.caption(f"{curve_name}示例：`{sample_file.name}`")
 
             batch_files = st.file_uploader(
                 "批量上传曲线 CSV",
                 type=["csv"],
                 accept_multiple_files=True,
-                help="可一次选择负荷、光伏、风电三个文件。文件名包含负荷/load、光伏/pv/solar、风电/wind 时会自动识别。",
+                help="一次选择负荷、光伏、风电文件；文件名包含 load、pv/solar、wind 或中文关键词时会自动识别。",
             )
             assigned_files, assign_messages = _auto_assign_curve_files(batch_files)
             for message in assign_messages:
                 st.warning(message)
-            for curve_name, uploaded_file in assigned_files.items():
-                st.caption(f"{curve_name}文件：已自动识别 `{uploaded_file.name}`")
 
-            st.caption("如果批量识别不准确，可在下面单独上传覆盖。")
-            load_file_manual = st.file_uploader("负荷 CSV", type=["csv"], key="load_csv_manual")
-            pv_file_manual = st.file_uploader("光伏 CSV", type=["csv"], key="pv_csv_manual")
-            wind_file_manual = st.file_uploader("风电 CSV", type=["csv"], key="wind_csv_manual")
+            with st.expander("高级：单独上传覆盖", expanded=False):
+                st.markdown(
+                    '<div class="gd-field-note">批量识别不准确时，在这里单独覆盖某一条曲线文件。</div>',
+                    unsafe_allow_html=True,
+                )
+                c1, c2, c3 = st.columns(3)
+                load_file_manual = c1.file_uploader("负荷 CSV", type=["csv"], key="load_csv_manual")
+                pv_file_manual = c2.file_uploader("光伏 CSV", type=["csv"], key="pv_csv_manual")
+                wind_file_manual = c3.file_uploader("风电 CSV", type=["csv"], key="wind_csv_manual")
+
             load_file = load_file_manual or assigned_files.get("负荷") or sample_files.get("负荷")
             pv_file = pv_file_manual or assigned_files.get("光伏") or sample_files.get("光伏")
             wind_file = wind_file_manual or assigned_files.get("风电") or sample_files.get("风电")
@@ -1340,12 +3103,6 @@ def main() -> None:
                 load_df, load_encoding = _load_preview(load_file)
                 pv_df, pv_encoding = _load_preview(pv_file)
                 wind_df, wind_encoding = _load_preview(wind_file)
-                if load_encoding:
-                    st.caption(f"负荷编码: {load_encoding}")
-                if pv_encoding:
-                    st.caption(f"光伏编码: {pv_encoding}")
-                if wind_encoding:
-                    st.caption(f"风电编码: {wind_encoding}")
             except DataValidationError as exc:
                 st.error(str(exc))
                 load_df = pv_df = wind_df = None
@@ -1357,76 +3114,200 @@ def main() -> None:
             load_value_guess = _guess_value_column(load_df, load_time_guess, "负荷")
             pv_value_guess = _guess_value_column(pv_df, pv_time_guess, "光伏")
             wind_value_guess = _guess_value_column(wind_df, wind_time_guess, "风电")
+            needs_column_review = any(
+                [
+                    load_df is not None and (load_time_guess is None or load_value_guess is None),
+                    pv_df is not None and (pv_time_guess is None or pv_value_guess is None),
+                    wind_df is not None and (wind_time_guess is None or wind_value_guess is None),
+                ]
+            )
 
-            load_time_col = _column_selector(st, "负荷时间列", load_df, load_time_guess)
-            load_value_col = _column_selector(st, "负荷数值列", load_df, load_value_guess)
-            pv_time_col = _column_selector(st, "光伏时间列", pv_df, pv_time_guess)
-            pv_value_col = _column_selector(st, "光伏数值列", pv_df, pv_value_guess)
-            wind_time_col = _column_selector(st, "风电时间列", wind_df, wind_time_guess)
-            wind_value_col = _column_selector(st, "风电数值列", wind_df, wind_value_guess)
+            with st.expander("数据识别复核", expanded=needs_column_review):
+                st.markdown(
+                    '<div class="gd-field-note">自动识别正常时无需处理；列名异常时在这里人工选择时间列和数值列。</div>',
+                    unsafe_allow_html=True,
+                )
+                load_time_col = _column_selector(
+                    st, "负荷时间列", load_df, load_time_guess, show_guess_caption=False
+                )
+                load_value_col = _column_selector(
+                    st, "负荷数值列", load_df, load_value_guess, show_guess_caption=False
+                )
+                pv_time_col = _column_selector(
+                    st, "光伏时间列", pv_df, pv_time_guess, show_guess_caption=False
+                )
+                pv_value_col = _column_selector(
+                    st, "光伏数值列", pv_df, pv_value_guess, show_guess_caption=False
+                )
+                wind_time_col = _column_selector(
+                    st, "风电时间列", wind_df, wind_time_guess, show_guess_caption=False
+                )
+                wind_value_col = _column_selector(
+                    st, "风电数值列", wind_df, wind_value_guess, show_guess_caption=False
+                )
+                review_rows = [
+                    {
+                        "曲线": "负荷",
+                        "文件": getattr(load_file, "name", "-") if load_file else "-",
+                        "编码": load_encoding or "-",
+                        "时间列": load_time_col or "-",
+                        "数值列": load_value_col or "-",
+                    },
+                    {
+                        "曲线": "光伏",
+                        "文件": getattr(pv_file, "name", "-") if pv_file else "-",
+                        "编码": pv_encoding or "-",
+                        "时间列": pv_time_col or "-",
+                        "数值列": pv_value_col or "-",
+                    },
+                    {
+                        "曲线": "风电",
+                        "文件": getattr(wind_file, "name", "-") if wind_file else "-",
+                        "编码": wind_encoding or "-",
+                        "时间列": wind_time_col or "-",
+                        "数值列": wind_value_col or "-",
+                    },
+                ]
+                st.dataframe(pd.DataFrame(review_rows), use_container_width=True, hide_index=True)
 
-        with st.expander("容量搜索范围", expanded=True):
+            _render_curve_overview_cards(
+                st,
+                {"负荷": load_file, "光伏": pv_file, "风电": wind_file},
+                {
+                    "负荷": (load_time_col, load_value_col),
+                    "光伏": (pv_time_col, pv_value_col),
+                    "风电": (wind_time_col, wind_value_col),
+                },
+            )
+
+    with scenario_col:
+        with st.container(border=True):
+            _render_section_intro(
+                st,
+                "Scenario Pool",
+                "候选方案池",
+                "枚举只作为内部搜索方法；这里控制风、光、储容量边界和步长。",
+            )
             pv_range = _range_inputs(st, "光伏容量", (0, 30, 5))
             wind_range = _range_inputs(st, "风电容量", (0, 30, 5))
             bess_power_range = _range_inputs(st, "储能功率", (0, 10, 2))
-            include_no_bess = st.checkbox("包含无储能方案", value=True)
-            duration_text = st.text_input("储能时长选项（小时）", value="2,4")
-
-        with st.expander("储能参数", expanded=False):
-            soc_initial = st.number_input("初始 SOC", value=0.5, min_value=0.0, max_value=1.0, step=0.05)
-            soc_min = st.number_input("最小 SOC", value=0.1, min_value=0.0, max_value=1.0, step=0.05)
-            soc_max = st.number_input("最大 SOC", value=0.9, min_value=0.0, max_value=1.0, step=0.05)
-            eta_charge = st.number_input("充电效率", value=0.95, min_value=0.000001, max_value=1.0, step=0.01)
-            eta_discharge = st.number_input("放电效率", value=0.95, min_value=0.000001, max_value=1.0, step=0.01)
-            cycle_life = st.number_input("循环寿命", value=6000.0, min_value=0.0, step=100.0)
-            bess_calendar_life = st.number_input(
-                "电池日历寿命（年）",
-                value=15.0,
-                min_value=1.0,
-                max_value=40.0,
-                step=1.0,
-                help="当前不参与小时调度，只在经济性评价中与循环寿命共同决定储能更换年份。",
+            include_no_bess = _boolean_input(
+                st,
+                "包含无储能方案",
+                value=True,
+                help="保留无储能基准方案，便于比较储能增益。",
+                key="simulation_include_no_bess",
             )
-
-        with st.expander("上网与政策约束", expanded=False):
-            allow_export = st.checkbox("允许上网", value=True)
-            enforce_export_cap = st.checkbox("启用年度上网比例硬约束（超过额度后弃电）", value=True)
-            self_use_rate_min = st.number_input("自发自用率下限", value=0.60, min_value=0.0, max_value=1.0, step=0.01)
-            green_load_rate_min = st.number_input("绿电占用电比例下限", value=0.30, min_value=0.0, max_value=1.0, step=0.01)
-            export_rate_max = st.number_input("上网比例上限", value=0.20, min_value=0.0, max_value=1.0, step=0.01)
-            limit_exchange_power = st.checkbox("设置与电网交换功率限制", value=False)
-            grid_exchange_power_limit = None
-            if limit_exchange_power:
-                grid_exchange_power_limit = st.number_input(
-                    "与电网交换功率限制（万千瓦）",
-                    value=10.0,
-                    min_value=0.0,
-                    step=1.0,
+            duration_text = st.text_input(
+                "储能时长选项（小时）",
+                value="2,4",
+                help="多个时长用英文逗号分隔；勾选无储能时会自动加入 0 小时。",
+            )
+            with st.expander("高级：枚举性能提醒", expanded=False):
+                warn_threshold = int(
+                    st.number_input("方案数提醒阈值", value=5000, min_value=1, step=100)
                 )
 
-        with st.expander("高级参数", expanded=False):
-            warn_threshold = st.number_input("方案数提醒阈值", value=5000, min_value=1, step=100)
+            try:
+                durations = [float(item.strip()) for item in duration_text.split(",") if item.strip()]
+                if include_no_bess and 0.0 not in durations:
+                    durations = [0.0, *durations]
+                scenario_grid = {
+                    "pv_capacity": pv_range,
+                    "wind_capacity": wind_range,
+                    "bess_power": bess_power_range,
+                    "bess_duration_hours": durations,
+                }
+                scenario_count = estimate_scenario_count(scenario_grid)
+                _render_simulation_kpis(st, scenario_count, scenario_grid, duration_text)
+                if scenario_count == 0:
+                    st.error("当前容量范围没有可用候选方案：至少需要配置光伏或风电容量，纯储能/无绿电来源组合不会进入候选池。")
+                    scenario_grid = None
+                if scenario_count > warn_threshold:
+                    st.warning(f"本次配置将生成 {scenario_count} 个方案，可能计算较慢，建议增大步长或缩小范围。")
+            except Exception as exc:  # noqa: BLE001 - UI should show friendly text
+                st.error(f"方案范围设置有误：{exc}")
+                scenario_grid = None
 
-    try:
-        durations = [float(item.strip()) for item in duration_text.split(",") if item.strip()]
-        if include_no_bess and 0.0 not in durations:
-            durations = [0.0, *durations]
-        scenario_grid = {
-            "pv_capacity": pv_range,
-            "wind_capacity": wind_range,
-            "bess_power": bess_power_range,
-            "bess_duration_hours": durations,
-        }
-        scenario_count = estimate_scenario_count(scenario_grid)
-        st.metric("方案数量预估", scenario_count)
-        if scenario_count == 0:
-            st.error("当前容量范围没有可用候选方案：至少需要配置光伏或风电容量，纯储能/无绿电来源组合不会进入候选池。")
-            scenario_grid = None
-        if scenario_count > warn_threshold:
-            st.warning(f"本次配置将生成 {scenario_count} 个方案，可能计算较慢，建议增大步长或缩小范围。")
-    except Exception as exc:  # noqa: BLE001 - UI should show friendly text
-        st.error(f"方案范围设置有误：{exc}")
-        scenario_grid = None
+    with policy_col:
+        with st.container(border=True):
+            _render_section_intro(
+                st,
+                "Policy",
+                "政策和电网约束",
+                "只做筛选和上网控制，不改变当前基线储能调度口径。",
+            )
+            allow_export = _boolean_input(
+                st,
+                "允许上网",
+                value=True,
+                help="关闭后，富余电量按弃电处理。",
+                key="simulation_allow_export",
+            )
+            enforce_export_cap = _boolean_input(
+                st,
+                "启用年度上网比例硬约束",
+                value=True,
+                help="开启后，超过年度上网额度的富余电量按弃电处理；关闭后只做结果达标检查。",
+                key="simulation_enforce_export_cap",
+            )
+            self_use_rate_min = st.number_input(
+                "自发自用率下限",
+                value=0.60,
+                min_value=0.0,
+                max_value=1.0,
+                step=0.01,
+                help="方案筛选指标，内部按小数保存。",
+            )
+            green_load_rate_min = st.number_input(
+                "绿电占用电比例下限",
+                value=0.30,
+                min_value=0.0,
+                max_value=1.0,
+                step=0.01,
+                help="方案筛选指标，内部按小数保存。",
+            )
+            export_rate_max = st.number_input(
+                "上网比例上限",
+                value=0.20,
+                min_value=0.0,
+                max_value=1.0,
+                step=0.01,
+                help="方案筛选指标，内部按小数保存。",
+            )
+            with st.expander("高级：电网交换功率限制", expanded=False):
+                limit_exchange_power = _boolean_input(
+                    st,
+                    "设置与电网交换功率限制",
+                    value=False,
+                    help="用于限制并网点交换功率，未启用时保持无限制。",
+                    key="simulation_limit_exchange_power",
+                )
+                if limit_exchange_power:
+                    grid_exchange_power_limit = st.number_input(
+                        "与电网交换功率限制（万千瓦）",
+                        value=10.0,
+                        min_value=0.0,
+                        step=1.0,
+                    )
+
+    with st.expander("专业参数：储能 SOC、效率与寿命", expanded=False):
+        soc_cols = st.columns(4)
+        soc_initial = soc_cols[0].number_input("初始 SOC", value=0.5, min_value=0.0, max_value=1.0, step=0.05)
+        soc_min = soc_cols[1].number_input("最小 SOC", value=0.1, min_value=0.0, max_value=1.0, step=0.05)
+        soc_max = soc_cols[2].number_input("最大 SOC", value=0.9, min_value=0.0, max_value=1.0, step=0.05)
+        bess_calendar_life = soc_cols[3].number_input(
+            "电池日历寿命（年）",
+            value=15.0,
+            min_value=1.0,
+            max_value=40.0,
+            step=1.0,
+            help="当前不参与小时调度，只在经济性测算中与循环寿命共同决定储能更换年份。",
+        )
+        eff_cols = st.columns(3)
+        eta_charge = eff_cols[0].number_input("充电效率", value=0.95, min_value=0.000001, max_value=1.0, step=0.01)
+        eta_discharge = eff_cols[1].number_input("放电效率", value=0.95, min_value=0.000001, max_value=1.0, step=0.01)
+        cycle_life = eff_cols[2].number_input("循环寿命", value=6000.0, min_value=0.0, step=100.0)
 
     ready = all(
         [
@@ -1443,10 +3324,20 @@ def main() -> None:
         ]
     )
 
-    if not ready:
-        st.info("请上传三条 CSV 曲线并确认列名后开始测算。")
+    _render_run_state(st, ready, scenario_count, has_result=bool(st.session_state.get("batch_result")))
+    action_col, demo_col, next_hint_col = st.columns([0.78, 0.92, 3.0])
+    start_clicked = action_col.button("开始测算", type="primary", disabled=not ready, key="simulation_start")
+    demo_clicked = demo_col.button(
+        "一键生成 Demo 结果",
+        help="使用 samples 示例曲线和一组小规模候选方案快速生成图表演示。",
+        key="simulation_demo",
+    )
+    next_hint_col.markdown(
+        '<div class="gd-field-note">测算完成后，推荐、图表包、报告导出会围绕代表方案组织，不再把全量枚举表作为主入口。</div>',
+        unsafe_allow_html=True,
+    )
 
-    if st.button("一键生成 Demo 结果", help="使用 samples 示例曲线和 20 个小规模方案快速生成图表演示。"):
+    if demo_clicked:
         try:
             demo_files, demo_messages = _load_sample_curve_files()
             missing_demo = {"负荷", "光伏", "风电"} - set(demo_files)
@@ -1476,43 +3367,43 @@ def main() -> None:
             ):
                 raise DataValidationError("未能自动识别示例数据列名，请检查 samples 目录中的 CSV。")
 
-            demo_curves = read_curve_set(
-                BytesIO(demo_files["负荷"].getvalue()),
-                BytesIO(demo_files["光伏"].getvalue()),
-                BytesIO(demo_files["风电"].getvalue()),
-                load_time_col=demo_load_time_col,
-                load_value_col=demo_load_value_col,
-                pv_time_col=demo_pv_time_col,
-                pv_value_col=demo_pv_value_col,
-                wind_time_col=demo_wind_time_col,
-                wind_value_col=demo_wind_value_col,
-                cleaning=DataCleaningParams(),
-            )
             demo_grid = {
-                "pv_capacity": {"start": 10, "end": 20, "step": 10},
-                "wind_capacity": {"start": 5, "end": 15, "step": 10},
-                "bess_power": {"start": 0, "end": 4, "step": 2},
-                "bess_duration_hours": [0, 2, 4],
+                "pv_capacity": {"start": 2, "end": 10, "step": 4},
+                "wind_capacity": {"start": 1, "end": 5, "step": 2},
+                "bess_power": {"start": 0, "end": 2, "step": 1},
+                "bess_duration_hours": [0, 2],
             }
             with st.spinner("正在生成 Demo 测算结果..."):
-                batch_result = run_batch(
-                    demo_curves.data,
-                    demo_grid,
-                    bess_params=BessParams(),
-                    policy_params=PolicyParams(export_control_mode="annual_cap_runtime"),
-                    performance_params=PerformanceParams(warn_if_scenarios_exceed=int(warn_threshold)),
+                technical_result = run_technical_study(
+                    TechnicalStudyInput(
+                        load_source=demo_files["负荷"].getvalue(),
+                        pv_source=demo_files["光伏"].getvalue(),
+                        wind_source=demo_files["风电"].getvalue(),
+                        load_time_col=demo_load_time_col,
+                        load_value_col=demo_load_value_col,
+                        pv_time_col=demo_pv_time_col,
+                        pv_value_col=demo_pv_value_col,
+                        wind_time_col=demo_wind_time_col,
+                        wind_value_col=demo_wind_value_col,
+                        scenario_grid=demo_grid,
+                        bess_params=BessParams(),
+                        policy_params=PolicyParams(export_control_mode="annual_cap_runtime"),
+                        performance_params=PerformanceParams(warn_if_scenarios_exceed=int(warn_threshold)),
+                        cleaning_params=DataCleaningParams(),
+                        config_metadata={
+                            "bess_calendar_life_years": 15.0,
+                            "demo": True,
+                        },
+                    ),
                 )
-            st.session_state["batch_result"] = batch_result
-            st.session_state["config_snapshot"] = {
-                "scenario_grid": demo_grid,
-                "bess": BessParams().__dict__,
-                "bess_calendar_life_years": 15.0,
-                "policy": PolicyParams(export_control_mode="annual_cap_runtime").__dict__,
-                "warnings": demo_curves.warnings,
-                "demo": True,
-            }
+            study_result = StudyResult.from_technical(technical_result)
+            st.session_state["study_result"] = study_result
+            st.session_state["batch_result"] = technical_result.batch_result
+            st.session_state["config_snapshot"] = technical_result.config_snapshot
             st.session_state.pop("download_payloads", None)
-            st.success("Demo 结果已生成，可直接查看下方图表分析。")
+            st.session_state["_simulation_force_sample_data"] = True
+            st.session_state["_simulation_notice"] = "Demo 结果已生成，可继续做经济测算和推荐图表。"
+            st.rerun()
         except DataValidationError as exc:
             st.error(str(exc))
         except Exception as exc:  # noqa: BLE001 - UI should show friendly text
@@ -1527,20 +3418,8 @@ def main() -> None:
     if statuses:
         _render_data_status(st, statuses)
 
-    if st.button("开始测算", type="primary", disabled=not ready):
+    if start_clicked:
         try:
-            curves = read_curve_set(
-                BytesIO(load_file.getvalue()),
-                BytesIO(pv_file.getvalue()),
-                BytesIO(wind_file.getvalue()),
-                load_time_col=load_time_col,
-                load_value_col=load_value_col,
-                pv_time_col=pv_time_col,
-                pv_value_col=pv_value_col,
-                wind_time_col=wind_time_col,
-                wind_value_col=wind_value_col,
-                cleaning=DataCleaningParams(),
-            )
             bess_params = BessParams(
                 soc_initial=soc_initial,
                 soc_min=soc_min,
@@ -1565,26 +3444,39 @@ def main() -> None:
                 progress.progress(done / total if total else 1.0)
                 progress_text.caption(f"正在计算 {done}/{total}：{scenario.scenario_id}")
 
-            batch_result = run_batch(
-                curves.data,
-                scenario_grid,
-                bess_params=bess_params,
-                policy_params=policy_params,
-                performance_params=PerformanceParams(warn_if_scenarios_exceed=int(warn_threshold)),
+            technical_result = run_technical_study(
+                TechnicalStudyInput(
+                    load_source=load_file.getvalue(),
+                    pv_source=pv_file.getvalue(),
+                    wind_source=wind_file.getvalue(),
+                    load_time_col=load_time_col,
+                    load_value_col=load_value_col,
+                    pv_time_col=pv_time_col,
+                    pv_value_col=pv_value_col,
+                    wind_time_col=wind_time_col,
+                    wind_value_col=wind_value_col,
+                    scenario_grid=scenario_grid,
+                    bess_params=bess_params,
+                    policy_params=policy_params,
+                    performance_params=PerformanceParams(warn_if_scenarios_exceed=int(warn_threshold)),
+                    cleaning_params=DataCleaningParams(),
+                    config_metadata={
+                        "bess_calendar_life_years": bess_calendar_life,
+                    },
+                ),
                 progress_callback=update_progress,
             )
-            progress_text.caption(f"计算完成：{batch_result.scenario_count}/{batch_result.scenario_count}")
+            progress_text.caption(
+                f"计算完成：{technical_result.scenario_count}/{technical_result.scenario_count}"
+            )
 
-            st.session_state["batch_result"] = batch_result
-            st.session_state["config_snapshot"] = {
-                "scenario_grid": scenario_grid,
-                "bess": bess_params.__dict__,
-                "bess_calendar_life_years": bess_calendar_life,
-                "policy": policy_params.__dict__,
-                "warnings": curves.warnings,
-            }
+            study_result = StudyResult.from_technical(technical_result)
+            st.session_state["study_result"] = study_result
+            st.session_state["batch_result"] = technical_result.batch_result
+            st.session_state["config_snapshot"] = technical_result.config_snapshot
             st.session_state.pop("download_payloads", None)
-            st.success("测算完成。")
+            st.session_state["_simulation_notice"] = "测算完成。"
+            st.rerun()
         except DataValidationError as exc:
             st.error(str(exc))
         except Exception as exc:  # noqa: BLE001 - UI should show friendly text
@@ -1614,25 +3506,8 @@ def main() -> None:
     c4.metric("最低弃电率", f"{summary['curtail_rate'].min():.1%}")
     c5.metric("最低下网比例", f"{summary['grid_import_rate'].min():.1%}")
 
-    with st.expander("高级：结果表、筛选与下载", expanded=False):
-        if st.checkbox("准备下载文件", value=False, help="生成 Excel/ZIP 可能需要等待，默认不占用主界面。"):
-            payloads = _get_download_payloads(st, batch_result, st.session_state.get("config_snapshot", {}))
-            d1, d2 = st.columns(2)
-            d1.download_button(
-                "下载方案汇总 Excel",
-                data=payloads["excel_bytes"],
-                file_name=payloads["excel_name"],
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="download_summary_excel",
-            )
-            d2.download_button(
-                "下载全部逐小时明细 ZIP",
-                data=payloads["zip_bytes"],
-                file_name=payloads["zip_name"],
-                mime="application/zip",
-                key="download_hourly_zip",
-            )
-
+    with st.expander("高级：结果表、筛选与字段复核", expanded=False):
+        st.caption("下载、图表包和报告集中在“图表下载和报告生成”页面；这里仅保留复核用筛选表。")
         only_passed = st.checkbox("只看达标方案", value=False)
         scheme_types = st.multiselect(
             "方案类型筛选（与达标筛选为 AND 关系）",
@@ -1650,24 +3525,54 @@ def main() -> None:
         _display_mapping_expander(st, list(display.columns), "方案汇总字段对应关系")
 
         scenario_ids = list(batch_result.hourly_details.keys())
-        selected = st.selectbox("选择方案下载逐小时 CSV", scenario_ids)
+        selected = st.selectbox("选择方案查看逐小时字段", scenario_ids)
         if selected:
-            csv_bytes = localize_columns(batch_result.hourly_details[selected]).to_csv(index=False).encode("utf-8-sig")
-            st.download_button(
-                "下载当前方案逐小时 CSV",
-                data=csv_bytes,
-                file_name=f"hourly_detail_{selected}.csv",
-                mime="text/csv",
-            )
             _display_mapping_expander(
                 st,
                 list(batch_result.hourly_details[selected].columns),
                 "逐小时明细字段对应关系",
             )
 
-    st.info("技术仿真已完成。下一步请进入“经济性评价”设置经济参数并生成推荐所需的经济结果。")
-    if st.button("进入经济性评价", key="technical_go_economy"):
-        _go_to_workflow_page(st, "经济性评价")
+    st.info("方案仿真已完成。下一步请进入“经济性测算”设置经济参数并生成推荐所需的经济结果。")
+    if st.button("进入经济性测算", key="technical_go_economy"):
+        _go_to_workflow_page(st, "经济性测算")
+
+
+def main() -> None:
+    import streamlit as st
+
+    st.set_page_config(page_title="绿电直连风光储方案策划平台", layout="wide")
+    _inject_workbench_style(st)
+    workflow_page = _render_workflow_navigation(st)
+    _render_project_status_bar(st, workflow_page)
+
+    if workflow_page == "欢迎页":
+        _render_welcome_page(st)
+        return
+
+    if workflow_page in {"经济性测算", "方案推荐及图表概览", "图表下载和报告生成"}:
+        batch_result = st.session_state.get("batch_result")
+        if not batch_result:
+            _render_missing_step(st, "方案仿真", "请先完成方案仿真，后续页面会读取方案汇总和逐小时明细。")
+            return
+        summary = _summary_from_batch_result(batch_result)
+        if summary.empty:
+            st.warning("没有成功生成方案结果，请回到方案仿真页检查输入数据和方案范围。")
+            return
+        if workflow_page == "经济性测算":
+            _render_economy_v1(
+                st,
+                summary,
+                bess_calendar_life_years=_get_bess_calendar_life_years(st),
+                render_recommendation=False,
+            )
+        elif workflow_page == "方案推荐及图表概览":
+            _render_recommendation_analysis_page(st, batch_result, summary)
+        else:
+            _render_exports_and_reports_page(st, batch_result, summary)
+        return
+
+    _render_simulation_page(st)
 
 
 if __name__ == "__main__":

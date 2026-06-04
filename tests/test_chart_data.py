@@ -1,6 +1,6 @@
 import pandas as pd
 
-from green_direct.visualization.chart_data import adapt_hourly, adapt_summary, select_day
+from green_direct.visualization.chart_data import adapt_hourly, adapt_summary, select_day, select_typical_season_day
 
 
 def test_adapt_summary_aliases():
@@ -40,3 +40,27 @@ def test_select_day_by_max_load():
 
     assert label == "2020-01-02"
     assert len(day) == 24
+
+
+def test_select_typical_season_day_uses_center_profile_and_reports_mmdd():
+    hourly = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2020-03-01", periods=72, freq="h"),
+            "load_power": [10.0] * 24 + [20.0] * 24 + [30.0] * 24,
+            "grid_import_power": [3.0] * 24 + [6.0] * 24 + [9.0] * 24,
+            "curtail_power": [0.0] * 72,
+            "soc_end": [0.5] * 72,
+        }
+    )
+    adapted = adapt_hourly(hourly).data
+
+    selection = select_typical_season_day(
+        adapted,
+        "春季",
+        feature_fields=["load_power", "grid_import_power", "curtail_power", "soc_end"],
+    )
+
+    assert selection.label == "03/02"
+    assert len(selection.day) == 24
+    assert selection.day["timestamp"].dt.strftime("%Y-%m-%d").unique().tolist() == ["2020-03-02"]
+    assert "季节中心日法" in selection.method

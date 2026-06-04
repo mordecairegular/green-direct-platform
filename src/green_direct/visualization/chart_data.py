@@ -59,11 +59,39 @@ HOURLY_ALIASES = {
     "bess_energy_end": ["bess_energy_end", "battery_energy"],
 }
 
+SEASON_MONTHS = {
+    "春季": [3, 4, 5],
+    "夏季": [6, 7, 8],
+    "秋季": [9, 10, 11],
+    "冬季": [12, 1, 2],
+}
+
+TYPICAL_DAY_FEATURES = [
+    "load_power",
+    "pv_generation_power",
+    "wind_generation_power",
+    "renewable_power",
+    "bess_charge_power",
+    "bess_discharge_power",
+    "grid_import_power",
+    "grid_export_power",
+    "curtail_power",
+    "soc_end",
+]
+
 
 @dataclass
 class AdaptedData:
     data: pd.DataFrame
     warnings: list[str]
+
+
+@dataclass
+class TypicalDaySelection:
+    day: pd.DataFrame
+    label: str
+    method: str
+    score: float | None = None
 
 
 def _copy_aliases(df: pd.DataFrame, aliases: dict[str, list[str]]) -> AdaptedData:
@@ -124,6 +152,103 @@ def filter_hourly(hourly: pd.DataFrame, scenario_id: str | None = None) -> pd.Da
     if scenario_id is None or "scenario_id" not in hourly.columns:
         return hourly.copy()
     return hourly[hourly["scenario_id"].astype(str) == str(scenario_id)].copy()
+
+
+def _format_mmdd(value) -> str:
+    return pd.Timestamp(value).strftime("%m/%d")
+
+
+def _prepare_time_fields(hourly: pd.DataFrame) -> pd.DataFrame:
+    data = hourly.copy()
+    if "timestamp" in data.columns:
+        timestamp = pd.to_datetime(data["timestamp"], errors="coerce")
+        data["timestamp"] = timestamp
+        data["date"] = timestamp.dt.date
+        data["month"] = timestamp.dt.month
+        data["hour"] = timestamp.dt.hour
+    elif "date" in data.columns:
+        data["date"] = pd.to_datetime(data["date"], errors="coerce").dt.date
+    return data
+
+
+def _complete_day_frame(group: pd.DataFrame) -> pd.DataFrame:
+    if "hour" in group.columns:
+        day = group.dropna(subset=["hour"]).copy()
+        day["hour"] = pd.to_numeric(day["hour"], errors="coerce")
+        day = day.dropna(subset=["hour"]).drop_duplicates(subset=["hour"]).sort_values("hour")
+        if set(day["hour"].astype(int)) >= set(range(24)):
+            return day[day["hour"].astype(int).between(0, 23)].head(24).copy()
+        return pd.DataFrame()
+    return group.head(24).copy() if len(group) >= 24 else pd.DataFrame()
+
+
+def _fallback_day(data: pd.DataFrame, method: str) -> TypicalDaySelection:
+    if "date" in data.columns and data["date"].notna().any():
+        date_value = data["date"].dropna().iloc[0]
+        day = data[data["date"] == date_value].head(24).copy()
+        return TypicalDaySelection(day=day, label=_format_mmdd(date_value), method=method, score=None)
+    return TypicalDaySelection(day=data.head(24).copy(), label="前 24 小时", method=method, score=None)
+
+
+def select_typical_season_day(
+    hourly: pd.DataFrame,
+    season: str,
+    feature_fields: Iterable[str] | None = None,
+) -> TypicalDaySelection:
+    """Select a real 24-hour day closest to the seasonal average profile."""
+
+    data = _prepare_time_fields(hourly)
+    if data.empty:
+        return TypicalDaySelection(day=data.copy(), label="无数据", method="没有可用逐小时数据。", score=None)
+    if not {"date", "month"}.issubset(data.columns):
+        return _fallback_day(data, "缺少 timestamp，退回前 24 小时作为示例日。")
+
+    season_months = SEASON_MONTHS.get(season, list(range(1, 13)))
+    season_data = data[data["month"].isin(season_months)].dropna(subset=["date"]).copy()
+    if season_data.empty:
+        season_data = data.dropna(subset=["date"]).copy()
+    if season_data.empty:
+        return _fallback_day(data, "没有可解析日期，退回前 24 小时作为示例日。")
+
+    requested_fields = list(feature_fields or TYPICAL_DAY_FEATURES)
+    fields = [field for field in requested_fields if field in season_data.columns]
+    if not fields:
+        return _fallback_day(season_data, "缺少典型日特征字段，退回该季节首个可用日期。")
+
+    vectors: list[list[float]] = []
+    dates: list[object] = []
+    day_frames: dict[object, pd.DataFrame] = {}
+    for date_value, group in season_data.groupby("date", sort=True):
+        day = _complete_day_frame(group)
+        if len(day) != 24:
+            continue
+        vector: list[float] = []
+        for field in fields:
+            values = pd.to_numeric(day[field], errors="coerce").fillna(0.0).astype(float)
+            vector.extend(values.tolist())
+        vectors.append(vector)
+        dates.append(date_value)
+        day_frames[date_value] = day
+
+    if not vectors:
+        return _fallback_day(season_data, "该季节没有完整 24 小时日期，退回首个可用日期。")
+
+    matrix = pd.DataFrame(vectors, index=pd.Index(dates, name="date"), dtype=float)
+    column_std = matrix.std(axis=0, ddof=0).replace(0, 1).fillna(1)
+    normalized = (matrix - matrix.mean(axis=0)) / column_std
+    centroid = normalized.mean(axis=0)
+    distances = ((normalized - centroid) ** 2).mean(axis=1)
+    selected_date = distances.idxmin()
+    method = (
+        "季节中心日法：在该季节所有完整 24 小时日期中，按负荷、风光、储能、电网、弃电、SOC 等"
+        "已有逐小时字段标准化后，选择离季节平均曲线最近的真实日期。"
+    )
+    return TypicalDaySelection(
+        day=day_frames[selected_date].copy(),
+        label=_format_mmdd(selected_date),
+        method=method,
+        score=float(distances.loc[selected_date]),
+    )
 
 
 def select_day(hourly: pd.DataFrame, mode: str = "首日", selected_date=None) -> tuple[pd.DataFrame, str]:

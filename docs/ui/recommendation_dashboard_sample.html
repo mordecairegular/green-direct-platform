@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>推荐方案及图表概览样板页</title>
+  <style>
+    :root {
+      --navy: #062244;
+      --navy-2: #0a315d;
+      --blue: #1769d2;
+      --green: #16a05d;
+      --orange: #f97316;
+      --red: #dc2626;
+      --line: #d8e0ea;
+      --muted: #64748b;
+      --text: #172033;
+      --bg: #f4f7fb;
+      --card: #ffffff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
+      letter-spacing: 0;
+    }
+
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 184px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      background: linear-gradient(180deg, #061d3a 0%, #082c55 100%);
+      color: #e7f0fb;
+      padding: 18px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .menu-button {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 6px;
+      margin-left: 10px;
+      font-size: 24px;
+      color: #ffffff;
+    }
+
+    .nav {
+      display: grid;
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .nav-item {
+      min-height: 64px;
+      border-radius: 7px;
+      display: grid;
+      grid-template-columns: 32px minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      color: #d8e7f8;
+      font-weight: 650;
+      line-height: 1.25;
+    }
+
+    .nav-item .icon {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      font-size: 20px;
+    }
+
+    .nav-item.active {
+      background: #0f6fde;
+      color: #ffffff;
+      box-shadow: inset 3px 0 0 rgba(255, 255, 255, 0.42);
+    }
+
+    .sidebar-footer {
+      margin-top: auto;
+      border-top: 1px solid rgba(255, 255, 255, 0.14);
+      padding: 14px 12px 2px;
+      color: #c6d6ea;
+      font-weight: 650;
+    }
+
+    .main {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: 64px minmax(0, 1fr) 34px;
+    }
+
+    .topbar {
+      background: #ffffff;
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      grid-template-columns: minmax(290px, 1.2fr) minmax(220px, 0.9fr) auto auto minmax(230px, 0.9fr) auto;
+      align-items: center;
+      gap: 20px;
+      padding: 0 22px;
+      white-space: nowrap;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: conic-gradient(from 210deg, #0f7bdc, #13a05f, #d8a20c, #0f7bdc);
+      display: grid;
+      place-items: center;
+      color: #ffffff;
+      font-weight: 800;
+    }
+
+    .brand-title {
+      font-size: 22px;
+      font-weight: 800;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .top-meta {
+      color: #334155;
+      font-size: 14px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 30px;
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 720;
+      background: #eef2f7;
+      color: #475569;
+    }
+
+    .pill.ok { background: #e6f7ed; color: #10733e; }
+    .pill.warn { background: #fff4e5; color: #b45309; }
+
+    .content {
+      padding: 18px 22px;
+      overflow: auto;
+    }
+
+    .notice {
+      margin: 0 0 12px;
+      padding: 9px 12px;
+      border: 1px dashed #91a4ba;
+      border-radius: 7px;
+      color: #475569;
+      background: #f8fbff;
+      font-size: 13px;
+    }
+
+    .section {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      margin-bottom: 14px;
+      padding: 16px;
+      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+      gap: 10px;
+    }
+
+    .section-title h2 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.25;
+    }
+
+    .section-title .sub {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .button {
+      min-height: 34px;
+      padding: 7px 12px;
+      border: 1px solid #bfd0e5;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #0f4d96;
+      font-weight: 700;
+    }
+
+    .button.primary {
+      border-color: var(--blue);
+      background: var(--blue);
+      color: #ffffff;
+    }
+
+    .recommend-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .rec-card {
+      border: 1px solid #cfdae7;
+      border-radius: 8px;
+      padding: 14px;
+      min-height: 244px;
+      background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      gap: 10px;
+    }
+
+    .rec-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .rank {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      color: #ffffff;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      background: var(--green);
+      flex: 0 0 auto;
+    }
+
+    .rank.blue { background: #1557b7; }
+    .rank.orange { background: var(--orange); }
+
+    .rec-label {
+      font-size: 16px;
+      font-weight: 800;
+      color: #0f8a45;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .rec-label.blue { color: #1557b7; }
+    .rec-label.orange { color: var(--orange); }
+
+    .rec-id {
+      font-size: 25px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .rec-lines {
+      display: grid;
+      gap: 6px;
+      font-size: 14px;
+      color: #263244;
+    }
+
+    .line {
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr);
+      gap: 10px;
+    }
+
+    .line span:first-child { color: var(--muted); }
+    .line strong { color: #0f172a; }
+    .line .green { color: #0f8a45; }
+    .line .blue { color: #1557b7; }
+    .line .orange { color: var(--orange); }
+
+    .risk {
+      border-top: 1px solid #e5ebf2;
+      padding-top: 10px;
+      font-size: 13px;
+      color: #334155;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .risk .ok { color: var(--green); }
+    .risk .warn { color: var(--orange); }
+
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: minmax(420px, 0.9fr) minmax(520px, 1.1fr);
+      gap: 14px;
+    }
+
+    .chart-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 4px 0 12px;
+      font-size: 13px;
+      color: #334155;
+    }
+
+    .legend span::before {
+      content: "";
+      width: 22px;
+      height: 9px;
+      border-radius: 2px;
+      display: inline-block;
+      margin-right: 6px;
+      vertical-align: middle;
+      background: var(--c);
+    }
+
+    .bars {
+      display: grid;
+      grid-template-columns: 52px repeat(5, minmax(0, 1fr));
+      align-items: end;
+      gap: 14px;
+      height: 278px;
+      border-left: 1px solid #ccd6e2;
+      border-bottom: 1px solid #ccd6e2;
+      padding: 18px 10px 0 4px;
+      margin-top: 12px;
+    }
+
+    .axis {
+      align-self: stretch;
+      display: grid;
+      grid-template-rows: repeat(5, 1fr);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .bar-group {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 5px;
+      align-items: end;
+      min-height: 210px;
+      position: relative;
+    }
+
+    .bar {
+      border-radius: 4px 4px 0 0;
+      height: var(--h);
+      background: var(--c);
+      min-height: 10px;
+    }
+
+    .bar-label {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -48px;
+      font-size: 12px;
+      line-height: 1.25;
+      text-align: center;
+      color: #334155;
+    }
+
+    .curve-box {
+      border: 1px solid #e1e8f0;
+      border-radius: 7px;
+      padding: 10px;
+      background: #fbfdff;
+    }
+
+    .download-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .download-card {
+      border: 1px solid #d5dfeb;
+      border-radius: 8px;
+      padding: 14px;
+      display: grid;
+      grid-template-columns: 50px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      min-height: 92px;
+    }
+
+    .file-icon {
+      width: 44px;
+      height: 50px;
+      border: 3px solid var(--green);
+      color: var(--green);
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      border-radius: 5px;
+    }
+
+    .file-icon.blue { border-color: #1557b7; color: #1557b7; }
+    .file-icon.orange { border-color: var(--orange); color: var(--orange); }
+
+    .download-card h3 {
+      margin: 0 0 5px;
+      font-size: 16px;
+    }
+
+    .download-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .footer {
+      border-top: 1px solid var(--line);
+      background: #ffffff;
+      color: #526173;
+      display: grid;
+      grid-template-columns: minmax(320px, 1fr) minmax(220px, 0.8fr) auto auto;
+      align-items: center;
+      gap: 16px;
+      padding: 0 22px;
+      font-size: 13px;
+    }
+
+    @media (max-width: 1180px) {
+      .recommend-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .dashboard-grid { grid-template-columns: 1fr; }
+      .topbar { grid-template-columns: 1fr auto auto; }
+      .topbar .optional { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="menu-button">☰</div>
+      <nav class="nav" aria-label="工作流导航">
+        <div class="nav-item"><div class="icon">⌂</div><div>欢迎页</div></div>
+        <div class="nav-item"><div class="icon">▦</div><div>方案仿真</div></div>
+        <div class="nav-item"><div class="icon">¥</div><div>经济性测算</div></div>
+        <div class="nav-item active"><div class="icon">▣</div><div>方案推荐及<br>图表概览</div></div>
+        <div class="nav-item"><div class="icon">⇩</div><div>图表下载和<br>报告生成</div></div>
+      </nav>
+      <div class="sidebar-footer">‹ 收起</div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">✓</div>
+          <div class="brand-title">绿电直连 / 微电网方案策划平台</div>
+        </div>
+        <div class="top-meta optional">项目：示例工业园绿电直连项目</div>
+        <div class="pill ok">方案已生成</div>
+        <div class="pill ok">经济性测算已完成</div>
+        <div class="top-meta optional">数据时间：2024-01-01 ~ 2024-12-31（8760h）</div>
+        <div class="top-meta">当前用户：工程师A ▾</div>
+      </header>
+
+      <section class="content">
+        <p class="notice">UI DEMO：本页为静态样板页，仅用于验证布局和信息层级；示例数值为 mock，不接入真实计算链路。</p>
+
+        <section class="section">
+          <div class="section-title">
+            <div>
+              <h2>推荐方案 <span class="sub">（4 个推荐席位）</span></h2>
+            </div>
+            <button class="button">查看全部方案汇总表</button>
+          </div>
+
+          <div class="recommend-grid">
+            <article class="rec-card">
+              <div class="rec-head"><div class="rank">1</div><div class="rec-label">同一主体 FIRR 最优</div></div>
+              <div class="rec-id">S0010</div>
+              <div class="rec-lines">
+                <div class="line"><span>光 / 风 / 储</span><strong>6 / 1 / 0×0</strong></div>
+                <div class="line"><span>绿电占比</span><strong class="green">41.9%</strong></div>
+                <div class="line"><span>自发自用率</span><strong>67.1%</strong></div>
+                <div class="line"><span>同一主体 FIRR</span><strong class="green">29.63%</strong></div>
+              </div>
+              <div class="risk"><span class="ok">◆</span> 风险提示：政策达标，弃电率 12.8%（中）</div>
+            </article>
+
+            <article class="rec-card">
+              <div class="rec-head"><div class="rank blue">2</div><div class="rec-label blue">电源侧 FIRR 最优</div></div>
+              <div class="rec-id">S0010</div>
+              <div class="rec-lines">
+                <div class="line"><span>光 / 风 / 储</span><strong>6 / 1 / 0×0</strong></div>
+                <div class="line"><span>绿电占比</span><strong class="green">41.9%</strong></div>
+                <div class="line"><span>弃电率</span><strong>12.8%</strong></div>
+                <div class="line"><span>电源侧 FIRR</span><strong class="blue">16.54%</strong></div>
+              </div>
+              <div class="risk"><span class="ok">◆</span> 风险提示：初始投资低，储能未配置</div>
+            </article>
+
+            <article class="rec-card">
+              <div class="rec-head"><div class="rank orange">3</div><div class="rec-label orange">负荷侧可成交收益最优</div></div>
+              <div class="rec-id">S0018</div>
+              <div class="rec-lines">
+                <div class="line"><span>光 / 风 / 储</span><strong>6 / 5 / 2×4</strong></div>
+                <div class="line"><span>绿电占比</span><strong class="green">63.5%</strong></div>
+                <div class="line"><span>自发自用率</span><strong>65.5%</strong></div>
+                <div class="line"><span>负荷侧收益</span><strong class="orange">1,286 万元</strong></div>
+              </div>
+              <div class="risk"><span class="warn">▲</span> 风险提示：弃电率 13.9%（中）</div>
+            </article>
+
+            <article class="rec-card">
+              <div class="rec-head"><div class="rank blue">4</div><div class="rec-label blue">工程代表方案</div></div>
+              <div class="rec-id">S0004</div>
+              <div class="rec-lines">
+                <div class="line"><span>光 / 风 / 储</span><strong>2 / 3 / 0×0</strong></div>
+                <div class="line"><span>绿电占比</span><strong class="green">36.8%</strong></div>
+                <div class="line"><span>上网比例</span><strong>20.0%</strong></div>
+                <div class="line"><span>建设投资</span><strong class="blue">3,240 万元</strong></div>
+              </div>
+              <div class="risk"><span class="ok">◆</span> 风险提示：政策达标，容量较低</div>
+            </article>
+          </div>
+        </section>
+
+        <div class="dashboard-grid">
+          <section class="section">
+            <div class="chart-title">多方案关键指标对比 <span class="sub">（越高越好）</span></div>
+            <div class="legend">
+              <span style="--c:#18a558">绿电占比</span>
+              <span style="--c:#1769d2">自发自用率</span>
+              <span style="--c:#ffb13b">低弃电</span>
+              <span style="--c:#9b59d0">低上网</span>
+            </div>
+            <div class="bars" aria-label="多方案关键指标对比图">
+              <div class="axis"><div>100%</div><div>75%</div><div>50%</div><div>25%</div><div>0%</div></div>
+              <div class="bar-group">
+                <div class="bar" style="--h:42%;--c:#18a558"></div><div class="bar" style="--h:67%;--c:#1769d2"></div><div class="bar" style="--h:87%;--c:#ffb13b"></div><div class="bar" style="--h:80%;--c:#9b59d0"></div>
+                <div class="bar-label">S0010<br>光6 风1<br>储0/0</div>
+              </div>
+              <div class="bar-group">
+                <div class="bar" style="--h:64%;--c:#18a558"></div><div class="bar" style="--h:66%;--c:#1769d2"></div><div class="bar" style="--h:86%;--c:#ffb13b"></div><div class="bar" style="--h:80%;--c:#9b59d0"></div>
+                <div class="bar-label">S0018<br>光6 风5<br>储2/4</div>
+              </div>
+              <div class="bar-group">
+                <div class="bar" style="--h:37%;--c:#18a558"></div><div class="bar" style="--h:92%;--c:#1769d2"></div><div class="bar" style="--h:98%;--c:#ffb13b"></div><div class="bar" style="--h:80%;--c:#9b59d0"></div>
+                <div class="bar-label">S0004<br>光2 风3<br>储0/0</div>
+              </div>
+              <div class="bar-group">
+                <div class="bar" style="--h:61%;--c:#18a558"></div><div class="bar" style="--h:63%;--c:#1769d2"></div><div class="bar" style="--h:84%;--c:#ffb13b"></div><div class="bar" style="--h:80%;--c:#9b59d0"></div>
+                <div class="bar-label">S0017<br>光6 风5<br>储1/2</div>
+              </div>
+              <div class="bar-group">
+                <div class="bar" style="--h:54%;--c:#18a558"></div><div class="bar" style="--h:71%;--c:#1769d2"></div><div class="bar" style="--h:91%;--c:#ffb13b"></div><div class="bar" style="--h:80%;--c:#9b59d0"></div>
+                <div class="bar-label">用户加入<br>S0012<br>储2/4</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="section">
+            <div class="chart-title">24H 典型日运行曲线 <span class="sub">（夏季典型日 07/18）</span></div>
+            <div class="curve-box">
+              <svg viewBox="0 0 720 330" width="100%" height="330" role="img" aria-label="典型日运行曲线样板">
+                <defs>
+                  <pattern id="grid" width="60" height="42" patternUnits="userSpaceOnUse">
+                    <path d="M 60 0 L 0 0 0 42" fill="none" stroke="#e1e8f0" stroke-width="1"/>
+                  </pattern>
+                </defs>
+                <rect x="48" y="28" width="628" height="242" fill="url(#grid)" stroke="#cbd5e1"/>
+                <g font-size="12" fill="#64748b">
+                  <text x="12" y="34">40</text><text x="12" y="94">30</text><text x="12" y="154">20</text><text x="12" y="214">10</text><text x="18" y="274">0</text>
+                  <text x="46" y="296">00</text><text x="150" y="296">04</text><text x="252" y="296">08</text><text x="354" y="296">12</text><text x="456" y="296">16</text><text x="558" y="296">20</text><text x="656" y="296">24</text>
+                </g>
+                <polyline points="50,96 100,116 150,126 205,112 260,102 318,94 374,110 428,118 490,116 548,72 604,96 674,88" fill="none" stroke="#124f9f" stroke-width="4"/>
+                <polyline points="50,252 150,250 210,202 262,130 318,92 374,72 430,64 486,80 542,132 604,230 674,250" fill="none" stroke="#ff8a00" stroke-width="4"/>
+                <polyline points="50,190 100,168 156,194 210,210 264,170 318,188 374,178 430,198 486,182 542,204 604,166 674,184" fill="none" stroke="#18a558" stroke-width="4"/>
+                <path d="M50,250 C150,256 230,254 320,254 C410,254 520,252 674,252" fill="none" stroke="#ef4444" stroke-width="4"/>
+                <path d="M50,250 L210,250 C260,286 330,298 385,284 C440,270 450,238 486,254 L674,254" fill="rgba(155,89,208,.25)" stroke="#9b59d0" stroke-width="3"/>
+                <path d="M50,112 C170,84 250,54 336,52 C420,50 518,74 674,92" fill="none" stroke="#0ea5a8" stroke-width="4" stroke-dasharray="8 7"/>
+                <path d="M50,150 C130,120 228,140 305,128 C380,115 478,150 550,130 C610,116 646,126 674,138" fill="none" stroke="#9aa4b2" stroke-width="3" stroke-dasharray="7 7"/>
+                <g font-size="13" fill="#334155">
+                  <text x="52" y="322">负荷</text><line x1="92" y1="317" x2="124" y2="317" stroke="#124f9f" stroke-width="4"/>
+                  <text x="140" y="322">光伏</text><line x1="180" y1="317" x2="212" y2="317" stroke="#ff8a00" stroke-width="4"/>
+                  <text x="228" y="322">风电</text><line x1="268" y1="317" x2="300" y2="317" stroke="#18a558" stroke-width="4"/>
+                  <text x="316" y="322">储能充电</text><line x1="390" y1="317" x2="422" y2="317" stroke="#9b59d0" stroke-width="4"/>
+                  <text x="438" y="322">SOC</text><line x1="472" y1="317" x2="504" y2="317" stroke="#0ea5a8" stroke-width="4" stroke-dasharray="8 7"/>
+                  <text x="520" y="322">净交换</text><line x1="574" y1="317" x2="606" y2="317" stroke="#9aa4b2" stroke-width="3" stroke-dasharray="7 7"/>
+                </g>
+              </svg>
+            </div>
+          </section>
+        </div>
+
+        <section class="section">
+          <div class="section-title">
+            <h2>下载与报告</h2>
+            <span class="sub">导出动作集中在最后一个功能区</span>
+          </div>
+          <div class="download-grid">
+            <div class="download-card">
+              <div class="file-icon">CSV</div>
+              <div><h3>下载逐小时 CSV</h3><p>下载所选方案逐小时明细，便于复核和二次分析。</p></div>
+              <button class="button">立即下载</button>
+            </div>
+            <div class="download-card">
+              <div class="file-icon blue">ZIP</div>
+              <div><h3>下载图表 HTML ZIP</h3><p>包含本页面图表的交互式 HTML 文件及说明。</p></div>
+              <button class="button primary">立即下载</button>
+            </div>
+            <div class="download-card">
+              <div class="file-icon orange">MD</div>
+              <div><h3>生成简版报告</h3><p>生成所选方案的简版说明报告（Markdown 格式）。</p></div>
+              <button class="button" style="border-color:var(--orange);color:var(--orange)">生成报告</button>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <footer class="footer">
+        <div>当前选中方案：S0010 · 光6 风1 储0/0（同一主体 FIRR 最优；电源侧 FIRR 最优）</div>
+        <div>数据路径：逐小时模拟结果</div>
+        <div>版本：v1.0.0</div>
+        <div style="color:#1557b7;font-weight:700">ⓘ 使用帮助</div>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

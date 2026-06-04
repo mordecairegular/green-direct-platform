@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import hashlib
 import math
 from typing import Any
 
@@ -10,7 +11,11 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from green_direct.visualization.chart_data import adapt_hourly, select_day as select_operating_day
+from green_direct.visualization.chart_data import (
+    adapt_hourly,
+    select_day as select_operating_day,
+    select_typical_season_day,
+)
 
 
 COLORS = {
@@ -170,8 +175,20 @@ def _capacity_text(row: pd.Series) -> str:
     return (
         f"光伏 {_fmt(row.get('pv_capacity', 0), ' 万kW')} / "
         f"风电 {_fmt(row.get('wind_capacity', 0), ' 万kW')} / "
-        f"储能 {_fmt(row.get('bess_power', 0), ' 万kW')}×{_fmt(row.get('bess_duration', 0), 'h')}"
+        f"储能 {_fmt(row.get('bess_power', 0), ' 万kW')} / {_fmt(row.get('bess_energy', 0), ' 万kWh')}"
     )
+
+
+def _short_capacity_text(row: pd.Series) -> str:
+    return (
+        f"光{_fmt(row.get('pv_capacity', 0), digits=0)} "
+        f"风{_fmt(row.get('wind_capacity', 0), digits=0)} "
+        f"储{_fmt(row.get('bess_power', 0), digits=0)}/{_fmt(row.get('bess_energy', 0), digits=0)}"
+    )
+
+
+def _scenario_with_capacity_label(row: pd.Series) -> str:
+    return f"{row['scenario_id']} · {_short_capacity_text(row)}"
 
 
 def _select_representative_scenarios(
@@ -229,6 +246,56 @@ def _select_representative_scenarios(
     return picked[:4]
 
 
+def _representative_from_recommendation_portfolio(
+    summary: pd.DataFrame,
+    recommendation_portfolio: pd.DataFrame | None,
+) -> list[dict[str, Any]]:
+    if (
+        recommendation_portfolio is None
+        or recommendation_portfolio.empty
+        or "scenario_id" not in recommendation_portfolio.columns
+        or summary.empty
+        or "scenario_id" not in summary.columns
+    ):
+        return []
+
+    available_ids = set(summary["scenario_id"].astype(str))
+    picked: list[dict[str, Any]] = []
+    for _, row in recommendation_portfolio.iterrows():
+        scenario_id = row.get("scenario_id")
+        if scenario_id is None or pd.isna(scenario_id):
+            continue
+        scenario_id = str(scenario_id)
+        if scenario_id not in available_ids:
+            continue
+
+        raw_labels = row.get("recommendation_labels", "推荐方案")
+        labels = [item.strip() for item in str(raw_labels).split("/") if item.strip()]
+        if not labels:
+            labels = ["推荐方案"]
+        reason = str(row.get("recommendation_reason", "推荐组合入选方案"))
+
+        existing = next((item for item in picked if item["scenario_id"] == scenario_id), None)
+        if existing is not None:
+            for label in labels:
+                if label not in existing["labels"]:
+                    existing["labels"].append(label)
+            if reason and reason not in existing["reason"]:
+                existing["reason"] = f"{existing['reason']}；{reason}"
+            continue
+
+        picked.append(
+            {
+                "label": labels[0],
+                "labels": labels,
+                "scenario_id": scenario_id,
+                "reason": reason,
+            }
+        )
+
+    return picked[:4]
+
+
 def _get_economy_summary(economy_result) -> pd.DataFrame | None:
     if not economy_result:
         return None
@@ -245,11 +312,20 @@ def _economy_row(economy_summary: pd.DataFrame | None, scenario_id: str) -> pd.S
     return hit.iloc[0]
 
 
-def _scenario_label(scenario_id: str, representative: list[dict[str, Any]]) -> str:
+def _scenario_label(
+    scenario_id: str,
+    representative: list[dict[str, Any]],
+    summary: pd.DataFrame | None = None,
+) -> str:
+    capacity = ""
+    if summary is not None and not summary.empty and "scenario_id" in summary.columns:
+        hit = summary[summary["scenario_id"].astype(str) == str(scenario_id)]
+        if not hit.empty:
+            capacity = f" · {_short_capacity_text(hit.iloc[0])}"
     for item in representative:
         if item["scenario_id"] == scenario_id:
-            return f"{'/'.join(item['labels'])} · {scenario_id}"
-    return f"用户加入 · {scenario_id}"
+            return f"{'/'.join(item['labels'])} · {scenario_id}{capacity}"
+    return f"用户加入 · {scenario_id}{capacity}"
 
 
 def _scenario_selector(st, summary: pd.DataFrame, representative: list[dict[str, Any]]) -> tuple[list[str], str]:
@@ -266,12 +342,13 @@ def _scenario_selector(st, summary: pd.DataFrame, representative: list[dict[str,
     selected_ids = list(dict.fromkeys([*default_ids, *[str(item) for item in pinned]]))
     if not selected_ids:
         selected_ids = all_ids[:1]
+    selector_signature = hashlib.sha1("|".join(selected_ids).encode("utf-8")).hexdigest()[:10]
     active = st.radio(
         "当前图表对应方案",
         selected_ids,
-        format_func=lambda sid: _scenario_label(sid, representative),
+        format_func=lambda sid: _scenario_label(sid, representative, summary),
         horizontal=True,
-        key="insight_active_scenario",
+        key=f"insight_active_scenario_{selector_signature}",
     )
     return selected_ids, str(active)
 
@@ -372,7 +449,8 @@ def _render_policy_radar(st, selected_summary: pd.DataFrame) -> None:
     if not set(fields).issubset(selected_summary.columns):
         return
     fig = go.Figure()
-    labels = ["绿电占比", "消纳率", "低弃电", "低上网"]
+    labels = ["绿电占比", "自发自用率", "低弃电", "低上网"]
+    colors = ["#2563eb", "#16a34a", "#dc2626", "#9333ea", "#f59e0b"]
     for _, row in selected_summary.head(5).iterrows():
         values = [
             float(row["green_load_rate"]),
@@ -381,20 +459,22 @@ def _render_policy_radar(st, selected_summary: pd.DataFrame) -> None:
             1 - float(row["export_rate"]),
         ]
         fig.add_trace(
-            go.Scatterpolar(
-                r=[*values, values[0]],
-                theta=[*labels, labels[0]],
-                fill="toself",
-                name=str(row["scenario_id"]),
+            go.Bar(
+                x=labels,
+                y=values,
+                name=_scenario_with_capacity_label(row),
+                marker_color=colors[len(fig.data) % len(colors)],
+                hovertemplate="%{fullData.name}<br>%{x}: %{y:.1%}<extra></extra>",
             )
         )
     fig.update_layout(
-        title="多方案关键指标雷达",
-        polar=dict(radialaxis=dict(range=[0, 1], tickformat=".1%")),
-        height=420,
-        margin=dict(l=40, r=40, t=60, b=30),
-        legend=dict(orientation="h"),
+        title="多方案关键指标对比",
+        barmode="group",
+        height=460,
+        margin=dict(l=30, r=20, t=60, b=110),
+        legend=dict(orientation="h", yanchor="top", y=-0.18, xanchor="left", x=0),
     )
+    fig.update_yaxes(range=[0, 1], tickformat=".0%", title_text="比例 / 越高越好")
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -488,22 +568,6 @@ def _render_energy_flow(st, hourly: pd.DataFrame, active_row: pd.Series) -> None
         fig.update_layout(title="年度能源流向", height=500, margin=dict(l=10, r=10, t=50, b=10))
         st.plotly_chart(fig, use_container_width=True)
         st.caption("光伏、风电到各去向的分摊按年度发电占比近似展示，核心电量仍来自逐小时台账汇总。")
-
-
-def _select_day(hourly: pd.DataFrame, season: str) -> pd.DataFrame:
-    data = hourly.copy()
-    data["timestamp"] = pd.to_datetime(data["timestamp"], errors="coerce")
-    data = data.dropna(subset=["timestamp"])
-    if data.empty:
-        return data
-    month_map = {"春季": 4, "夏季": 7, "秋季": 10, "冬季": 1}
-    month = month_map.get(season, 1)
-    month_data = data[data["timestamp"].dt.month == month]
-    if month_data.empty:
-        month_data = data
-    dates = month_data["timestamp"].dt.date
-    selected_date = dates.value_counts().sort_index().index[len(dates.value_counts()) // 2]
-    return month_data[month_data["timestamp"].dt.date == selected_date].head(24)
 
 
 def _render_day_operation_chart(st, day: pd.DataFrame, title: str) -> None:
@@ -611,8 +675,9 @@ def _render_operation(st, hourly: pd.DataFrame) -> None:
             horizontal=True,
             key="insight_typical_day",
         )
-        day = _select_day(adapted, season)
-        _render_day_operation_chart(st, day, f"24H 典型日运行策略 · {season}")
+        selection = select_typical_season_day(adapted, season)
+        st.caption(f"{season}典型日：{selection.label}。{selection.method}")
+        _render_day_operation_chart(st, selection.day, f"24H 典型日运行策略 · {season} · {selection.label}")
     with tabs[1]:
         mode = st.selectbox(
             "关键日类型",
@@ -669,7 +734,13 @@ def _render_economy(st, selected_summary: pd.DataFrame, active_id: str, economy_
     st.plotly_chart(fig, use_container_width=True)
 
 
-def render_chart_analysis(st, batch_result, summary: pd.DataFrame, economy_result=None) -> None:
+def render_chart_analysis(
+    st,
+    batch_result,
+    summary: pd.DataFrame,
+    economy_result=None,
+    recommendation_portfolio: pd.DataFrame | None = None,
+) -> None:
     """Render chart insights around representative and user-pinned scenarios."""
 
     st.markdown("---")
@@ -689,7 +760,9 @@ def render_chart_analysis(st, batch_result, summary: pd.DataFrame, economy_resul
         return
 
     economy_summary = _get_economy_summary(economy_result)
-    representative = _select_representative_scenarios(summary, economy_summary)
+    representative = _representative_from_recommendation_portfolio(summary, recommendation_portfolio)
+    if not representative:
+        representative = _select_representative_scenarios(summary, economy_summary)
     selected_ids, active_id = _scenario_selector(st, summary, representative)
     selected_summary = _summary_for_ids(summary, selected_ids)
     active_summary = _summary_for_ids(summary, [active_id])

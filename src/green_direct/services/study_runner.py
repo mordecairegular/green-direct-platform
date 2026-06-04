@@ -1,21 +1,208 @@
-"""Service-layer orchestration for study-level economy and recommendation runs."""
+"""Service-layer orchestration for study-level technical, economy, and recommendation runs."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field, replace
+from pathlib import Path
+from typing import BinaryIO, Callable, Mapping, Any
+from uuid import uuid4
 
 import pandas as pd
 
+from green_direct.batch.batch_runner import BatchResult, run_batch
 from green_direct.economy import (
     AvoidedGridPurchaseParams,
     EconomicParams,
     evaluate_batch_economy,
     evaluate_batch_single_entity_pre_tax_economy,
 )
+from green_direct.io.read_curves import read_curve_set
+from green_direct.models.diagnostics import InputDiagnostics
+from green_direct.models.params import (
+    BessParams,
+    DataCleaningParams,
+    PerformanceParams,
+    PolicyParams,
+    TimeParams,
+)
+from green_direct.models.scenario import Scenario
 from green_direct.recommendation import (
     RecommendationParams,
     build_recommendation_result,
 )
+
+CurveSource = str | Path | BinaryIO | bytes
+
+
+@dataclass(frozen=True)
+class TechnicalStudyInput:
+    """Inputs collected by UI/CLI for one technical study run."""
+
+    load_source: CurveSource
+    pv_source: CurveSource
+    wind_source: CurveSource
+    load_time_col: str
+    load_value_col: str
+    pv_time_col: str
+    pv_value_col: str
+    wind_time_col: str
+    wind_value_col: str
+    scenario_grid: dict
+    bess_params: BessParams = field(default_factory=BessParams)
+    policy_params: PolicyParams = field(default_factory=PolicyParams)
+    performance_params: PerformanceParams = field(default_factory=PerformanceParams)
+    cleaning_params: DataCleaningParams = field(default_factory=DataCleaningParams)
+    time_params: TimeParams = field(default_factory=TimeParams)
+    dt_hours: float = 1.0
+    validate_length: bool = True
+    config_metadata: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class TechnicalStudyResult:
+    """Technical outputs produced by the baseline Wind-PV-BESS simulation."""
+
+    study_id: str
+    batch_result: BatchResult
+    input_diagnostics: InputDiagnostics
+    config_snapshot: dict[str, Any]
+
+    @property
+    def summary(self) -> pd.DataFrame:
+        return self.batch_result.summary
+
+    @property
+    def hourly_details(self) -> dict[str, pd.DataFrame]:
+        return self.batch_result.hourly_details
+
+    @property
+    def errors(self) -> pd.DataFrame:
+        return self.batch_result.errors
+
+    @property
+    def warnings(self) -> list[str]:
+        return [*self.input_diagnostics.warnings_as_messages(), *self.batch_result.warnings]
+
+    @property
+    def scenario_count(self) -> int:
+        return self.batch_result.scenario_count
+
+
+@dataclass(frozen=True)
+class StudyResult:
+    """Top-level study result skeleton for UI, export, and future ResultStore usage."""
+
+    study_id: str
+    input_diagnostics: InputDiagnostics = field(default_factory=InputDiagnostics)
+    technical_result: TechnicalStudyResult | None = None
+    economic_result: "EconomicStudyResult | None" = None
+    recommendation_result: "RecommendationStudyResult | None" = None
+    config_snapshot: dict[str, Any] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    result_store_refs: dict[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def from_technical(cls, technical_result: TechnicalStudyResult) -> "StudyResult":
+        return cls(
+            study_id=technical_result.study_id,
+            input_diagnostics=technical_result.input_diagnostics,
+            technical_result=technical_result,
+            config_snapshot=technical_result.config_snapshot,
+            warnings=technical_result.warnings,
+        )
+
+    def with_economic_result(self, economic_result: "EconomicStudyResult") -> "StudyResult":
+        return replace(self, economic_result=economic_result)
+
+    def with_recommendation_result(self, recommendation_result: "RecommendationStudyResult") -> "StudyResult":
+        return replace(self, recommendation_result=recommendation_result)
+
+    @property
+    def batch_result(self) -> BatchResult | None:
+        return self.technical_result.batch_result if self.technical_result is not None else None
+
+    @property
+    def summary(self) -> pd.DataFrame:
+        if self.technical_result is None:
+            return pd.DataFrame()
+        return self.technical_result.summary
+
+
+def _new_study_id() -> str:
+    return f"study-{uuid4().hex[:12]}"
+
+
+def _build_technical_config_snapshot(
+    inputs: TechnicalStudyInput,
+    *,
+    study_id: str,
+    curve_warnings: list[str],
+    curve_encodings: dict[str, str],
+) -> dict[str, Any]:
+    snapshot: dict[str, Any] = {
+        "study_id": study_id,
+        "scenario_grid": inputs.scenario_grid,
+        "bess": asdict(inputs.bess_params),
+        "policy": asdict(inputs.policy_params),
+        "performance": asdict(inputs.performance_params),
+        "time": {
+            "dt_hours": inputs.dt_hours,
+            "supported_hours": inputs.time_params.supported_hours,
+            "validate_length": inputs.validate_length,
+        },
+        "curve_encodings": curve_encodings,
+        "warnings": curve_warnings,
+    }
+    snapshot.update(dict(inputs.config_metadata))
+    return snapshot
+
+
+def run_technical_study(
+    inputs: TechnicalStudyInput,
+    *,
+    study_id: str | None = None,
+    progress_callback: Callable[[int, int, Scenario], None] | None = None,
+) -> TechnicalStudyResult:
+    """Read curves and run the baseline technical batch simulation."""
+
+    resolved_study_id = study_id or _new_study_id()
+    curve_set = read_curve_set(
+        inputs.load_source,
+        inputs.pv_source,
+        inputs.wind_source,
+        load_time_col=inputs.load_time_col,
+        load_value_col=inputs.load_value_col,
+        pv_time_col=inputs.pv_time_col,
+        pv_value_col=inputs.pv_value_col,
+        wind_time_col=inputs.wind_time_col,
+        wind_value_col=inputs.wind_value_col,
+        validate_length=inputs.validate_length,
+        cleaning=inputs.cleaning_params,
+        time_params=inputs.time_params,
+    )
+    batch_result = run_batch(
+        curve_set.data,
+        inputs.scenario_grid,
+        bess_params=inputs.bess_params,
+        policy_params=inputs.policy_params,
+        performance_params=inputs.performance_params,
+        dt_hours=inputs.dt_hours,
+        progress_callback=progress_callback,
+    )
+    input_diagnostics = curve_set.diagnostics or InputDiagnostics()
+    config_snapshot = _build_technical_config_snapshot(
+        inputs,
+        study_id=resolved_study_id,
+        curve_warnings=curve_set.warnings,
+        curve_encodings=curve_set.encodings,
+    )
+    return TechnicalStudyResult(
+        study_id=resolved_study_id,
+        batch_result=batch_result,
+        input_diagnostics=input_diagnostics,
+        config_snapshot=config_snapshot,
+    )
 
 
 @dataclass(frozen=True)

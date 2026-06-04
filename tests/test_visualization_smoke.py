@@ -11,6 +11,7 @@ from green_direct.visualization.single_scenario_charts import (
     build_policy_bar_chart,
     build_soc_chart,
 )
+from green_direct.visualization.chart_ui import _render_policy_radar, _representative_from_recommendation_portfolio
 
 
 def _hourly(hours=8760):
@@ -85,6 +86,69 @@ def test_multi_scenario_charts_smoke():
     ]
 
     assert all(result.figure is not None for result in results)
+
+
+def test_overview_comparison_uses_grouped_bar_labels_with_capacity():
+    class FakeStreamlit:
+        def __init__(self):
+            self.figure = None
+
+        def plotly_chart(self, fig, use_container_width=True):
+            self.figure = fig
+
+    st = FakeStreamlit()
+
+    _render_policy_radar(st, _summary())
+
+    assert st.figure is not None
+    assert all(trace.type == "bar" for trace in st.figure.data)
+    assert "光10" in st.figure.data[0].name
+    assert "风5" in st.figure.data[0].name
+
+
+def test_chart_representative_scenarios_follow_recommendation_portfolio():
+    summary = pd.concat(
+        [
+            _summary(),
+            pd.DataFrame(
+                [
+                    {
+                        "scenario_id": "S0003",
+                        "pv_capacity": 30.0,
+                        "wind_capacity": 15.0,
+                        "bess_power": 4.0,
+                        "bess_energy": 8.0,
+                    }
+                ]
+            ),
+        ],
+        ignore_index=True,
+    )
+    portfolio = pd.DataFrame(
+        [
+            {
+                "scenario_id": "S0002",
+                "recommendation_labels": "电源侧 FIRR 最优/工程代表方案",
+                "recommendation_reason": "正式推荐组合命中。",
+            },
+            {
+                "scenario_id": "S9999",
+                "recommendation_labels": "不存在方案",
+                "recommendation_reason": "不应进入图表。",
+            },
+            {
+                "scenario_id": "S0001",
+                "recommendation_labels": "同一主体 FIRR 最优",
+                "recommendation_reason": "第二个正式推荐方案。",
+            },
+        ]
+    )
+
+    representative = _representative_from_recommendation_portfolio(summary, portfolio)
+
+    assert [item["scenario_id"] for item in representative] == ["S0002", "S0001"]
+    assert representative[0]["labels"] == ["电源侧 FIRR 最优", "工程代表方案"]
+    assert "正式推荐组合" in representative[0]["reason"]
 
 
 def test_missing_fields_returns_warning():

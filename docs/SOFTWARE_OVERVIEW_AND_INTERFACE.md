@@ -2,8 +2,8 @@
 
 本文档面向后续模块开发者和 AI 协作上下文，说明当前软件的模块边界、核心计算口径、数据结构和接口契约。后续图表制作、经济性评价、报告生成等模块应优先参考本文档接入当前 V0.1 技术测算模块。
 
-状态：V0.1 技术测算基线 + 经济性 / 推荐 V1 试用接口说明
-最近更新：2026-05-27
+状态：V0.1 技术测算基线 + 经济性 / 推荐 V1 试用接口说明 + 服务层 StudyResult 雏形
+最近更新：2026-06-04
 适用范围：当前代码位于 `src/green_direct/`
 
 ## 1. 软件定位
@@ -24,6 +24,7 @@
 - 提供经济性评价 V1：电源侧年度现金流、FNPV、FIRR、静态/动态回收期；
 - 提供同一主体税前经济性试算：自发自用购电节费、税前 FIRR、年度现金流；
 - 提供推荐方案 V1 试用：同一主体 FIRR、电源侧 FIRR、负荷侧可成交收益和工程代表方案四类席位；
+- 提供第一版服务层入口：`run_technical_study()`、`run_economic_study()`、`build_recommendation_study()` 和顶层 `StudyResult` 雏形；
 - 提供独立方案遍历试用程序：只包装风光储技术遍历和方案概览/详表导出。
 
 当前版本仍明确不做：
@@ -96,6 +97,8 @@ src/green_direct/
 ├─ batch/
 │  ├─ scenario_generator.py
 │  └─ batch_runner.py
+├─ services/
+│  └─ study_runner.py
 ├─ export/
 │  ├─ csv_exporter.py
 │  └─ excel_exporter.py
@@ -115,6 +118,7 @@ src/green_direct/
 | `models` | 参数、方案、结果数据结构 | 可以 |
 | `core` | 单方案逐小时仿真、储能调度、指标计算 | 可以，核心依赖 |
 | `batch` | 方案枚举、批量仿真、进度回调 | 可以，核心依赖 |
+| `services` | 面向 UI / CLI / 后续在线化的业务编排入口，当前包装技术仿真、经济性和推荐组合 | 推荐优先依赖 |
 | `export` | Excel、CSV、ZIP、配置快照导出 | 可以 |
 | `ui` | Streamlit 用户界面 | 不建议作为业务依赖 |
 | `economy` | 经济性评价 V1：年度现金流、税费、折旧、储能更换、FNPV/FIRR/回收期 | 可以，但不得反向修改技术调度 |
@@ -608,6 +612,25 @@ BatchResult(
 - 当方案数量达到上万时，内存和 UI 交互可能成为瓶颈；
 - 后续建议增加“汇总优先、明细按需计算”的大批量模式；
 - 图表模块若只展示 1 到 5 个方案，不应强制依赖所有方案的逐小时明细都已保存在内存中。
+
+### 12.4 服务层技术测算入口
+
+`src/green_direct/services/study_runner.py` 已提供第一版技术测算服务入口：
+
+```python
+TechnicalStudyInput(...)
+run_technical_study(inputs) -> TechnicalStudyResult
+StudyResult.from_technical(technical_result) -> StudyResult
+```
+
+当前 `run_technical_study()` 内部仍调用本节所述 `read_curve_set()` 和 `run_batch()`，不改变 V0.1 技术仿真和储能调度口径。它负责把 UI / CLI 收集到的三条曲线、列名、方案池、储能参数、政策参数和性能参数组织成一次技术研究，并输出：
+
+- `TechnicalStudyResult.batch_result`：旧 `BatchResult`，用于兼容现有图表、经济性、推荐和导出模块；
+- `TechnicalStudyResult.input_diagnostics`：曲线读取和清洗产生的结构化诊断；
+- `TechnicalStudyResult.config_snapshot`：本次测算方案池、储能参数、政策参数、时间参数、编码和 warning 快照；
+- `StudyResult`：顶层结果雏形，当前先包装技术结果，并可挂载经济性和推荐结果。
+
+后续新模块建议优先依赖服务层对象，再按需读取其中的 `batch_result` 兼容旧模块；不建议继续把 Streamlit 页面函数作为业务入口。
 
 ## 13. 汇总结果字段
 

@@ -2088,3 +2088,169 @@ exchange_import_shortfall_energy == 0
 - 下一步抽出服务层和 `StudyResult`，否则 Streamlit 页面仍承担过多编排逻辑；
 - 图表模块下一轮应直接消费推荐组合，减少 `chart_ui.py` 内部自选代表方案的临时逻辑；
 - 在接入价格曲线模板前，先让用户确认 CSV 字段是否贴近实际电费清单。
+
+## 2026-06-01 图表典型日与 UI 工作流继续打磨
+
+用户要求四季典型日图表必须标注具体日期，并希望网页从“混在一起的一页”继续改成清晰的模块页面：欢迎页、方案仿真、经济性测算、方案推荐及图表概览、图表下载和报告生成。
+
+本次口径与实现：
+
+- 四季典型日从固定月份中位日升级为“季节中心日法”：春季取 3-5 月、夏季取 6-8 月、秋季取 9-11 月、冬季取 12/1/2 月，在完整 24 小时日期中按负荷、风光、储能、电网、弃电、SOC 等已有逐小时字段标准化后，选离季节平均曲线最近的真实日期；
+- 典型日图表标题和说明显示 `MM/DD`，例如 `24H 典型日运行策略 · 春季 · 03/02`；
+- 典型日曲线仍直接读取 `hourly_detail` 原始逐小时字段，不做平滑、插值或重新调度；
+- Streamlit 导航改为五个页面，并保留旧页面名到新页面名的兼容映射，避免旧会话状态或非预期入口导致页面状态报错；
+- 新增“图表下载和报告生成”页，集中下载方案汇总、逐小时明细、图表 HTML ZIP、技术+经济汇总和简版 Markdown 报告；
+- 更新 `docs/CHART_MODULE_CURRENT_LOGIC.md` 和 `docs/WEB_APP_WORKFLOW_AND_UI_RESTRUCTURE.md`，同步新的典型日选择口径和五页面工作流。
+
+验证结果：
+
+- `tests/test_chart_data.py` 覆盖季节中心日选择和 MM/DD 输出；
+- `tests/test_ui_import.py` 覆盖旧页面状态兼容、跳转 rerun 和简版报告典型日说明。
+
+## 2026-06-02 浏览器批注修复：按钮跳转和总览图可读性
+
+用户在浏览器中批注指出：欢迎页“开始方案仿真”和方案仿真页“进入经济性测算”按钮点击后仍报 `st.session_state.workflow_page cannot be modified after the widget with key workflow_page is instantiated`；推荐图表页的多方案雷达图叠加严重，且图例只有方案编号，无法对应风光储配置。
+
+修正：
+
+- 导航按钮不再直接写 `st.session_state["workflow_page"]`，而是写 `_workflow_page_target`；下一轮脚本开始、`st.radio(key="workflow_page")` 创建之前，再由 `_normalize_workflow_page()` 应用目标页面，符合 Streamlit widget 状态规则；
+- 新增回归测试覆盖旧页面名映射、按钮排队跳转和下一轮应用目标页面；
+- 方案总览中的多方案关键指标图从雷达图改为分组柱状对比图，避免多方案面片叠加；
+- 图例从单纯 `S0002` 改为 `S0002 · 光20 风10 储3/6` 这类短容量标签，便于直接对应风光储配置；
+- `docs/CHART_MODULE_CURRENT_LOGIC.md` 同步更新图表说明。
+
+## 2026-06-02 UI 深度改造：工程软件工作台第一版
+
+用户明确否定上一轮粗糙 Streamlit 表单堆叠原型，要求 UI 接近第二张参考设计：左侧深蓝固定导航、顶部项目状态栏、主区为紧凑工程工作台，并保持五个主模块：
+
+- 欢迎页；
+- 方案仿真；
+- 经济性测算；
+- 方案推荐及图表概览；
+- 图表下载和报告生成。
+
+本轮产品判断：
+
+- UI 不能再把全量枚举表和逐项参数暴露成主体验，枚举只是内部搜索方法；
+- 状态卡不应散落到每个业务页，适合放在欢迎页和顶部轻量状态条；
+- 参数不能丢，但应分层收纳：关键参数直接可见，专业/高级参数折叠；
+- 方案仿真和经济性测算页保留现有计算入口；推荐页主要展示代表方案、图表和复核明细；下载和报告集中在最后一个页面；
+- 这轮只改 UI 信息架构和状态同步，不改变技术仿真、储能调度、经济性计算口径。
+
+本次实现：
+
+- `src/green_direct/ui/app.py` 新增工程工作台样式：深蓝侧栏、五模块导航、顶部项目状态条、紧凑页面标题和推荐方案卡片；
+- 方案仿真页把曲线数据、候选方案池、政策约束和专业参数放入主工作区，侧栏只保留导航和轻量状态；
+- 经济性测算页默认展开经济性参数工作台，保留 Year 0 投资、成本费用、收入税金、电费构成等现有参数，高级项折叠；
+- 推荐页先渲染推荐卡片，再保留推荐组合明细和图表概览；
+- 仿真、经济和推荐页不再放下载按钮，所选方案逐小时 CSV、汇总 Excel、年度现金流、推荐组合 Excel、图表 HTML ZIP 和简版 Markdown 报告集中到下载报告页；
+- 仿真和经济计算完成后使用 `st.rerun()` 刷新顶部状态条，按钮跳转仍通过 pending target 状态避免 `workflow_page` widget key 报错。
+- 推荐图表页已改为优先消费正式 `RecommendationPortfolio`，图表默认围绕推荐组合和用户手动加入方案；下载页图表 HTML ZIP 的多方案对比范围也收窄为“推荐组合 + 当前报告方案”；
+- Demo 候选范围调整为 27 个小方案，其中包含政策达标候选，避免演示推荐页时所有卡片都是 `no_candidate`。
+
+验证结果：
+
+- `python -m pytest tests/test_ui_import.py tests/test_visualization_smoke.py tests/test_chart_data.py`，19 项通过；
+- 全量 `python -m pytest`，124 项通过；
+- 使用 bundled Playwright + 系统 Chrome 实际点击：欢迎页进入方案仿真、Demo 生成、进入经济性测算、经济性 V1 计算、进入推荐页、进入下载报告页；顶部状态条同步更新为 `27 个 / 15 达标`，推荐页 active strip 显示正式推荐席位标签和风光储配置，未出现 `st.session_state.workflow_page cannot be modified after the widget with key workflow_page is instantiated`。
+
+## 2026-06-03 推荐图表页样板映射正式接入
+
+用户要求不要停留在静态 UI DEMO 和映射文档，而是把“方案推荐及图表概览”推进为可运行、可测试、可浏览器验证的正式 Streamlit 页面。
+
+本轮产品判断：
+
+- 静态样板页只保留在 `docs/ui/` 中作为视觉和信息层级参考，mock 数据不得进入正式 Streamlit、计算链路、图表链路或导出链路；
+- 推荐图表页应优先消费正式 `RecommendationPortfolio`，卡片和图表都围绕代表方案，不回到全量枚举表优先；
+- 推荐页可以提供“下载与报告”入口和默认报告方案状态，但实际 CSV、Excel、HTML ZIP 和 Markdown 报告下载仍集中到最后一个页面，避免下载按钮散落到业务分析页；
+- 底部状态栏只显示真实默认报告方案、逐小时台账数量和数据来源；真实版本号、帮助入口、项目路径等元数据尚未结构化时显示“待接入”，不使用样板页占位值。
+
+本次实现要点：
+
+- 顶部状态条新增数据时间范围，从 `batch_result.hourly_details` 中带 `timestamp` 的逐小时明细推导起止日期和小时数；
+- 推荐方案卡片新增排序标识和 `export_rate` 上网比例，并修正 `no_candidate` / `pending` 状态，避免无候选席位被渲染成成功态；
+- 推荐页底部新增下载报告入口，默认报告方案优先取推荐组合中的有效 `scenario_id`，并跳转到“图表下载和报告生成”页复用已有导出功能；
+- 新增底部状态提示，明确正式页读取 `batch_result.summary`、`hourly_details` 和经济性 session 结果，不读取 `docs/ui/` mock。
+
+边界：
+
+- 未修改技术仿真、储能调度和经济性计算口径；
+- 未改变数据结构和导出文件格式；
+- 未引入 React/FastAPI/Vue 或新的大型依赖。
+
+## 2026-06-03 推荐图表页视觉复核：功能闭环不等于 UI 达标
+
+用户复核 `docs/ui/20260603-1638-codex` 截图后指出：当前页面虽然已经能读取真实推荐结果、图表和导出状态，但和参考样板仍相差很远。该反馈成立，问题不在计算链路，而在默认页面仍是 Streamlit 线性堆叠：
+
+- 推荐页把完整图表分析模块作为主视图，导致页面过长，不像紧凑工程工作台；
+- 推荐视角下拉框直接占据主页面，不符合“关键结果优先、专业控制折叠”的原则；
+- 默认图表没有形成样板图中的“推荐卡片 + 多方案关键指标 + 24H 代表曲线 + 下载报告带”的一屏判读结构；
+- Streamlit 默认顶部工具条和过宽侧栏破坏工程软件观感。
+
+本轮整改方向：
+
+- “方案推荐及图表概览”默认视图改为代表方案工作台，完整 `render_chart_analysis()` 只保留在高级展开区；
+- 推荐卡片继续只读取正式 `RecommendationPortfolio`，图表只围绕推荐组合和默认报告方案，不搬入 `docs/ui/` mock；
+- 推荐席位设置折叠，参数不丢但不压住主结果；
+- 隐藏 Streamlit 默认顶部工具条，收窄侧栏，拉近深蓝导航 + 紧凑主区的视觉比例。
+
+## 2026-06-03 推荐页与导出页继续收敛：默认视图只保留判读主线
+
+在上一轮整改后，04 页已经形成“推荐卡片 + 代表图表 + 下载入口”的主线，但首屏仍被卡片和复核展开栏占用过多，05 页仍像两列下载清单，不像集中导出工作台。
+
+本轮继续收敛：
+
+- 推荐卡片从“多指标复核卡”压缩为“一眼判断卡”：保留绿电占比、自发自用率、弃电率、上网比例和一个与席位相关的经济性指标；
+- 推荐卡片指标改为三列紧凑网格，状态标签不换行，首屏能同时看到推荐卡片和代表图表区；
+- 推荐组合明细、负荷侧复核和完整图表分析统一放到默认图表/下载区之后的高级折叠区；
+- 05“图表下载和报告生成”页改成导出工作台：顶部显示当前导出方案，下面分为“技术数据 / 图表包 / 经济与报告”三列，批量技术包、年度现金流和推荐组合 Excel 放入高级折叠区；
+- 导出页仍只读取真实 `batch_result.summary`、`hourly_details`、`economy_v1_result`、`single_entity_economy_result` 和推荐输入，不接入样板页 mock。
+
+验证：
+
+- `python -m pytest tests/test_ui_import.py tests/test_visualization_smoke.py tests/test_chart_data.py`，25 项通过；
+- 全量 `python -m pytest`，130 项通过；
+- in-app 浏览器完成真实 Demo 流程验证：欢迎页 -> 方案仿真 Demo -> 经济性测算 -> 方案推荐页，未出现 `workflow_page` 状态修改报错，04 页首屏可见推荐卡片和代表图表；
+- in-app 浏览器完成 05 页有结果态文本验证：从侧栏直接进入下载页时，默认导出方案已优先选推荐组合有效方案 `S0010`，而不是枚举首项 `S0001`；页面包含“技术数据 / 图表包 / 经济与报告 / 高级：年度现金流与推荐组合导出”四个导出工作区，未出现 `workflow_page` 状态修改报错。
+
+## 2026-06-03 方案仿真页视觉整改：从原生表单堆叠改为工程工作台
+
+用户指出 02“方案仿真”页仍然像 Streamlit 原生表单：参数密集、宽度利用不足、折叠参数展开后左右留白明显、导航仍有 radio 观感、低价值提示常驻主画面。该反馈成立，本轮只整改 UI 组织和状态呈现，不改变技术仿真、储能调度、政策筛选或经济性计算口径。
+
+本次整改：
+
+- 侧栏工作流导航从 `st.radio` 改为深蓝按钮式步骤入口，当前页面用自定义 active item 标识，继续通过 pending target 跳转，避免 `workflow_page` widget key 状态报错；
+- 02 页改为三块紧凑工作台：`数据曲线 / 候选方案池 / 政策和电网约束`，放开主区最大宽度，避免左右两列拉长后出现大面积空白；
+- 批量上传保持直接可见，单独覆盖、编码、时间列/数值列识别进入“高级：单独上传覆盖”和“数据识别复核”，参数不丢但默认不压住主流程；
+- 储能 SOC、效率、循环寿命和日历寿命移到全宽专业折叠区，展开后按横向网格排列，不再在半屏列内下坠；
+- Demo 生成后使用 pending 状态在下一次渲染启用示例曲线显示，避免已有结果但曲线卡仍显示“未选择”；
+- 按钮、下载按钮、侧栏按钮、紧凑状态卡统一工程软件风格，减少 Streamlit 原生控件的视觉割裂。
+
+验证：
+
+- `python -m pytest tests/test_ui_import.py tests/test_visualization_smoke.py tests/test_chart_data.py`，25 项通过；
+- in-app 浏览器真实点击 02 页：左侧 radio 数量为 0，活动导航为 `02 方案仿真`，页面显示三张曲线状态卡和当前表单方案数；
+- in-app 浏览器点击 `一键生成 Demo 结果` 后，三张曲线卡显示示例文件和自动识别列，未出现 `workflow_page cannot be modified after the widget with key workflow_page is instantiated`。
+
+## 2026-06-04 服务层抽取：run_technical_study 与 StudyResult 雏形
+
+用户要求基于当前五页面工作流，继续把 `src/green_direct/ui/app.py` 中的业务编排抽到服务层；目标不是大迁移，而是先落一个最小可用的技术研究服务入口和顶层结果对象。
+
+本次判断：
+
+- 继续保留现有 V0.1 风光储技术内核，`run_technical_study()` 内部仍调用 `read_curve_set()` 和 `run_batch()`，不改变储能调度、政策筛选、经济性或推荐计算口径；
+- `StudyResult` 先作为顶层结果雏形，不强制一次性改完图表、导出和推荐页面消费方式；
+- Streamlit 仍兼容保存 `batch_result`，避免破坏既有经济性、推荐、图表和下载链路；同时新增 `study_result`，为后续逐步迁移到统一上层接口做准备。
+
+本次实现：
+
+- `src/green_direct/services/study_runner.py` 新增 `TechnicalStudyInput`、`TechnicalStudyResult`、`StudyResult` 和 `run_technical_study()`；
+- 技术服务统一执行三条曲线读取、输入诊断承接、旧批量技术仿真、`config_snapshot` 生成和进度回调透传；
+- `src/green_direct/ui/app.py` 的 Demo 测算和正式测算不再直接调用 `read_curve_set()` / `run_batch()`，改为收集输入后触发服务层；
+- 经济性测算和推荐组合生成后，会把 `EconomicStudyResult` / `RecommendationStudyResult` 挂回 `StudyResult`，但当前 UI 仍保留旧 session 键作为兼容层；
+- `tests/test_study_runner.py` 新增技术服务层回归测试，覆盖曲线读取、批量仿真、诊断、配置快照和 `StudyResult` 包装。
+
+验证：
+
+- `python -m pytest tests/test_study_runner.py tests/test_ui_import.py`，18 项通过；
+- `python -m pytest tests/test_single_scenario.py tests/test_batch_runner.py tests/test_economy_v1.py tests/test_single_entity_economy.py tests/test_recommendation_v1.py tests/test_study_runner.py`，71 项通过。
