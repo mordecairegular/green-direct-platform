@@ -13,6 +13,8 @@ from green_direct.batch.batch_runner import BatchResult, run_batch
 from green_direct.economy import (
     AvoidedGridPurchaseParams,
     EconomicParams,
+    PriceCurveData,
+    apply_price_curve_to_summary,
     evaluate_batch_economy,
     evaluate_batch_single_entity_pre_tax_economy,
 )
@@ -249,6 +251,10 @@ class EconomicStudyResult:
     single_entity_summary: pd.DataFrame
     single_entity_annual_cashflows: dict[str, pd.DataFrame]
     recommendation_inputs: RecommendationInputSnapshot
+    price_mode: str = "fixed_price"
+    price_curve_summary: pd.DataFrame = field(default_factory=pd.DataFrame)
+    price_curve_diagnostics: InputDiagnostics = field(default_factory=InputDiagnostics)
+    landed_price_summary: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 @dataclass(frozen=True)
@@ -257,6 +263,95 @@ class RecommendationStudyResult:
 
     portfolio: pd.DataFrame
     load_side_detail: pd.DataFrame
+
+
+def _numeric_summary_column(frame: pd.DataFrame, column: str, default: float = 0.0) -> pd.Series:
+    if column not in frame.columns:
+        return pd.Series(default, index=frame.index, dtype=float)
+    return pd.to_numeric(frame[column], errors="coerce").fillna(default).astype(float)
+
+
+def _safe_price_series(amount: pd.Series, energy: pd.Series, fallback: float) -> pd.Series:
+    return pd.Series(
+        [
+            float(total_amount) / float(total_energy)
+            if float(total_energy) > 0
+            else float(fallback)
+            for total_amount, total_energy in zip(amount, energy)
+        ],
+        index=energy.index,
+        dtype=float,
+    )
+
+
+def _build_fixed_landed_price_summary(
+    summary: pd.DataFrame,
+    *,
+    fixed_down_grid_landed_price_with_vat: float | None,
+    fixed_green_self_use_extra_fee_with_vat: float | None,
+    green_power_settlement_price_with_vat: float,
+) -> pd.DataFrame:
+    if fixed_down_grid_landed_price_with_vat is None:
+        return pd.DataFrame()
+    down_grid_price = float(fixed_down_grid_landed_price_with_vat)
+    green_extra_fee = float(fixed_green_self_use_extra_fee_with_vat or 0.0)
+    green_settlement_price = float(green_power_settlement_price_with_vat)
+    if down_grid_price < 0:
+        raise ValueError("fixed_down_grid_landed_price_with_vat must be non-negative.")
+    if green_extra_fee < 0:
+        raise ValueError("fixed_green_self_use_extra_fee_with_vat must be non-negative.")
+    if green_settlement_price < 0:
+        raise ValueError("green_power_settlement_price_with_vat must be non-negative.")
+
+    data = summary.copy()
+    if data.empty or "scenario_id" not in data.columns:
+        return pd.DataFrame()
+    data["scenario_id"] = data["scenario_id"].astype(str)
+    total_load = _numeric_summary_column(data, "total_load_energy")
+    grid_import = _numeric_summary_column(data, "grid_import_energy")
+    self_use = _numeric_summary_column(data, "self_use_energy")
+    green_self_use_landed_price = green_settlement_price + green_extra_fee
+
+    before_cost = total_load * down_grid_price
+    after_down_grid_cost = grid_import * down_grid_price
+    after_self_use_cost = self_use * green_self_use_landed_price
+    after_cost = after_down_grid_cost + after_self_use_cost
+    before_price = _safe_price_series(before_cost, total_load, down_grid_price)
+    after_price = _safe_price_series(after_cost, total_load, down_grid_price)
+    return pd.DataFrame(
+        {
+            "scenario_id": data["scenario_id"],
+            "price_mode": "fixed_price",
+            "load_landed_price_before_green_with_vat": before_price,
+            "load_landed_price_after_green_with_vat": after_price,
+            "load_landed_price_delta_with_vat": after_price - before_price,
+            "load_landed_cost_before_green_with_vat": before_cost,
+            "load_landed_cost_after_green_with_vat": after_cost,
+            "weighted_down_grid_landed_price_with_vat": down_grid_price,
+            "green_power_settlement_price_with_vat_effective": green_settlement_price,
+            "green_self_use_landed_price_with_vat_effective": green_self_use_landed_price,
+            "down_grid_energy_for_landed_price": grid_import,
+            "self_use_energy_for_landed_price": self_use,
+            "total_load_energy_for_landed_price": total_load,
+        }
+    )
+
+
+def _merge_extra_summary(base: pd.DataFrame, extra: pd.DataFrame) -> pd.DataFrame:
+    if base.empty or extra.empty or "scenario_id" not in base.columns or "scenario_id" not in extra.columns:
+        return base
+    data = base.copy()
+    data["scenario_id"] = data["scenario_id"].astype(str)
+    extra_data = extra.copy()
+    extra_data["scenario_id"] = extra_data["scenario_id"].astype(str)
+    extra_columns = [
+        column
+        for column in extra_data.columns
+        if column == "scenario_id" or column not in data.columns
+    ]
+    if extra_columns == ["scenario_id"]:
+        return data
+    return data.merge(extra_data[extra_columns], on="scenario_id", how="left")
 
 
 def run_economic_study(
@@ -268,15 +363,54 @@ def run_economic_study(
     green_power_settlement_price_with_vat: float,
     environmental_value_per_kwh: float = 0.0,
     min_power_side_acceptable_firr: float | None = 0.07,
+    price_curve: PriceCurveData | None = None,
+    hourly_details: Mapping[str, pd.DataFrame] | None = None,
+    dt_hours: float = 1.0,
+    fixed_down_grid_landed_price_with_vat: float | None = None,
+    fixed_green_self_use_extra_fee_with_vat: float | None = None,
 ) -> EconomicStudyResult:
     """Run all currently implemented economy views for a technical summary."""
 
-    power_summary, power_annual_cashflows = evaluate_batch_economy(summary, economic_params)
+    evaluation_summary = summary
+    price_mode = "fixed_price"
+    price_curve_summary = pd.DataFrame()
+    landed_price_summary = pd.DataFrame()
+    price_curve_diagnostics = InputDiagnostics()
+    if price_curve is not None:
+        if hourly_details is None:
+            raise ValueError("启用价格曲线模式时必须提供逐小时明细，用于按方案聚合时段电价。")
+        price_application = apply_price_curve_to_summary(
+            summary,
+            hourly_details,
+            price_curve,
+            economic_params=economic_params,
+            avoided_grid_params=avoided_grid_params,
+            load_side_avoided_charge_price=load_side_avoided_charge_price,
+            green_power_settlement_price_with_vat=green_power_settlement_price_with_vat,
+            environmental_value_per_kwh=environmental_value_per_kwh,
+            dt_hours=dt_hours,
+        )
+        evaluation_summary = price_application.summary
+        price_curve_summary = price_application.price_summary
+        landed_price_summary = price_curve_summary
+        price_curve_diagnostics = price_application.diagnostics
+        price_mode = "hourly_curve"
+    else:
+        landed_price_summary = _build_fixed_landed_price_summary(
+            summary,
+            fixed_down_grid_landed_price_with_vat=fixed_down_grid_landed_price_with_vat,
+            fixed_green_self_use_extra_fee_with_vat=fixed_green_self_use_extra_fee_with_vat,
+            green_power_settlement_price_with_vat=green_power_settlement_price_with_vat,
+        )
+
+    power_summary, power_annual_cashflows = evaluate_batch_economy(evaluation_summary, economic_params)
+    power_summary = _merge_extra_summary(power_summary, landed_price_summary)
     single_entity_summary, single_entity_annual_cashflows = evaluate_batch_single_entity_pre_tax_economy(
-        summary,
+        evaluation_summary,
         avoided_grid_params=avoided_grid_params,
         params=economic_params,
     )
+    single_entity_summary = _merge_extra_summary(single_entity_summary, landed_price_summary)
     return EconomicStudyResult(
         power_summary=power_summary,
         power_annual_cashflows=power_annual_cashflows,
@@ -289,6 +423,10 @@ def run_economic_study(
             environmental_value_per_kwh=environmental_value_per_kwh,
             min_power_side_acceptable_firr=min_power_side_acceptable_firr,
         ),
+        price_mode=price_mode,
+        price_curve_summary=price_curve_summary,
+        price_curve_diagnostics=price_curve_diagnostics,
+        landed_price_summary=landed_price_summary,
     )
 
 

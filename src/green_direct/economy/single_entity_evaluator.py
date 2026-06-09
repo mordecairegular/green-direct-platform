@@ -11,6 +11,7 @@ from green_direct.economy.economic_evaluator import (
     _calculate_irr,
     _calculate_payback,
     _other_revenue_for_year,
+    _override_value,
     _replacement_operation_years,
     _scenario_id,
     _value,
@@ -100,14 +101,39 @@ def evaluate_single_entity_pre_tax_economy(
         wind_om_cost + pv_om_cost + bess_om_cost + economic_params.other_operating_cost_with_vat
     )
 
-    net_avoided_grid_cost_price = calc_net_avoided_grid_cost_price(avoided_grid_params)
-    avoided_grid_purchase_cash_price = calc_avoided_grid_purchase_cash_price(avoided_grid_params)
-    self_use_saving = calc_self_use_saving(self_use_energy, avoided_grid_params)
-    environmental_value = calc_environmental_value(self_use_energy, avoided_grid_params)
-    grid_export_revenue_without_vat = calc_export_revenue_without_vat(
-        grid_export_energy,
-        economic_params.grid_export_price_with_vat,
-        economic_params.output_vat_rate,
+    net_avoided_grid_cost_price = _override_value(
+        summary_map,
+        "net_avoided_grid_cost_price_effective",
+        calc_net_avoided_grid_cost_price(avoided_grid_params),
+    )
+    avoided_grid_purchase_cash_price = _override_value(
+        summary_map,
+        "avoided_grid_purchase_cash_price_effective",
+        calc_avoided_grid_purchase_cash_price(avoided_grid_params),
+    )
+    self_use_saving = _override_value(
+        summary_map,
+        "self_use_saving_override",
+        calc_self_use_saving(self_use_energy, avoided_grid_params),
+    )
+    avoided_grid_purchase_cash_saving = _override_value(
+        summary_map,
+        "avoided_grid_purchase_cash_saving_override",
+        self_use_energy * avoided_grid_purchase_cash_price,
+    )
+    environmental_value = _override_value(
+        summary_map,
+        "environmental_value_override",
+        calc_environmental_value(self_use_energy, avoided_grid_params),
+    )
+    grid_export_revenue_without_vat = _override_value(
+        summary_map,
+        "grid_export_revenue_without_vat_override",
+        calc_export_revenue_without_vat(
+            grid_export_energy,
+            economic_params.grid_export_price_with_vat,
+            economic_params.output_vat_rate,
+        ),
     )
 
     replacement_years = _replacement_operation_years(summary_map, economic_params)
@@ -176,9 +202,7 @@ def evaluate_single_entity_pre_tax_economy(
                 "net_avoided_grid_cost_price": net_avoided_grid_cost_price,
                 "avoided_grid_purchase_cash_price": avoided_grid_purchase_cash_price,
                 "self_use_saving": self_use_saving,
-                "avoided_grid_purchase_cash_saving": (
-                    self_use_energy * avoided_grid_purchase_cash_price
-                ),
+                "avoided_grid_purchase_cash_saving": avoided_grid_purchase_cash_saving,
                 "environmental_value": environmental_value,
                 "grid_export_revenue_without_vat": grid_export_revenue_without_vat,
                 "other_external_revenue_without_vat": other_revenue_without_vat,
@@ -215,8 +239,7 @@ def evaluate_single_entity_pre_tax_economy(
         "initial_investment_basis": initial_investment_basis,
         "construction_cash_outflow_with_vat": construction_cash_outflow_with_vat,
         "annual_self_use_saving": self_use_saving,
-        "annual_avoided_grid_purchase_cash_saving": self_use_energy
-        * avoided_grid_purchase_cash_price,
+        "annual_avoided_grid_purchase_cash_saving": avoided_grid_purchase_cash_saving,
         "annual_environmental_value": environmental_value,
         "annual_grid_export_revenue_without_vat": grid_export_revenue_without_vat,
         "annual_operating_cost_basis": operating_cost_basis,

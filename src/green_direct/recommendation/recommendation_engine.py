@@ -111,6 +111,21 @@ def _merge_power_economy(
             "dynamic_payback_year",
             "fnpv",
             "construction_cash_outflow",
+            "price_mode",
+            "price_curve_alignment",
+            "green_power_settlement_price_with_vat_effective",
+            "green_self_use_landed_price_with_vat_effective",
+            "load_landed_price_before_green_with_vat",
+            "load_landed_price_after_green_with_vat",
+            "load_landed_price_delta_with_vat",
+            "weighted_down_grid_landed_price_with_vat",
+            "down_grid_energy_for_landed_price",
+            "self_use_energy_for_landed_price",
+            "total_load_energy_for_landed_price",
+            "load_side_avoided_charge_price_effective",
+            "load_side_cash_saving_without_environment_override",
+            "load_side_environmental_value_override",
+            "load_side_annual_benefit_override",
         ]
         if column in power_economy_summary.columns
     ]
@@ -224,6 +239,45 @@ def calculate_load_side_benefit_table(
     data["load_side_annual_benefit"] = (
         data["load_side_cash_saving_without_environment"] + data["load_side_environmental_value"]
     )
+    if "load_side_annual_benefit_override" in data.columns:
+        override_mask = pd.to_numeric(
+            data["load_side_annual_benefit_override"],
+            errors="coerce",
+        ).notna()
+        if override_mask.any():
+            data.loc[override_mask, "load_side_avoided_charge_price"] = _numeric_column(
+                data,
+                "load_side_avoided_charge_price_effective",
+                float(params.load_side_avoided_charge_price),
+            ).loc[override_mask]
+            data.loc[override_mask, "green_power_settlement_price_with_vat"] = _numeric_column(
+                data,
+                "green_power_settlement_price_with_vat_effective",
+                float(params.green_power_settlement_price_with_vat),
+            ).loc[override_mask]
+            data.loc[override_mask, "load_side_cash_saving_without_environment"] = _numeric_column(
+                data,
+                "load_side_cash_saving_without_environment_override",
+                0.0,
+            ).loc[override_mask]
+            data.loc[override_mask, "load_side_environmental_value"] = _numeric_column(
+                data,
+                "load_side_environmental_value_override",
+                0.0,
+            ).loc[override_mask]
+            data.loc[override_mask, "load_side_annual_benefit"] = pd.to_numeric(
+                data.loc[override_mask, "load_side_annual_benefit_override"],
+                errors="coerce",
+            )
+            energy = self_use_energy.loc[override_mask]
+            cash_without_environment = data.loc[
+                override_mask,
+                "load_side_cash_saving_without_environment",
+            ]
+            data.loc[override_mask, "load_side_saving_price"] = [
+                cash / energy_value if energy_value > 0 else saving_price
+                for cash, energy_value in zip(cash_without_environment, energy)
+            ]
     data["power_side_firr_threshold"] = (
         pd.NA if params.min_power_side_acceptable_firr is None else params.min_power_side_acceptable_firr
     )

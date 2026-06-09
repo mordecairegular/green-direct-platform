@@ -1,6 +1,6 @@
 # 经济性评价与推荐 V1 模块导览
 
-状态：2026-06-01 复核版
+状态：2026-06-04 复核版，已接入价格曲线 V1
 目标读者：第一次接触本项目、需要快速理解经济性评价和推荐席位如何运行的开发者或复核人员。
 
 本文不是新的计算口径平行版本，而是把已落地代码、权威口径文档和推荐席位串成一张地图。若发现本文与代码不一致，以代码和对应测试为准，并同步修正文档。
@@ -26,6 +26,7 @@
 | `src/green_direct/economy/economic_inputs.py` | 经济性输入参数模型 | `EconomicParams`, `AvoidedGridPurchaseParams`, `OtherOperatingRevenueItem` |
 | `src/green_direct/economy/economic_evaluator.py` | 电源侧项目投资现金流 | `evaluate_scenario_economy`, `evaluate_batch_economy` |
 | `src/green_direct/economy/electricity_saving.py` | 外部购电节费、组价、上网收入辅助函数 | `calc_net_avoided_grid_cost_price`, `calc_avoided_grid_purchase_cash_price`, `calc_self_use_saving` |
+| `src/green_direct/economy/price_curves.py` | 价格曲线 CSV/Excel 读取、字段识别、8760/8784 对齐、逐方案年度金额聚合 | `read_price_curve`, `apply_price_curve_to_summary` |
 | `src/green_direct/economy/single_entity_evaluator.py` | 同一主体税前增量现金流 | `evaluate_single_entity_pre_tax_economy`, `evaluate_batch_single_entity_pre_tax_economy` |
 | `src/green_direct/recommendation/recommendation_engine.py` | 四个默认推荐席位 | `build_recommendation_result`, `RecommendationParams` |
 | `src/green_direct/services/study_runner.py` | 经济性评价和推荐组合的服务层编排 | `run_economic_study`, `build_recommendation_study`, `RecommendationInputSnapshot` |
@@ -38,6 +39,7 @@
 |---|---|
 | `tests/test_economy_v1.py` | 电源侧现金流、税费、折旧、储能更换、FIRR 求解 |
 | `tests/test_single_entity_economy.py` | 同一主体节费、税前 FIRR、价税分离、环境价值 |
+| `tests/test_price_curves.py` | 价格曲线读取、中文字段映射、8760/8784 对齐和税口径 |
 | `tests/test_recommendation_v1.py` | 推荐席位排序、负荷侧可成交门槛、席位合并 |
 | `tests/test_study_runner.py` | 服务层经济性编排、推荐输入快照和推荐组合构建 |
 | `tests/test_ui_import.py` | UI 导入、页面状态兼容、简版报告和同一主体年度现金流导出结构 |
@@ -47,6 +49,9 @@
 ```mermaid
 flowchart TD
     A["技术仿真 summary"] --> B["电源侧经济性<br/>evaluate_batch_economy"]
+    P["可选价格曲线<br/>read_price_curve + hourly_details"] --> B
+    P --> C
+    P --> G
     A --> C["同一主体税前经济性<br/>evaluate_batch_single_entity_pre_tax_economy"]
     A --> D["工程代表方案排序"]
     B --> E["电源侧 FIRR 席位"]
@@ -85,6 +90,15 @@ flowchart TD
 容量（万kW） * 单位造价（元/kW） = 投资（万元）
 电量（万kWh） * 电价（元/kWh） = 收入或节费（万元）
 ```
+
+价格曲线模式下，服务层先读取每个方案的 `hourly_detail`，按真实自发自用小时聚合下网购电节费金额，再进入年度现金流。绿电结算价、上网电价和环境价值在 V1 仍使用网页端全年固定参数：
+
+```text
+self_use_hourly_energy × 下网净节费曲线 -> 同一主体税前购电节费
+self_use_hourly_energy × 负荷侧可减少费用曲线 -> 负荷侧可减少购网费用
+```
+
+固定价模式仍保持原口径，即年度电量乘页面固定单价。
 
 ## 5. 参数总览
 
@@ -193,6 +207,44 @@ net_avoided_grid_cost_price
 | `min_power_side_acceptable_firr` | 0.07 | decimal 或 None | 电源侧最低可接受 FIRR；为空时负荷侧席位 pending | 负荷侧可成交收益 |
 | `single_entity_view` | `firr` | str | 同一主体席位视角；可切换为动态回收期最短 | 同一主体席位 |
 | `engineering_view` | `min_investment` | str | 工程代表方案视角 | 工程代表方案 |
+
+### 5.5 `PriceCurveData`
+
+`PriceCurveData` 是价格曲线 V1 的标准化输入对象，由 `read_price_curve()` 生成。V1 只识别下网电价曲线的原始账单组分，不从曲线文件读取绿电结算价、上网电价、环境价值、增值税率或派生节费结果。
+
+UI 口径：价格曲线在“方案仿真”页作为项目级输入上传，保存到 `project_price_curve_data`；“经济性测算”页自动使用该对象，不再提供二次上传/选择入口。已有项目级曲线时，固定外部购电净成本、电费清单组价和负荷侧单独覆盖控件应置灰，防止同一条下网节费口径被重复覆盖。
+
+| 字段 | 含义 |
+|---|---|
+| `data` | 标准化价格 DataFrame，包含 `timestamp` / `hour_index` 和已识别下网账单价格列 |
+| `diagnostics` | 读取、说明行忽略、时间戳回退等结构化诊断 |
+| `encoding` | CSV 编码，Excel 为空 |
+| `matched_columns` | 内部字段到原始列名的映射，便于 UI 和报告复核 |
+| `has_explicit_hour_index` | 用户文件是否显式提供 `hour_index` |
+
+当前实现支持：
+
+- CSV：UTF-8、UTF-8-SIG、GBK、GB18030；
+- Excel：`.xlsx` / `.xlsm`；
+- 行数：8760 / 8784；
+- 对齐：时间戳优先，时间戳不一致时回退到 `hour_index` 或行序并提示；
+- 税口径：`gov_fund_surcharge` 不参与增值税价税分离，其他下网电价组分按含税处理。
+
+推荐模板见 `samples/price_curve_template_down_grid.csv` 和 `docs/templates/price_curves/price_curve_template_down_grid.csv`。完整计算说明见 `docs/PRICE_CURVE_ECONOMY_CALCULATION_METHOD.md`。
+
+计算字段包括：
+
+```text
+timestamp
+hour_index
+energy_market_price_with_vat
+line_loss_price_with_vat
+system_operation_fee_with_vat
+transmission_distribution_tariff_with_vat
+gov_fund_surcharge
+```
+
+模板中的 `month`、`peak_valley` 是用户复核/展示辅助列，当前程序不参与计算。
 
 ## 6. 三个经济性视角
 
@@ -447,7 +499,7 @@ firr >= min_power_side_acceptable_firr
 
 1. 为负荷侧可减少购网费用单价补充更完整的组价和导出说明。
 2. 把经济性参数、推荐参数和计算结果整理成更明确的数据对象，减少 UI 直接传参。
-3. 增加价格曲线 CSV/Excel 输入模板，先支持 8760 / 8784 小时固定对齐。
+3. 继续扩展价格曲线导出和报告复核说明；当前已支持 8760 / 8784 小时 CSV/Excel 上传、校验和经济性/推荐接入。
 4. 引入 `StudyResult` 和 `ResultStore`，让网页端默认只加载 summary 和推荐场景逐时明细。
 
 不建议短期做：

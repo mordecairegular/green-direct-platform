@@ -38,10 +38,10 @@ INSIGHT_CSS = """
     border-radius: 8px;
     padding: 18px 20px;
     margin: 8px 0 18px 0;
-    background: linear-gradient(135deg, #f8fafc 0%, #fffdf3 100%);
+    background: #ffffff;
 }
 .gd-insight-title {
-    font-size: 28px;
+    font-size: 22px;
     font-weight: 760;
     color: #111827;
     margin-bottom: 6px;
@@ -102,11 +102,18 @@ INSIGHT_CSS = """
     font-weight: 720;
 }
 .gd-active-strip {
-    border-left: 4px solid #f0b90b;
+    border-left: 4px solid #3b82f6;
     padding: 10px 12px;
-    background: #fffaf0;
+    background: #f8fbff;
     border-radius: 6px;
     margin: 8px 0 14px 0;
+    color: #334155;
+}
+.gd-active-strip strong {
+    color: #0f172a;
+}
+.gd-active-strip span {
+    color: #64748b;
 }
 </style>
 """
@@ -384,11 +391,18 @@ def _render_solution_card(
 
 
 def _render_active_strip(st, active_row: pd.Series, representative: list[dict[str, Any]]) -> None:
-    label = _scenario_label(str(active_row["scenario_id"]), representative)
+    scenario_id = str(active_row["scenario_id"])
+    labels: list[str] = []
+    for item in representative:
+        if item["scenario_id"] == scenario_id:
+            labels = list(item.get("labels", []))
+            break
+    label_text = " / ".join(labels) if labels else "用户指定方案"
     strip = f"""
     <div class="gd-active-strip">
-      <strong>当前图表：</strong>{_safe_text(label)}
-      <span style="color:#6b7280;">　{_safe_text(_capacity_text(active_row))}</span>
+      <strong>当前复核方案：</strong>{_safe_text(scenario_id)}
+      <span>　{_safe_text(_capacity_text(active_row))}</span>
+      <br><span>{_safe_text(label_text)}</span>
     </div>
     """
     st.markdown(strip, unsafe_allow_html=True)
@@ -449,14 +463,14 @@ def _render_policy_radar(st, selected_summary: pd.DataFrame) -> None:
     if not set(fields).issubset(selected_summary.columns):
         return
     fig = go.Figure()
-    labels = ["绿电占比", "自发自用率", "低弃电", "低上网"]
+    labels = ["绿电占比", "自发自用率", "弃电率", "上网比例"]
     colors = ["#2563eb", "#16a34a", "#dc2626", "#9333ea", "#f59e0b"]
     for _, row in selected_summary.head(5).iterrows():
         values = [
             float(row["green_load_rate"]),
             float(row["self_use_rate"]),
-            1 - float(row["curtail_rate"]),
-            1 - float(row["export_rate"]),
+            float(row["curtail_rate"]),
+            float(row["export_rate"]),
         ]
         fig.add_trace(
             go.Bar(
@@ -474,7 +488,7 @@ def _render_policy_radar(st, selected_summary: pd.DataFrame) -> None:
         margin=dict(l=30, r=20, t=60, b=110),
         legend=dict(orientation="h", yanchor="top", y=-0.18, xanchor="left", x=0),
     )
-    fig.update_yaxes(range=[0, 1], tickformat=".0%", title_text="比例 / 越高越好")
+    fig.update_yaxes(range=[0, 1], tickformat=".0%", title_text="比例")
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -554,18 +568,30 @@ def _render_energy_flow(st, hourly: pd.DataFrame, active_row: pd.Series) -> None
         fig = go.Figure(
             data=[
                 go.Sankey(
-                    node=dict(label=labels, pad=18, thickness=18, color=colors),
+                    textfont=dict(family="Arial, sans-serif", size=13, color="#111827"),
+                    node=dict(
+                        label=labels,
+                        pad=18,
+                        thickness=18,
+                        color=colors,
+                        line=dict(color="rgba(17, 24, 39, 0.18)", width=0.4),
+                    ),
                     link=dict(
                         source=source,
                         target=target,
                         value=value,
-                        color="rgba(88, 199, 223, 0.22)",
+                        color="rgba(88, 199, 223, 0.18)",
                         hovertemplate="%{source.label} → %{target.label}<br>%{value:,.0f} 万kWh<extra></extra>",
                     ),
                 )
             ]
         )
-        fig.update_layout(title="年度能源流向", height=500, margin=dict(l=10, r=10, t=50, b=10))
+        fig.update_layout(
+            title="年度能源流向",
+            height=500,
+            margin=dict(l=10, r=10, t=50, b=10),
+            font=dict(family="Arial, sans-serif", size=13, color="#111827"),
+        )
         st.plotly_chart(fig, use_container_width=True)
         st.caption("光伏、风电到各去向的分摊按年度发电占比近似展示，核心电量仍来自逐小时台账汇总。")
 
@@ -740,20 +766,26 @@ def render_chart_analysis(
     summary: pd.DataFrame,
     economy_result=None,
     recommendation_portfolio: pd.DataFrame | None = None,
+    selected_scenario_ids: list[str] | None = None,
+    active_scenario_id: str | None = None,
+    show_overview: bool = True,
+    show_selector: bool = True,
+    show_hero: bool = True,
 ) -> None:
     """Render chart insights around representative and user-pinned scenarios."""
 
-    st.markdown("---")
     _inject_style(st)
-    st.markdown(
-        """
-        <div class="gd-insight-hero">
-          <div class="gd-insight-title">图表分析：方案图谱</div>
-          <div class="gd-insight-copy">围绕系统代表方案和用户加入方案展示关键图，不再默认铺开全量枚举表。</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    if show_hero:
+        st.markdown("---")
+        st.markdown(
+            """
+            <div class="gd-insight-hero">
+              <div class="gd-insight-title">详细图表复核</div>
+              <div class="gd-insight-copy">围绕代表方案和用户指定方案查看能量流向、运行时序和经济性图表。</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     if summary.empty or not batch_result.hourly_details:
         st.info("当前没有可用于图表分析的方案结果。")
@@ -763,7 +795,27 @@ def render_chart_analysis(
     representative = _representative_from_recommendation_portfolio(summary, recommendation_portfolio)
     if not representative:
         representative = _select_representative_scenarios(summary, economy_summary)
-    selected_ids, active_id = _scenario_selector(st, summary, representative)
+
+    available_ids = set(summary["scenario_id"].astype(str))
+    if selected_scenario_ids is not None:
+        selected_ids = [
+            str(scenario_id)
+            for scenario_id in dict.fromkeys(selected_scenario_ids)
+            if str(scenario_id) in available_ids
+        ]
+        if not selected_ids:
+            selected_ids = [item["scenario_id"] for item in representative if item["scenario_id"] in available_ids]
+        if not selected_ids:
+            selected_ids = summary["scenario_id"].astype(str).head(1).tolist()
+        active_id = str(active_scenario_id) if active_scenario_id and str(active_scenario_id) in selected_ids else selected_ids[0]
+    elif show_selector:
+        selected_ids, active_id = _scenario_selector(st, summary, representative)
+    else:
+        selected_ids = [item["scenario_id"] for item in representative if item["scenario_id"] in available_ids]
+        if not selected_ids:
+            selected_ids = summary["scenario_id"].astype(str).head(1).tolist()
+        active_id = selected_ids[0]
+
     selected_summary = _summary_for_ids(summary, selected_ids)
     active_summary = _summary_for_ids(summary, [active_id])
     if active_summary.empty:
@@ -777,12 +829,21 @@ def render_chart_analysis(
 
     _render_active_strip(st, active_row, representative)
 
-    tabs = st.tabs(["方案总览", "能量流向", "运行时序", "经济性分析"])
-    with tabs[0]:
-        _render_overview(st, selected_summary, active_row, representative, economy_summary)
-    with tabs[1]:
-        _render_energy_flow(st, active_hourly, active_row)
-    with tabs[2]:
-        _render_operation(st, active_hourly)
-    with tabs[3]:
-        _render_economy(st, selected_summary, active_id, economy_summary)
+    if show_overview:
+        tabs = st.tabs(["方案总览", "能量流向", "运行时序", "经济性分析"])
+        with tabs[0]:
+            _render_overview(st, selected_summary, active_row, representative, economy_summary)
+        with tabs[1]:
+            _render_energy_flow(st, active_hourly, active_row)
+        with tabs[2]:
+            _render_operation(st, active_hourly)
+        with tabs[3]:
+            _render_economy(st, selected_summary, active_id, economy_summary)
+    else:
+        tabs = st.tabs(["能量流向", "运行时序", "经济性分析"])
+        with tabs[0]:
+            _render_energy_flow(st, active_hourly, active_row)
+        with tabs[1]:
+            _render_operation(st, active_hourly)
+        with tabs[2]:
+            _render_economy(st, selected_summary, active_id, economy_summary)

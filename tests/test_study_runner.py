@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from green_direct.economy import AvoidedGridPurchaseParams, EconomicParams
+from green_direct.economy import AvoidedGridPurchaseParams, EconomicParams, read_price_curve
 from green_direct.models.params import PolicyParams
 from green_direct.services import (
     StudyResult,
@@ -100,6 +100,38 @@ def test_economic_study_preserves_recommendation_input_snapshot():
     assert result.recommendation_inputs.to_session_dict()["green_power_settlement_price_with_vat"] == 0.35
 
 
+def test_economic_study_adds_fixed_landed_price_summary():
+    summary = _summary().assign(
+        total_load_energy=250.0,
+        grid_import_energy=150.0,
+        self_use_energy=100.0,
+        grid_import_rate=0.6,
+        green_load_rate=0.4,
+    )
+
+    result = run_economic_study(
+        summary,
+        economic_params=EconomicParams(operation_years=2, construction_input_vat_rate=0.0),
+        avoided_grid_params=AvoidedGridPurchaseParams(net_avoided_grid_cost_price=0.5),
+        load_side_avoided_charge_price=0.55,
+        green_power_settlement_price_with_vat=0.42,
+        fixed_down_grid_landed_price_with_vat=0.65,
+        fixed_green_self_use_extra_fee_with_vat=0.18,
+        min_power_side_acceptable_firr=None,
+    )
+
+    power = result.power_summary.set_index("scenario_id")
+    single_entity = result.single_entity_summary.set_index("scenario_id")
+    expected_after = (150.0 * 0.65 + 100.0 * (0.42 + 0.18)) / 250.0
+    assert result.price_mode == "fixed_price"
+    assert result.landed_price_summary["scenario_id"].tolist() == ["S_SERVICE"]
+    assert power.loc["S_SERVICE", "load_landed_price_before_green_with_vat"] == pytest.approx(0.65)
+    assert power.loc["S_SERVICE", "load_landed_price_after_green_with_vat"] == pytest.approx(expected_after)
+    assert power.loc["S_SERVICE", "weighted_down_grid_landed_price_with_vat"] == pytest.approx(0.65)
+    assert power.loc["S_SERVICE", "green_self_use_landed_price_with_vat_effective"] == pytest.approx(0.60)
+    assert single_entity.loc["S_SERVICE", "load_landed_price_after_green_with_vat"] == pytest.approx(expected_after)
+
+
 def test_recommendation_study_builds_portfolio_and_load_side_detail():
     economy = run_economic_study(
         _summary(),
@@ -121,3 +153,143 @@ def test_recommendation_study_builds_portfolio_and_load_side_detail():
     assert not recommendation.portfolio.empty
     assert "load_side_saving_price" in recommendation.load_side_detail.columns
     assert recommendation.load_side_detail["load_side_saving_price"].iloc[0] == pytest.approx(0.20)
+
+
+def test_economic_study_uses_hourly_price_curve_by_scenario_self_use_timing():
+    hours = 8760
+    summary = pd.DataFrame(
+        [
+            {
+                **_summary().iloc[0].to_dict(),
+                "scenario_id": "S_LOW_PRICE_SELF_USE",
+                "self_use_energy": 10.0,
+                "grid_export_energy": 0.0,
+            },
+            {
+                **_summary().iloc[0].to_dict(),
+                "scenario_id": "S_HIGH_PRICE_SELF_USE",
+                "self_use_energy": 10.0,
+                "grid_export_energy": 0.0,
+            },
+        ]
+    )
+    prices = pd.DataFrame(
+        {
+            "hour_index": range(hours),
+            "energy_market_price_with_vat": [0.10] + [0.50] * (hours - 2) + [1.00],
+        }
+    )
+    price_curve = read_price_curve(prices.to_csv(index=False).encode("utf-8-sig"))
+
+    def hourly_for(scenario_id: str, self_use_hour: int) -> pd.DataFrame:
+        frame = pd.DataFrame(
+            {
+                "scenario_id": scenario_id,
+                "timestamp": pd.date_range("2025-01-01", periods=hours, freq="h"),
+                "hour_index": range(hours),
+                "direct_self_use_power": [0.0] * hours,
+                "bess_discharge_power": [0.0] * hours,
+                "grid_export_power": [0.0] * hours,
+            }
+        )
+        frame.loc[self_use_hour, "direct_self_use_power"] = 10.0
+        return frame
+
+    economy = run_economic_study(
+        summary,
+        economic_params=EconomicParams(
+            operation_years=2,
+            construction_input_vat_rate=0.0,
+            wind_capex_per_kw_with_vat=0.0,
+        ),
+        avoided_grid_params=AvoidedGridPurchaseParams(
+            net_avoided_grid_cost_price=None,
+            grid_purchase_vat_rate=0.13,
+        ),
+        load_side_avoided_charge_price=0.50,
+        green_power_settlement_price_with_vat=0.20,
+        min_power_side_acceptable_firr=None,
+        price_curve=price_curve,
+        hourly_details={
+            "S_LOW_PRICE_SELF_USE": hourly_for("S_LOW_PRICE_SELF_USE", 0),
+            "S_HIGH_PRICE_SELF_USE": hourly_for("S_HIGH_PRICE_SELF_USE", hours - 1),
+        },
+    )
+
+    single_entity = economy.single_entity_summary.set_index("scenario_id")
+    assert economy.price_mode == "hourly_curve"
+    assert single_entity.loc[
+        "S_HIGH_PRICE_SELF_USE",
+        "annual_self_use_saving",
+    ] > single_entity.loc["S_LOW_PRICE_SELF_USE", "annual_self_use_saving"]
+
+    recommendation = build_recommendation_study(
+        summary,
+        economy.power_summary,
+        economy.recommendation_inputs,
+        single_entity_summary=economy.single_entity_summary,
+    )
+    load_side = recommendation.load_side_detail.set_index("scenario_id")
+    assert load_side.loc["S_HIGH_PRICE_SELF_USE", "load_side_annual_benefit"] == pytest.approx(8.0)
+    assert load_side.loc["S_LOW_PRICE_SELF_USE", "load_side_annual_benefit"] == pytest.approx(-1.0)
+
+
+def test_economic_study_adds_hourly_curve_landed_price_summary():
+    hours = 8760
+    summary = _summary().assign(
+        total_load_energy=10.0,
+        grid_import_energy=6.0,
+        self_use_energy=4.0,
+        grid_import_rate=0.6,
+        green_load_rate=0.4,
+    )
+    prices = pd.DataFrame(
+        {
+            "hour_index": range(hours),
+            "energy_market_price_with_vat": [0.40] * hours,
+            "line_loss_price_with_vat": [0.0] * hours,
+            "system_operation_fee_with_vat": [0.0] * hours,
+            "transmission_distribution_tariff_with_vat": [0.10] * hours,
+            "gov_fund_surcharge": [0.02] * hours,
+        }
+    )
+    price_curve = read_price_curve(prices.to_csv(index=False).encode("utf-8-sig"))
+    hourly = pd.DataFrame(
+        {
+            "scenario_id": "S_SERVICE",
+            "timestamp": pd.date_range("2025-01-01", periods=hours, freq="h"),
+            "hour_index": range(hours),
+            "load_power": [0.0] * hours,
+            "direct_self_use_power": [0.0] * hours,
+            "bess_discharge_power": [0.0] * hours,
+            "grid_import_power": [0.0] * hours,
+            "grid_export_power": [0.0] * hours,
+        }
+    )
+    hourly.loc[0, "load_power"] = 10.0
+    hourly.loc[0, "direct_self_use_power"] = 4.0
+    hourly.loc[0, "grid_import_power"] = 6.0
+
+    result = run_economic_study(
+        summary,
+        economic_params=EconomicParams(operation_years=2, construction_input_vat_rate=0.0),
+        avoided_grid_params=AvoidedGridPurchaseParams(
+            net_avoided_grid_cost_price=None,
+            grid_purchase_vat_rate=0.13,
+        ),
+        load_side_avoided_charge_price=0.50,
+        green_power_settlement_price_with_vat=0.30,
+        min_power_side_acceptable_firr=None,
+        price_curve=price_curve,
+        hourly_details={"S_SERVICE": hourly},
+    )
+
+    power = result.power_summary.set_index("scenario_id")
+    expected_before = 0.40 + 0.10 + 0.02
+    expected_green_landed = 0.30 + 0.10 + 0.02
+    expected_after = (6.0 * expected_before + 4.0 * expected_green_landed) / 10.0
+    assert result.price_mode == "hourly_curve"
+    assert power.loc["S_SERVICE", "load_landed_price_before_green_with_vat"] == pytest.approx(expected_before)
+    assert power.loc["S_SERVICE", "load_landed_price_after_green_with_vat"] == pytest.approx(expected_after)
+    assert power.loc["S_SERVICE", "weighted_down_grid_landed_price_with_vat"] == pytest.approx(expected_before)
+    assert power.loc["S_SERVICE", "green_self_use_landed_price_with_vat_effective"] == pytest.approx(expected_green_landed)

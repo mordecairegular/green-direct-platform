@@ -177,7 +177,7 @@ class BatchTrialApp(ttk.Frame):
     def _use_sample_paths(self) -> None:
         sample_dir = bundled_resource_dir() / "samples"
         self.vars["load_csv"].set(str(sample_dir / "负荷系数示例文件.csv"))
-        self.vars["pv_csv"].set(str(sample_dir / "光伏系数示例文件.csv"))
+        self.vars["pv_csv"].set(str(sample_dir / "光伏系数示例文件-1300.csv"))
         self.vars["wind_csv"].set(str(sample_dir / "风电系数示例文件.csv"))
         self.vars["pv_start"].set("10")
         self.vars["pv_end"].set("20")

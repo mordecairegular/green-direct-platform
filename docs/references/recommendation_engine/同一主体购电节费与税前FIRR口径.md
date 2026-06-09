@@ -173,13 +173,14 @@ grid_export_revenue_without_vat =
 | 字段 | 单位 | 是否必需 | 说明 |
 |---|---|---|---|
 | `timestamp` | 时间 | 必需 | 与 `hourly_detail.timestamp` 对齐 |
-| `net_avoided_grid_cost_price` | 元/kWh | 必需或使用固定值 | 默认简化口径下的外部购电净成本单价 |
-| `energy_market_price_with_vat` | 元/kWh，含税 | 组价模式可选 | 电能量/市场购电价格 |
-| `line_loss_price_with_vat` | 元/kWh，含税 | 组价模式可选 | 上网环节线损费用 |
-| `system_operation_fee_with_vat` | 元/kWh，含税 | 组价模式可选 | 系统运行费用 |
-| `transmission_distribution_tariff_with_vat` | 元/kWh，含税 | 组价模式可选 | 输配电价 |
-| `gov_fund_surcharge` | 元/kWh | 组价模式可选 | 政府性基金及附加 |
-| `grid_export_price_with_vat` | 元/kWh | 可选 | 上网电价曲线；缺失时使用固定上网电价 |
+| `hour_index` | 整数 | 推荐 | 时间戳不完全匹配时用于回退对齐 |
+| `energy_market_price_with_vat` | 元/kWh，含税 | 可选 | 电能量/市场购电价格 |
+| `line_loss_price_with_vat` | 元/kWh，含税 | 可选 | 上网环节线损费用 |
+| `system_operation_fee_with_vat` | 元/kWh，含税 | 可选 | 系统运行费用 |
+| `transmission_distribution_tariff_with_vat` | 元/kWh，含税 | 可选 | 输配电价 |
+| `gov_fund_surcharge` | 元/kWh，无增值税 | 可选 | 政府性基金及附加 |
+
+`net_avoided_grid_cost_price` 是程序根据上述下网账单组分、增值税率和仍缴费用口径推导的结果，不作为 V1 价格曲线模板输入。上网电价当前继续使用网页端固定参数。
 
 每个时段：
 

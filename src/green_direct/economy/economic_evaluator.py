@@ -48,6 +48,13 @@ def _value(summary: Mapping[str, Any], key: str, default: float = 0.0) -> float:
     return float(value)
 
 
+def _override_value(summary: Mapping[str, Any], key: str, default: float) -> float:
+    value = summary.get(key)
+    if value is None or pd.isna(value):
+        return default
+    return float(value)
+
+
 def _scenario_id(summary: Mapping[str, Any]) -> str:
     value = summary.get("scenario_id", "")
     return "" if value is None else str(value)
@@ -384,8 +391,16 @@ def evaluate_scenario_economy(
     vat_credit_begin = construction_input_vat
 
     for operation_year in range(1, economic_params.operation_years + 1):
-        grid_export_revenue_with_vat = grid_export_energy * economic_params.grid_export_price_with_vat
-        self_use_revenue_with_vat = self_use_energy * economic_params.self_use_price_with_vat
+        grid_export_revenue_with_vat = _override_value(
+            summary_map,
+            "grid_export_revenue_with_vat_override",
+            grid_export_energy * economic_params.grid_export_price_with_vat,
+        )
+        self_use_revenue_with_vat = _override_value(
+            summary_map,
+            "self_use_revenue_with_vat_override",
+            self_use_energy * economic_params.self_use_price_with_vat,
+        )
         grid_export_revenue_without_vat, grid_export_output_vat = split_amount_with_vat(
             grid_export_revenue_with_vat,
             economic_params.output_vat_rate,
@@ -557,6 +572,7 @@ def evaluate_scenario_economy(
     firr, firr_status = _calculate_irr(cashflows)
     metrics = {
         "scenario_id": scenario_id,
+        "price_mode": summary_map.get("price_mode", "fixed_price"),
         "fnpv": float(annual["discounted_net_cash_flow"].sum()),
         "firr": firr,
         "firr_status": firr_status,
@@ -564,6 +580,18 @@ def evaluate_scenario_economy(
         "dynamic_payback_year": _calculate_payback(years, discounted_cashflows),
         "construction_cash_outflow": construction_cash_outflow,
         "dedicated_connection_line_investment_with_vat": dedicated_connection_line_with_vat,
+        "annual_grid_export_revenue_with_vat": grid_export_revenue_with_vat,
+        "annual_self_use_revenue_with_vat": self_use_revenue_with_vat,
+        "grid_export_price_with_vat": _override_value(
+            summary_map,
+            "grid_export_price_with_vat_effective",
+            economic_params.grid_export_price_with_vat,
+        ),
+        "green_power_settlement_price_with_vat": _override_value(
+            summary_map,
+            "green_power_settlement_price_with_vat_effective",
+            economic_params.self_use_price_with_vat,
+        ),
         "annual_operating_revenue_with_vat": float(
             annual.loc[annual["period_type"] == "operation", "operating_revenue_with_vat"].iloc[0]
         )

@@ -1,8 +1,10 @@
 from io import BytesIO
+from pathlib import Path
 from types import SimpleNamespace
 from zipfile import ZipFile
 
 import pandas as pd
+import pytest
 
 
 def test_streamlit_app_imports():
@@ -25,6 +27,50 @@ def test_workflow_page_normalizes_legacy_and_unknown_values():
     unknown = DummyStreamlit("不存在的页面")
     assert app._normalize_workflow_page(unknown) == "欢迎页"
     assert unknown.session_state["workflow_page"] == "欢迎页"
+
+    old_recommendation = DummyStreamlit("方案推荐及图表概览")
+    assert app._normalize_workflow_page(old_recommendation) == "方案推荐"
+    assert old_recommendation.session_state["workflow_page"] == "方案推荐"
+
+
+def test_workflow_pages_split_recommendation_and_charts():
+    import green_direct.ui.app as app
+
+    assert app.WORKFLOW_PAGES == [
+        "欢迎页",
+        "方案仿真",
+        "经济性测算",
+        "方案推荐",
+        "图表概览",
+        "图表下载和报告生成",
+    ]
+    assert app.WORKFLOW_PAGE_META["图表下载和报告生成"]["index"] == "06"
+
+
+def test_curve_display_tooltip_shows_input_curve_metrics():
+    from green_direct.ui.app import _curve_display_tooltip
+
+    load_data = pd.DataFrame(
+        {
+            "时间": pd.date_range("2024-01-01", periods=3, freq="h"),
+            "数值": [10000.0, 20000.0, 30000.0],
+        }
+    )
+    profile_data = pd.DataFrame(
+        {
+            "时间": pd.date_range("2024-01-01", periods=3, freq="h"),
+            "数值": [1000.0, 500.0, 562.0],
+        }
+    )
+
+    load_tip = _curve_display_tooltip("负荷", load_data, "时间", "数值")
+    pv_tip = _curve_display_tooltip("光伏", profile_data, "时间", "数值")
+    wind_tip = _curve_display_tooltip("风电", profile_data, "时间", "数值")
+
+    assert "负荷电量：6 亿kWh" in load_tip
+    assert "光伏利用小时：2,062 h" in pv_tip
+    assert "风电利用小时：2,062 h" in wind_tip
+    assert "有效点数：3 / 3" in load_tip
 
 
 def test_go_to_workflow_page_maps_alias_and_reruns():
@@ -105,6 +151,211 @@ def test_workflow_page_applies_queued_target_before_radio_render():
     assert app._normalize_workflow_page(dummy) == "方案仿真"
     assert dummy.session_state["workflow_page"] == "方案仿真"
     assert "_workflow_page_target" not in dummy.session_state
+
+
+def test_preserve_widget_state_keeps_simulation_form_values():
+    import green_direct.ui.app as app
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {"simulation_pv_capacity_end": 18.0}
+
+    dummy = DummyStreamlit()
+    app._preserve_widget_state(dummy, app.SIMULATION_WIDGET_STATE_KEYS)
+
+    assert dummy.session_state["simulation_pv_capacity_end"] == 18.0
+
+
+def test_single_scenario_grid_from_exact_builds_one_candidate():
+    import green_direct.ui.app as app
+    from green_direct.batch.batch_runner import estimate_scenario_count
+
+    grid, errors = app._single_scenario_grid_from_exact(
+        pv_capacity=5.0,
+        wind_capacity=5.0,
+        bess_power=2.0,
+        bess_energy=8.0,
+    )
+
+    assert errors == []
+    assert grid == {
+        "pv_capacity": {"start": 5.0, "end": 5.0, "step": 5.0},
+        "wind_capacity": {"start": 5.0, "end": 5.0, "step": 5.0},
+        "bess_power": {"start": 2.0, "end": 2.0, "step": 2.0},
+        "bess_duration_hours": [4.0],
+    }
+    assert estimate_scenario_count(grid) == 1
+
+
+def test_single_scenario_grid_from_exact_rejects_invalid_configs():
+    import green_direct.ui.app as app
+
+    no_renewable_grid, no_renewable_errors = app._single_scenario_grid_from_exact(
+        pv_capacity=0.0,
+        wind_capacity=0.0,
+        bess_power=2.0,
+        bess_energy=8.0,
+    )
+    no_power_grid, no_power_errors = app._single_scenario_grid_from_exact(
+        pv_capacity=5.0,
+        wind_capacity=0.0,
+        bess_power=0.0,
+        bess_energy=8.0,
+    )
+
+    assert no_renewable_grid is None
+    assert any("纯储能" in error for error in no_renewable_errors)
+    assert no_power_grid is None
+    assert any("储能功率为 0" in error for error in no_power_errors)
+
+
+def test_exact_scenario_inputs_are_preserved_across_workflow_pages():
+    import green_direct.ui.app as app
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                "simulation_scenario_pool_mode": "指定单方案",
+                "simulation_exact_pv_capacity": 5.0,
+                "simulation_exact_wind_capacity": 6.0,
+                "simulation_exact_bess_power": 2.0,
+                "simulation_exact_bess_energy": 8.0,
+            }
+
+    dummy = DummyStreamlit()
+    app._preserve_widget_state(dummy, app.SIMULATION_WIDGET_STATE_KEYS)
+
+    assert dummy.session_state["simulation_scenario_pool_mode__stored_value"] == "指定单方案"
+    assert dummy.session_state["simulation_exact_bess_energy__stored_value"] == 8.0
+
+
+def test_project_price_curve_state_invalidates_economy_results():
+    import green_direct.ui.app as app
+    from green_direct.economy import read_price_curve
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                "economy_v1_result": {"summary": pd.DataFrame({"scenario_id": ["old"]})},
+                "single_entity_economy_result": {"summary": pd.DataFrame({"scenario_id": ["old"]})},
+                "recommendation_v1_inputs": {"old": True},
+                "download_payloads": {"old": True},
+            }
+
+    dummy = DummyStreamlit()
+    price_curve = read_price_curve("samples/price_curve_template_down_grid.csv")
+
+    app._remember_project_price_curve(dummy, price_curve, "price_curve_template_down_grid.csv", "sig-1")
+
+    assert dummy.session_state[app.PROJECT_PRICE_CURVE_DATA_KEY] is price_curve
+    assert dummy.session_state[app.PROJECT_PRICE_CURVE_META_KEY]["source_name"] == "price_curve_template_down_grid.csv"
+    assert dummy.session_state[app.PROJECT_PRICE_CURVE_META_KEY]["row_count"] == 8784
+    assert "economy_v1_result" not in dummy.session_state
+    assert "single_entity_economy_result" not in dummy.session_state
+    assert "recommendation_v1_inputs" not in dummy.session_state
+    assert "download_payloads" not in dummy.session_state
+
+
+def test_batch_curve_upload_can_identify_project_price_curve():
+    import green_direct.ui.app as app
+
+    class UploadedFile:
+        def __init__(self, name: str):
+            self.name = name
+
+    assigned, price_curve_file, messages = app._auto_assign_curve_files(
+        [
+            UploadedFile("load_curve.csv"),
+            UploadedFile("pv_curve.csv"),
+            UploadedFile("wind_curve.csv"),
+            UploadedFile("湖南省2025年110kV下网电价曲线_8760小时.csv"),
+            UploadedFile("load_curve.xlsx"),
+        ]
+    )
+
+    assert set(assigned) == {"负荷", "光伏", "风电"}
+    assert price_curve_file is not None
+    assert price_curve_file.name == "湖南省2025年110kV下网电价曲线_8760小时.csv"
+    assert any("技术曲线 `load_curve.xlsx` 当前仅支持 CSV" in message for message in messages)
+
+
+def test_batch_price_curve_upload_stores_project_level_curve():
+    import green_direct.ui.app as app
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {}
+            self.errors = []
+
+        def error(self, message):
+            self.errors.append(message)
+
+    class UploadedFile:
+        name = "price_curve_template_down_grid.csv"
+
+        def getvalue(self):
+            return Path("samples/price_curve_template_down_grid.csv").read_bytes()
+
+    dummy = DummyStreamlit()
+
+    app._remember_uploaded_price_curve(dummy, UploadedFile(), context_label="批量导入中的电价曲线")
+
+    assert dummy.errors == []
+    assert dummy.session_state[app.PROJECT_PRICE_CURVE_META_KEY]["source_name"] == "price_curve_template_down_grid.csv"
+    assert dummy.session_state[app.PROJECT_PRICE_CURVE_META_KEY]["row_count"] == 8784
+    assert dummy.session_state[app.PROJECT_PRICE_CURVE_DATA_KEY].matched_columns["energy_market_price_with_vat"]
+
+
+def test_sample_curve_loader_ignores_price_curve_templates(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+
+    sample_dir = tmp_path / "samples"
+    sample_dir.mkdir()
+    for filename in [
+        "load_curve.csv",
+        "pv_curve.csv",
+        "wind_curve.csv",
+        "price_curve_template_down_grid.csv",
+    ]:
+        (sample_dir / filename).write_text("timestamp,value\n2020-01-01,1\n", encoding="utf-8")
+
+    monkeypatch.setattr(app, "PROJECT_ROOT", tmp_path)
+
+    assigned, messages = app._load_sample_curve_files()
+
+    assert set(assigned) == {"负荷", "光伏", "风电"}
+    assert not any("price_curve_template_down_grid.csv" in message for message in messages)
+
+
+def test_price_curve_upload_is_project_level_not_economy_page_upload():
+    app_source = Path("src/green_direct/ui/app.py").read_text(encoding="utf-8")
+
+    assert "key=\"simulation_price_curve_upload\"" in app_source
+    assert "key=\"economy_price_curve_upload\"" not in app_source
+
+
+def test_economy_result_keeps_price_curve_alignment_diagnostics_visible():
+    app_source = Path("src/green_direct/ui/app.py").read_text(encoding="utf-8")
+
+    assert '"price_curve_diagnostics": economic_study_result.price_curve_diagnostics' in app_source
+    assert "价格曲线对齐诊断" in app_source
+
+
+def test_simulation_capacity_input_survives_workflow_navigation():
+    from streamlit.testing.v1 import AppTest
+
+    app_test = AppTest.from_file("src/green_direct/ui/app.py")
+    app_test.session_state["workflow_page"] = "方案仿真"
+    app_test.run(timeout=10)
+
+    pv_end = next(widget for widget in app_test.number_input if widget.label == "光伏容量结束")
+    pv_end.set_value(18.0).run(timeout=10)
+    next(button for button in app_test.button if button.label == "03  经济测算").click().run(timeout=10)
+    next(button for button in app_test.button if button.label == "02  方案仿真").click().run(timeout=10)
+    pv_end_after_return = next(widget for widget in app_test.number_input if widget.label == "光伏容量结束")
+
+    assert pv_end_after_return.value == 18.0
+    assert len(app_test.exception) == 0
 
 
 def test_simple_markdown_report_mentions_typical_day_method():
@@ -210,8 +461,39 @@ def test_dashboard_representative_summary_follows_portfolio_order():
     assert dashboard_summary["scenario_id"].tolist() == ["S0003", "S0001"]
 
 
+def test_chart_summary_merges_landed_price_context_without_overwriting_technical_fields():
+    from green_direct.ui.app import _merge_landed_price_context
+
+    summary = pd.DataFrame(
+        {
+            "scenario_id": ["S0001", "S0002"],
+            "green_load_rate": [0.40, 0.55],
+            "pv_capacity": [5.0, 10.0],
+        }
+    )
+    economy = pd.DataFrame(
+        {
+            "scenario_id": ["S0002", "S0001"],
+            "green_load_rate": [0.99, 0.88],
+            "load_landed_price_before_green_with_vat": [0.65, 0.65],
+            "load_landed_price_after_green_with_vat": [0.58, 0.60],
+            "weighted_down_grid_landed_price_with_vat": [0.66, 0.64],
+        }
+    )
+
+    merged = _merge_landed_price_context(summary, economy)
+
+    assert merged["green_load_rate"].tolist() == [0.40, 0.55]
+    assert merged.set_index("scenario_id").loc["S0001", "load_landed_price_after_green_with_vat"] == pytest.approx(0.60)
+    assert merged.set_index("scenario_id").loc["S0002", "weighted_down_grid_landed_price_with_vat"] == pytest.approx(0.66)
+
+
 def test_compact_dashboard_figures_use_real_fields():
-    from green_direct.ui.app import _build_compact_policy_comparison_figure, _build_compact_typical_day_figure
+    from green_direct.ui.app import (
+        _build_capacity_comparison_figure,
+        _build_compact_policy_comparison_figure,
+        _build_compact_typical_day_figure,
+    )
 
     comparison = pd.DataFrame(
         {
@@ -226,11 +508,25 @@ def test_compact_dashboard_figures_use_real_fields():
             "export_rate": [0.20, 0.10],
         }
     )
-    policy_fig, missing = _build_compact_policy_comparison_figure(comparison)
+    policy_fig, missing = _build_compact_policy_comparison_figure(
+        comparison,
+        {"green_load_rate": 0.3, "self_use_rate": 0.6, "export_rate": 0.2},
+    )
 
     assert missing == []
     assert policy_fig is not None
-    assert [trace.name for trace in policy_fig.data] == ["绿电占比", "自发自用率", "低弃电", "低上网"]
+    assert policy_fig.data[0].type == "heatmap"
+    assert list(policy_fig.data[0].x) == ["绿电占比≥30%", "自发自用率≥60%", "弃电率 低优", "上网比例≤20%"]
+    assert [round(value, 4) for value in policy_fig.data[0].z[0]] == [0.04, 0.16, -0.04, 0.0]
+    assert "达标余量" in str(policy_fig.to_plotly_json())
+    assert "低弃电偏离" in str(policy_fig.to_plotly_json())
+
+    capacity_fig, missing = _build_capacity_comparison_figure(comparison)
+    assert missing == []
+    assert capacity_fig is not None
+    assert capacity_fig.data[0].type == "heatmap"
+    assert list(capacity_fig.data[0].x) == ["光伏<br>万kW", "风电<br>万kW", "储能功率<br>万kW", "储能容量<br>万kWh"]
+    assert list(capacity_fig.data[0].text[0]) == ["5", "0", "0", "0"]
 
     hourly = pd.DataFrame(
         {
@@ -251,6 +547,24 @@ def test_compact_dashboard_figures_use_real_fields():
     assert typical_fig is not None
     assert "/" in label
     assert "季节中心日法" in method
+
+
+def test_chart_overview_page_does_not_embed_export_handoff():
+    import inspect
+    import green_direct.ui.app as app
+
+    source = inspect.getsource(app._render_chart_overview_page)
+    dashboard_source = inspect.getsource(app._render_recommendation_dashboard_overview)
+
+    assert "_render_recommendation_export_handoff" not in source
+    assert "高级：典型日、能量流向与完整图表复核" not in source
+    assert "容量配置结构矩阵" in dashboard_source
+    assert "容量配置指纹矩阵" not in dashboard_source
+    assert "详细图表方案（全部已计算方案）" in source
+    assert "_render_scenario_quick_select_buttons" in source
+    assert "_chart_overview_pending_detail_scenario" in source
+    assert "show_overview=False" in source
+    assert "show_hero=False" in source
 
 
 def test_chart_html_zip_contains_html_and_meta_files():

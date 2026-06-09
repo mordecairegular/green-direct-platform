@@ -11,7 +11,11 @@ from green_direct.visualization.single_scenario_charts import (
     build_policy_bar_chart,
     build_soc_chart,
 )
-from green_direct.visualization.chart_ui import _render_policy_radar, _representative_from_recommendation_portfolio
+from green_direct.visualization.chart_ui import (
+    _render_energy_flow,
+    _render_policy_radar,
+    _representative_from_recommendation_portfolio,
+)
 
 
 def _hourly(hours=8760):
@@ -149,6 +153,72 @@ def test_chart_representative_scenarios_follow_recommendation_portfolio():
     assert [item["scenario_id"] for item in representative] == ["S0002", "S0001"]
     assert representative[0]["labels"] == ["电源侧 FIRR 最优", "工程代表方案"]
     assert "正式推荐组合" in representative[0]["reason"]
+
+
+def test_energy_flow_sankey_uses_readable_text_style():
+    class FakeColumn:
+        def __init__(self, owner):
+            self.owner = owner
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def plotly_chart(self, fig, use_container_width=True):
+            self.owner.figures.append(fig)
+
+        def metric(self, *args, **kwargs):
+            return None
+
+        def caption(self, *args, **kwargs):
+            return None
+
+    class FakeStreamlit:
+        def __init__(self):
+            self.figures = []
+
+        def subheader(self, *args, **kwargs):
+            return None
+
+        def columns(self, spec):
+            return [FakeColumn(self), FakeColumn(self)]
+
+        def plotly_chart(self, fig, use_container_width=True):
+            self.figures.append(fig)
+
+        def metric(self, *args, **kwargs):
+            return None
+
+        def caption(self, *args, **kwargs):
+            return None
+
+    hourly = pd.DataFrame(
+        {
+            "pv_generation_power": [10.0, 12.0],
+            "wind_generation_power": [5.0, 6.0],
+        }
+    )
+    active_row = pd.Series(
+        {
+            "direct_self_use_energy": 12.0,
+            "bess_charge_energy": 3.0,
+            "grid_export_energy": 2.0,
+            "curtail_energy": 1.0,
+            "bess_discharge_to_load": 2.5,
+            "bess_loss_energy": 0.5,
+            "grid_import_energy": 8.0,
+        }
+    )
+    st = FakeStreamlit()
+
+    _render_energy_flow(st, hourly, active_row)
+
+    sankey_fig = next(fig for fig in st.figures if fig.data and fig.data[0].type == "sankey")
+    sankey = sankey_fig.data[0]
+    assert sankey.textfont.color == "#111827"
+    assert sankey.node.line.width == 0.4
 
 
 def test_missing_fields_returns_warning():

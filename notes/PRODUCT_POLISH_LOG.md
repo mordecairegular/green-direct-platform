@@ -2254,3 +2254,331 @@ exchange_import_shortfall_energy == 0
 
 - `python -m pytest tests/test_study_runner.py tests/test_ui_import.py`，18 项通过；
 - `python -m pytest tests/test_single_scenario.py tests/test_batch_runner.py tests/test_economy_v1.py tests/test_single_entity_economy.py tests/test_recommendation_v1.py tests/test_study_runner.py`，71 项通过。
+
+## 2026-06-04 UI 工作流拆页与输入曲线高优先级悬浮指标
+
+用户指出四个问题：导入曲线的关键基础指标缺失；侧栏模块入口尺寸不一致且折叠后找不到展开按钮；推荐与图表合在一个页面导致页面过长；年度能量流向 Sankey 文字像有描边、可读性差。
+
+本次判断：
+
+- 输入曲线的年总用电量、光伏年利用小时、风电年利用小时属于高优先级诊断信息，但不应常驻占用主表单空间；适合放在曲线状态卡右上角信息图标的 hover tooltip 中；
+- 推荐和图表应拆成两个模块：`方案推荐` 只解决推荐席位、理由、风险和明细复核；`图表概览` 只解决代表方案图表、完整图表分析和下载报告入口；
+- UI 展示指标只从当前已选列的 DataFrame 预览计算，不回写 `read_curve_set()`、`run_technical_study()`、`run_batch()` 或任何底层调度/经济性对象；
+- 侧栏折叠态应保留 48px 深蓝工具轨，避免 Streamlit 默认 collapsed control 被内部布局压成 0x0 后用户找不到展开入口。
+
+本次实现：
+
+- 工作流从 5 页调整为 6 页：`欢迎页 / 方案仿真 / 经济性测算 / 方案推荐 / 图表概览 / 图表下载和报告生成`；
+- 兼容旧别名：`方案推荐及图表概览`、`推荐方案与详细分析`、`方案推荐与图表概览` 继续跳转到新的 `方案推荐`；
+- 曲线状态卡新增 hover 信息图标：负荷显示年总用电量，光伏和风电显示年利用小时，并附有效点数和时间范围；
+- 侧栏模块按钮改为短标题、固定 `207px × 46px` 的同宽入口；折叠后保留 `48px` 侧边轨和可点击按钮，可重新展开；
+- `方案推荐` 页面移除图表概览和完整 `render_chart_analysis()`，新增 `进入图表概览` 入口；
+- 新增 `图表概览` 页面，复用正式推荐结果构造代表方案图表，完整图表分析仍放在高级折叠区；
+- Sankey 图展示层调整为显式深色字体、轻量节点边框和更淡连线，改善文字可读性，不改变能量流向数值。
+
+验证：
+
+- `python -m py_compile src/green_direct/ui/app.py src/green_direct/visualization/chart_ui.py` 通过；
+- `python -m pytest tests/test_ui_import.py tests/test_visualization_smoke.py tests/test_chart_data.py`，28 项通过；
+- 全量 `python -m pytest`，134 项通过；
+- in-app 浏览器验证：02 页 Demo 后三张曲线卡的 hover title 分别显示 `年总用电量：23,000 万kWh`、`光伏年利用小时：2,062 h`、`风电年利用小时：1,976 h`；
+- in-app 浏览器验证：侧栏展开态模块入口同宽同高，折叠态保留 48px 工具轨并可重新展开；
+- in-app 浏览器验证：04 页为 `方案推荐`，05 页为 `图表概览`，两页可独立点击且未出现 `workflow_page` 状态修改报错。
+
+## 2026-06-04 图表概览重构：方案组合对比优先，下载报告回到最后一页
+
+用户指出 02 页仍缺少可见的导入曲线关键指标，仿真页参数切页后会恢复默认值，顶部状态栏过度铺陈，05 图表概览页不应优先展示典型日曲线，也不应混入下载与报告区。
+
+本次判断：
+
+- 负荷电量、光伏利用小时、风电利用小时应放入深蓝侧栏的可见摘要框，而不是只藏在 hover tooltip；
+- Streamlit 跨页面切换会清理未渲染的 widget 状态，仿真页关键输入需要额外保存到非 widget 持久副本；
+- 图表概览的主视角应是推荐方案和用户指定方案的组合对比，典型日、能量流向和完整图表放入高级复核；
+- “低弃电”“低上网”容易误解，应在图表上直接显示真实 `curtail_rate` 和 `export_rate`。
+
+本次实现：
+
+- 侧栏新增“导入曲线”摘要框，显示 `负荷电量`（亿kWh）、`光伏利用小时`（h）、`风电利用小时`（h），只读取曲线预览，不回写计算链路；
+- 方案仿真页关键容量、政策、储能和列选择控件增加稳定 key，并通过 `__stored_value` 持久副本跨页面恢复；
+- 顶部项目状态栏改为更紧凑的流程状态灯，显示方案仿真、经济性测算、方案推荐、图表概览、下载报告的完成状态；
+- 05 图表概览页新增“方案组合选择”，支持从推荐方案和指定方案中自由组合；
+- 主图改为“多方案关键指标对比”，直接展示绿电占比、自发自用率、弃电率和上网比例；
+- 用“容量配置横向对比”替代首屏典型日曲线，典型日与完整图表分析保留在高级复核区；
+- 05 页移除下载报告 handoff，下载与报告仍集中在 06 页；
+- 高级图表模块中的多方案指标标签也从“低弃电 / 低上网”改为“弃电率 / 上网比例”。
+
+验证：
+
+- `python -m py_compile src/green_direct/ui/app.py src/green_direct/visualization/chart_ui.py` 通过；
+- `python -m pytest tests/test_ui_import.py tests/test_visualization_smoke.py tests/test_chart_data.py`，31 项通过；
+- 全量 `python -m pytest`，137 项通过；
+- 新增 AppTest 回归：`光伏容量结束` 设置为 `18.0`，切到 `经济性测算` 再返回 `方案仿真` 后仍为 `18.0`；
+- in-app 浏览器真实点击：欢迎页 -> 方案仿真 -> 一键生成 Demo 结果，侧栏出现负荷电量、光伏利用小时、风电利用小时，未出现 `workflow_page` 状态修改报错；
+- in-app 浏览器真实点击：经济性测算 -> 方案推荐 -> 图表概览，05 页出现“推荐方案 / 指定方案”组合选择、“多方案关键指标对比”和“容量配置横向对比”，未出现下载报告区或 `workflow_page` 状态修改报错。
+
+## 2026-06-04 价格曲线 V1 接入经济性与推荐排序
+
+用户提供 `samples/湖南省2025年110kV下网电价曲线_8760小时.csv`，并明确当前绿电直供结算价和上网电价可以先按全年固定值处理，优先把下网电价曲线接入经济性和推荐排序，以便同一主体、负荷侧等视角因自发自用发生时段不同而形成差异。
+
+本次判断：
+
+- 价格曲线只属于经济性评价和推荐排序层，不反向改变风光储逐小时技术调度、SOC、上网、弃电或政策指标；
+- 下网曲线优先按电费清单组价读取：电度电价、线损费、系统运行费、输配电价按含税处理，政府性基金及附加按不含增值税处理；
+- 若曲线缺少“绿电仍缴输配电价”和“绿电仍缴政府性基金及附加”列，默认这两项仍需缴纳，分别等于同小时输配电价和政府性基金及附加；如项目政策明确免缴，应在 retained 列显式填 0；
+- `下网电价合计` 仅作为用户复核列保留，当前不直接读取，避免把仍需缴纳的费用误算为节费；
+- 模板中的中文说明行不适合作为可上传 CSV 数据行，新增英文 UTF-8 模板和 README 总体字段对照表。
+
+本次实现：
+
+- 新增 `src/green_direct/economy/price_curves.py`，支持 CSV / Excel 读取、中文字段映射、8760 / 8784 校验、时间戳 / hour_index / 行序对齐和逐方案年度金额聚合；
+- `run_economic_study()` 增加可选 `price_curve`、`hourly_details` 和 `dt_hours`，曲线模式下先按每个 `scenario_id` 的逐小时台账聚合价格金额，再进入电源侧和同一主体年度现金流；
+- 电源侧经济性支持曲线聚合后的绿电结算收入和上网收入覆盖；同一主体税前经济性支持曲线聚合后的外部购电节费、少付电费现金额、环境价值和上网不含税收入覆盖；
+- 推荐引擎在曲线模式下读取逐场景负荷侧收益聚合列，负荷侧可成交收益不再只是统一固定价乘全年自发自用电量；
+- Streamlit 经济性页新增价格曲线 CSV / XLSX 上传入口，上传后保存 `price_mode` 和 `price_curve_summary`，固定价模式仍为默认路径；
+- 新增 `docs/templates/price_curves/price_curve_template_en.csv`，更新 `docs/templates/price_curves/README.md` 和 `docs/ECONOMY_RECOMMENDATION_V1_MAP.md`。
+
+### 2026-06-04 模板字段纠偏
+
+用户指出前一版模板把绿电结算价、上网电价、度电环境价值、增值税率、负荷侧可减少费用和同一主体外部购电净成本等网页端参数或派生结果也放进了价格曲线，输入边界过宽。
+
+修正口径：
+
+- 价格曲线 V1 模板只保留下网购电账单原始组分：`timestamp`、`hour_index`、`energy_market_price_with_vat`、`line_loss_price_with_vat`、`system_operation_fee_with_vat`、`transmission_distribution_tariff_with_vat`、`gov_fund_surcharge`；
+- 绿电结算价、上网电价、度电环境价值继续作为网页端全年固定参数，不从曲线文件读取；
+- 电网购电增值税率默认 13%，仍由网页端经济参数控制，不作为逐小时曲线字段；
+- 负荷侧可减少费用和同一主体税前净节费由程序根据下网账单组分、税口径和仍缴费用口径推导，不要求用户填写；
+- 正式推荐模板新增为 `docs/templates/price_curves/price_curve_template_down_grid.csv`；`README.md` 改为“推荐模板字段”和“不放入模板的字段”两张对照说明。
+
+### 2026-06-04 下网曲线计算方法审阅文档
+
+用户将正式模板调整为 `samples/price_curve_template_down_grid.csv`，字段包含下网账单价格组分以及 `month`、`peak_valley` 辅助复核列。
+
+更新内容：
+
+- 将用户模板同步到 `docs/templates/price_curves/price_curve_template_down_grid.csv` 作为文档副本；
+- 新增 `docs/PRICE_CURVE_ECONOMY_CALCULATION_METHOD.md`，逐项说明模板字段如何被读取、校验、对齐，以及如何推导同一主体税前净节费、负荷侧可减少购网费用、负荷侧年度收益和推荐排序字段；
+- 明确 `month` 和 `peak_valley` 当前只作复核/展示辅助列，不参与计算；
+- 修正对齐逻辑：若 `timestamp` 不匹配且显式 `hour_index` 不完整，不再直接报错，而是 warning 后按文件行序对齐；当前正式模板已填满 `hour_index`，会优先按 `hour_index` 对齐；
+- 待用户审阅确认的关键口径包括：输配电价和政府性基金及附加是否默认仍缴、系统运行费是否按下网电量缴纳、是否需要把尖峰平谷标签展示到 UI/报告。
+
+### 2026-06-04 价格曲线 UI 状态流纠偏
+
+用户指出：如果已经在“方案仿真”页上传电价曲线，“经济性测算”页不应再次要求选择曲线；相关固定价/组价操作应置灰，并在页面显著提示已有电价曲线。
+
+修正口径：
+
+- 电价曲线作为项目级输入，上传入口放在“方案仿真”页数据曲线区；
+- 上传后保存到 `project_price_curve_data` / `project_price_curve_meta`，经济性页自动使用该对象；
+- 经济性页不再提供电价曲线二次上传入口；
+- 已有项目级曲线时，外部购电净成本固定输入、电费清单组价开关和负荷侧可减少购网费用单独覆盖置灰，避免覆盖逐小时曲线推导结果；
+- 绿电结算价、上网电价和环境价值仍可编辑，因为它们当前不是下网曲线字段；
+- 更换项目级电价曲线或重新运行技术仿真时，清空旧经济性和推荐结果，防止旧结果与新输入混用。
+
+验证：
+
+- `python -m pytest tests/test_price_curves.py tests/test_study_runner.py tests/test_single_entity_economy.py tests/test_recommendation_v1.py`，22 项通过。
+
+## 2026-06-06 Product Design UI 审计与改造路线
+
+本轮按 Product Design 审计方式，只读运行当前 Streamlit 应用，目标是全面复核各页面模块、交互流程、图表/导出体验，并产出不触碰底层计算逻辑的 UI 改造路线。
+
+本轮判断：
+- 当前六页工作流方向正确：欢迎页、方案仿真、经济性测算、方案推荐、图表概览、图表下载和报告生成已经比早期全量枚举表入口更接近“绿电直连 / 微电网方案策划工作台”；
+- 主要问题不是单纯视觉美化，而是任务分层仍需收口：经济性测算页参数过长且主 CTA 不在首屏，推荐页理由和风险需要更清晰，图表页应继续强化“复核”而不是重复推荐，导出页应产品化为交付中心；
+- 图表页完成态已经围绕推荐组合和用户指定方案，不再默认围绕全量枚举表，方向符合当前产品原则；
+- 窄屏布局存在严重遮挡，左侧导航覆盖主内容，后续 UI 改造应把响应式问题列为 P0；
+- 当前 `src/green_direct/ui/app.py` 同时承载全局 CSS、工作流状态、页面渲染、经济性入口、推荐卡片、图表概览和导出动作，后续应逐步抽出 UI state、status、cards、pages 组件，但不应在一次改造中大迁移；
+- `src/green_direct/visualization/chart_ui.py` 自带图表 CSS 和图表分析入口，后续需要和主工作台 token/卡片/状态规范对齐。
+
+本轮交付：
+- 新增审计目录 `docs/ui/audit-20260606-product-design/`；
+- 新增 `FLOW_CAPTURE_NOTES.md`，记录欢迎页 -> 方案仿真 Demo -> 经济性测算 V1 -> 方案推荐 -> 图表概览 -> 下载报告主流程截图与证据限制；
+- 新增 `UI_AUDIT_REPORT.md`，按页面列出 UX、信息架构、视觉层级、可访问性、图表表达、空状态/错误状态和导出体验问题；
+- 新增 `UI_REDESIGN_ROADMAP.md`，把改造拆成工作台外壳、输入诊断、经济任务台、推荐决策页、图表复核页、交付中心和组件抽取阶段；
+- 新增 `docs/ui/prototype-dashboard.html` 静态原型，只使用 mock 数据验证目标布局和交互节奏，不接入正式计算链路。
+
+验证：
+- 只读启动当前 Streamlit 应用，使用本地 Chromium/Playwright fallback 截图验证主流程；
+- Demo 结果生成后，方案池为 27 个方案、22 个达标；
+- 经济性 V1 计算完成后，推荐页、图表页和导出页进入可查看状态；
+- 未运行全量 pytest，因为本轮只新增审计文档和独立静态原型，未修改正式代码。
+
+### 2026-06-06 欢迎页定位修正：从欢迎页改为项目启动台
+
+用户反馈 `prototype-dashboard.html` 只展示 04-06，缺少 01-03，并追问欢迎页本身是否有存在意义。
+
+本轮判断：
+- 对工程测算 / 方案策划平台来说，单纯“欢迎页”价值较低，容易变成说明文字和推荐使用路径；
+- 首页可以保留，但不应叫“欢迎页”，更适合定位为“项目启动台”或“项目总览”；
+- 项目启动台应回答三个问题：当前项目是否准备好、下一步最短路径是什么、已有结果是否可信可交付；
+- 首页应展示项目上下文、输入曲线状态、候选方案池、推荐/经济/导出可用状态、默认报告方案、缺失项和项目边界，而不是重复介绍产品功能；
+- 若未来有项目管理、历史项目、模板、权限或保存功能，启动台还可承接“新建项目 / 导入项目包 / 继续上次研究”。
+
+本轮实现：
+- 重写 `docs/ui/prototype-dashboard.html` 为完整六页原型：`01 项目启动 / 02 方案仿真 / 03 经济测算 / 04 方案推荐 / 05 图表复核 / 06 交付导出`；
+- 01 页改为项目启动台，展示输入准备、候选方案池、推荐状态、交付准备、下一步建议和项目边界；
+- 02 页补输入诊断、候选方案池、政策与电网约束；
+- 03 页补核心经济参数、价格输入、结果回馈、Year 0 建设投资和待复核项；
+- 04-06 保留上一版推荐、图表复核和交付导出结构。
+
+验证：
+- 使用本地 Chromium 打开 `docs/ui/prototype-dashboard.html`，逐页验证 01-06 均可切换；
+- 新增原型截图 `33-prototype-01-launch.png` 至 `38-prototype-06-exports.png`。
+
+### 2026-06-06 正式 Streamlit 第一轮落地：01 项目启动台 + 03 经济执行区
+
+用户认可新版 `prototype-dashboard.html` 的整体方向，同时强调 02 方案仿真和 03 经济性计算有大量输入参数，正式映射到底层代码时不能把已有功能搞没。
+
+本轮判断：
+- 01 可以先正式落地为项目启动台，因为它主要读取现有 session/result 状态，不涉及底层计算；
+- 02/03 暂不大改参数表单。方案仿真页保留全部上传、列识别、容量范围、政策、SOC、效率和寿命控件，只增加任务边界提示；
+- 经济页可以先增加首屏执行/结果概览，但原经济参数工作台完整保留；
+- 新增顶部经济计算按钮必须复用原 `run_economic_study()` 分支，不能复制一套新计算逻辑；
+- 方案推荐和图表复核 UI 可在小范围试用后继续局部调整，本轮不扩大重构面。
+
+本轮实现：
+- `WORKFLOW_PAGE_META["欢迎页"]` 的用户展示改为 `项目启动台 / 项目启动`，内部 page key 仍保留 `欢迎页`，并新增 `项目启动` / `项目启动台` 旧状态兼容别名；
+- `_render_welcome_page()` 改为项目启动台，展示输入准备、候选方案池、推荐状态、交付准备、下一步建议和项目边界；
+- 02 方案仿真页新增任务边界 callout，明确外层三栏只负责组织，不改变技术仿真、储能调度或参数 key；
+- 03 经济性测算页新增 `_render_economy_task_overview()`，首屏显示技术结果、经济执行状态、结果回馈，并提供顶部 `计算经济性 V1` 按钮；
+- 顶部 `run_economy_v1_top` 和原底部 `run_economy_v1_all` 共用同一段经济计算逻辑；
+- 新增 `docs/ui/UI_IMPLEMENTATION_MAPPING_20260606.md`，记录原型区块到正式 UI/结果对象/底层函数的映射和后续护栏。
+
+验证：
+- `python -m py_compile src/green_direct/ui/app.py` 通过；
+- `python -m pytest tests/test_ui_import.py`：22 项通过；
+- `python -m pytest tests/test_visualization_smoke.py tests/test_chart_data.py`：11 项通过；
+- 浏览器验证 01 项目启动台、02 方案仿真边界提示、03 Demo 后经济执行区正常渲染；
+- 浏览器点击 03 顶部 `计算经济性 V1` 后，经济计算完成，推荐和图表状态变为可查看。
+
+### 2026-06-08 UI 映射自查：批量电价曲线与图表复核结构
+
+用户反馈批量导入中的电价曲线不能识别，并追问经济性参数区是否忘记了电价曲线导入入口；同时指出图表概览中关键指标与政策底线关系不清、容量配置柱状图表达一般、典型日/能量流向不应藏在高级折叠区。
+
+本轮判断：
+- 既定口径仍是下网电价曲线作为项目级输入在“方案仿真”页上传，经济性页自动使用，不在经济性页二次上传；
+- 现有 UI 的问题不是底层计算未接入，而是批量上传入口只识别负荷、光伏、风电，导致用户把电价曲线一起上传时被提示未识别；
+- 经济性页需要更清楚展示“当前价格来源”和“曲线对齐诊断”，否则用户难以判断曲线是否真的参与后续计算；
+- 图表概览不应只用普通柱状图展示关键指标，应直接表达政策底线余量/缺口；
+- 容量配置不适合继续用混单位横向柱状图作为主表达，更适合用容量指纹矩阵；
+- 典型日、能量流向和经济性复核属于图表模块核心，不应默认藏在高级折叠区；
+- 嵌入的完整图表复核不应再重复一套“方案总览”和方案选择，应尽量复用图表概览页的方案组合。
+
+本轮实现：
+- `src/green_direct/ui/app.py` 的批量上传入口改为“批量上传项目曲线文件”，可同时识别三条技术 CSV 和一条项目级下网电价曲线 CSV/XLSX/XLSM；
+- 技术曲线仍只纳入负荷、光伏、风电 CSV，不支持的技术曲线文件类型只做 UI 提示，不进入技术仿真；
+- 批量识别到的下网电价曲线保存到 `project_price_curve_data` / `project_price_curve_meta`，经济性页继续只读自动使用；
+- `economy_v1_result` 保存 `price_curve_diagnostics`，经济性页展示“价格曲线对齐诊断”；
+- 图表概览主图改为“政策底线余量矩阵”和“容量配置指纹矩阵”；
+- `render_chart_analysis()` 增加外部方案组合和当前方案参数，图表概览页不再把详细图表复核放进高级折叠区，且嵌入时不重复展示“方案总览”页签；
+- 新增 `docs/ui/UI_MAPPING_SELF_AUDIT_20260608.md`，记录本次自查、已改项和后续计划；
+- 更新 `docs/ui/UI_IMPLEMENTATION_MAPPING_20260606.md`，补充 2026-06-08 的映射变化。
+
+验证：
+- `python -m py_compile src/green_direct/ui/app.py src/green_direct/visualization/chart_ui.py` 通过；
+- `python -m pytest tests/test_ui_import.py tests/test_price_curves.py tests/test_study_runner.py`：36 项通过；
+- `python -m pytest tests/test_ui_import.py tests/test_visualization_smoke.py tests/test_chart_data.py`：36 项通过。
+- 本地浏览器验收走通 Demo 方案仿真、经济性 V1、图表概览；图表页可见“政策底线余量矩阵”“容量配置指纹矩阵”和“详细图表方案”，截图见 `docs/ui/audit-20260606-product-design/screenshots/49-streamlit-20260608-chart-overview-waited.png`。
+
+后续计划：
+- 将价格曲线来源、识别字段、对齐模式写入简版报告和图表包 meta；
+- 在经济性页增加“价格来源分解”卡片，明确曲线提供下网账单组分，网页仍提供绿电结算价、上网电价、环境价值和税率；
+- 继续收敛 `chart_ui.py` 内部 selector，长期让图表模块只有一套方案选择状态；
+- 浏览器验收批量上传三条技术曲线和一条下网电价曲线的完整经济性流程。
+
+### 2026-06-08 图表概览细节修正：弃电率、容量结构和详细方案选择
+
+用户继续反馈图表概览细节：
+- 政策底线余量矩阵应把弃电率放上去；
+- “容量配置指纹矩阵”命名奇怪，且色带最高值过深；
+- 嵌入详细图表区的“图表分析：方案图谱”“当前图表”等标题与页面不匹配；
+- 详细图表方案切换不够明显，且只看方案编号无法判断具体风光储配置；
+- 默认应看推荐的几个方案，但其他任一已计算方案也要能选。
+
+本轮判断：
+- 弃电率应进入主矩阵，但当前 `PolicyParams` 没有弃电率上限输入，因此不伪造政策红线，按“低优运行指标”展示；
+- 容量主图更适合叫“容量配置结构矩阵”，而不是“指纹矩阵”；
+- 详细图表复核应作为图表页的内生区域，不应再显示旧独立组件的 hero 标题；
+- 方案选择要分成两个层级：上方推荐/加入方案用于组合对比；下方“详细图表方案”可从全部已计算方案中选择。
+
+本轮实现：
+- 政策底线矩阵新增 `curtail_rate` 弃电率列；
+- 容量矩阵标题改为“容量配置结构矩阵”，色带改为更柔和的浅蓝区间；
+- 图表页方案组合选择和详细方案选择下方都展示 `scenario_id` 与光伏、风电、储能功率/容量文字；
+- “详细图表方案”改为从全部已计算方案中选择，默认仍取推荐组合第一项；
+- 嵌入 `render_chart_analysis()` 时关闭旧 hero，当前方案条改为“当前复核方案”。
+
+验证：
+- `python -m py_compile src/green_direct/ui/app.py src/green_direct/visualization/chart_ui.py` 通过；
+- `python -m pytest tests/test_ui_import.py tests/test_visualization_smoke.py tests/test_chart_data.py`：36 项通过。
+- 完整相关测试 `python -m pytest tests/test_ui_import.py tests/test_price_curves.py tests/test_study_runner.py tests/test_visualization_smoke.py tests/test_chart_data.py`：47 项通过；
+- 本地浏览器验收 Demo → 经济性 V1 → 图表概览通过，确认弃电率列、容量配置结构矩阵、全部方案详细下拉和旧 hero 移除；截图见 `docs/ui/audit-20260606-product-design/screenshots/51-streamlit-20260608-chart-overview-tuned.png`。
+
+### 2026-06-08 指定单方案仿真与图表方案按钮切换
+
+用户继续反馈：
+- 02 方案仿真缺少“指定某个特定风光储配置计算”的入口；
+- 数据曲线区和其他参数区不必等宽，导入曲线区可以更紧凑；
+- 05 图表概览里的推荐方案卡片看起来能点，但实际不能切换详细图表，只能用下拉框；
+- 绿电接入前后的负荷到户综合单价、绿电占比、绿电结算价格、下网加权平均电价、下网比例等指标很重要，但绿电后综合到户价涉及经济口径，不能未经确认直接写死；
+- 遍历计算偏慢，后续需要评估并行、剪枝和结果存储。
+
+本轮判断：
+- 指定单方案不应新建第二套计算器，而应作为“候选方案池”的另一种输入方式，将指定风光储容量转成只含 1 个候选的 `scenario_grid`，继续走 `run_technical_study()` / `run_batch()` / `run_single_scenario()` 原链路；
+- 该改动不改变储能调度、政策指标、经济计算或推荐排序口径；
+- 图表方案卡片必须是 Streamlit 原生按钮，而不是不可点击 HTML；按钮点击不能直接修改已经实例化的 selectbox key，需写入 pending key 并在下一次渲染前同步；
+- “绿电前后综合到户价”需要先确认展示口径：尤其是固定价模式下使用哪个下网到户价近似，以及绿电后是否按含税现金口径把自发自用绿电结算价和仍缴费用纳入分子。
+
+本轮实现：
+- 02 方案仿真页的候选方案池新增 `容量范围遍历 / 指定单方案` 单选模式；
+- 指定单方案模式新增光伏容量、风电容量、储能功率、储能容量 4 个输入，自动推导储能时长 `bess_energy / bess_power`；
+- 指定单方案校验：至少需要光伏或风电容量；储能功率为 0 时储能容量必须为 0；储能功率大于 0 时储能容量也必须大于 0；
+- 数据曲线、候选方案池、政策约束三栏宽度调整为 `[0.9, 1.22, 1.0]`，让导入曲线区更紧凑、候选方案池更宽；
+- Demo 技术曲线加载会忽略 samples 目录中的价格曲线模板，避免把 `price_curve_template_down_grid.csv` 提示为未知技术曲线；
+- 05 详细图表复核的方案卡片改为真实按钮，点击后通过 `_chart_overview_pending_detail_scenario` 同步到 `chart_overview_active_detail_scenario`，避免 Streamlit session_state 实例化后修改错误；
+- 新增浏览器验收截图 `docs/ui/audit-20260606-product-design/screenshots/streamlit-20260608-chart-button-s0027.png`。
+
+验证：
+- `python -m py_compile src/green_direct/ui/app.py` 通过；
+- `python -m pytest tests/test_ui_import.py tests/test_visualization_smoke.py tests/test_chart_data.py`：39 项通过；
+- 本地 Streamlit `http://localhost:8502` 验收：02 页切换到“指定单方案”后显示 4 个指定容量输入，当前表单方案数为 1，使用 Demo 曲线后可完成单方案技术仿真；
+- 本地 Streamlit 验收：一键 Demo 生成 27 个方案，经济性 V1 完成后进入 05，点击 S0027 方案按钮后，下拉框和“当前复核方案”均同步到 S0027，未再出现 `st.session_state... cannot be modified after the widget ... is instantiated` 错误。
+
+待用户确认：
+- 绿电前综合到户电价是否定义为 `sum(总负荷电量 * 下网到户含税现金价) / 总负荷电量`；
+- 绿电后综合到户电价是否定义为 `(下网电量 * 下网到户含税现金价 + 自发自用绿电量 * (绿电结算价含税 + 自发自用仍缴输配电/基金等费用)) / 总负荷电量`；
+- 固定价模式下，如果没有逐小时下网曲线，是否用当前“外部购电净成本单价/负荷侧可减少购网费用单价”近似绿电前下网到户价，还是需要新增一个明确的“固定下网到户综合电价”输入。
+
+后续性能计划：
+- P0：先通过“指定单方案”和更窄方案池减少不必要遍历；
+- P1：在 UI 中强化方案数预估和慢速提醒，避免用户无意生成上万组合；
+- P2：评估 `run_batch()` 的可选并行执行。建议先做显式开关或 `workers=auto` 参数，保持默认串行，确保输出顺序、错误表、progress callback 和内存占用可控后再启用；
+- P3：中长期引入结果存储/按需逐小时明细，避免每次页面切换都持有过多方案的 8760/8784 明细。
+
+### 2026-06-09 绿电前后到户综合价口径确认与 UI 落地
+
+用户确认绿电接入前后负荷到户综合电价口径：
+- 绿电前：有逐时下网电价时，按 `sum(逐时负荷电量 * 逐时下网到户含税价) / 总负荷电量`；无逐时下网电价时，使用用户提供的 `下网到户含税现金价`。
+- 绿电后：有逐时下网电价时，按 `(sum(逐时下网电量 * 逐时下网到户含税价) + 自发自用绿电量 * (绿电结算价含税 + 输配电价 + 政府基金及附加)) / 总负荷电量`；无逐时下网电价时，按 `(下网电量 * 下网到户含税价 + 自发自用绿电量 * (绿电结算价含税 + 输配电价 + 政府基金及附加)) / 总负荷电量`。
+
+本轮判断：
+- 该指标是负荷侧最关心的“接入绿电前后账单变化”展示口径，不等同于同一主体经济性中的 `net_avoided_grid_cost_price`，也不应复用“负荷侧可减少购网费用单价”近似。
+- 曲线模式必须在 `price_curves.py` 内按逐时台账聚合，不能在 UI 层用年度汇总近似；固定价模式可在服务层读取 `total_load_energy`、`grid_import_energy`、`self_use_energy` 计算。
+- 新增字段只作为经济汇总、推荐和图表展示字段，不改变技术调度、BESS 约束、FIRR 现金流主体公式或推荐排序核心口径。
+- 03/04/05 都应展示同一套字段：绿电前综合到户价、绿电后综合到户价、绿电占比、绿电结算价、绿电后绿电到户价、下网加权价、下网比例和价差。
+
+本轮实现：
+- `src/green_direct/economy/price_curves.py` 的逐时曲线派生结果新增 `down_grid_landed_price_with_vat`、`green_self_use_landed_price_with_vat`，并在逐方案价格汇总中新增绿电前后到户价、价差、下网加权价和相关电量字段。
+- `src/green_direct/services/study_runner.py` 新增固定价模式到户价汇总，并把同一组 `landed_price_summary` 合并进电源侧和同一主体经济性结果；曲线模式沿用逐时曲线汇总。
+- `src/green_direct/recommendation/recommendation_engine.py` 允许推荐组合携带到户价展示字段，便于推荐卡片直接展示。
+- `src/green_direct/ui/app.py` 的 03 经济性测算页新增“负荷到户电价展示口径”输入区：固定下网到户含税现金价、绿电后仍缴输配电价、绿电后仍缴政府基金及附加；03 结果区新增“负荷到户电价对比”卡片。
+- 04 方案推荐卡片新增绿电前/后到户价、绿电结算价、下网加权价和下网比例。
+- 05 图表概览页把经济汇总中的到户价字段合并到图表组合 summary，新增“方案组到户电价对比”卡片，并继续保留政策底线余量矩阵、容量配置结构矩阵和详细图表复核切换。
+- 浏览器验收截图保存到 `docs/ui/audit-20260606-product-design/screenshots/streamlit-20260609-chart-overview-landed-cards.png` 和 `docs/ui/audit-20260606-product-design/screenshots/streamlit-20260609-landed-price-chart-overview.png`。
+
+验证：
+- `python -m py_compile src\green_direct\economy\price_curves.py src\green_direct\services\study_runner.py src\green_direct\recommendation\recommendation_engine.py src\green_direct\ui\app.py` 通过。
+- `python -m pytest tests\test_price_curves.py tests\test_study_runner.py`：13 项通过。
+- `python -m pytest tests\test_ui_import.py tests\test_visualization_smoke.py tests\test_chart_data.py tests\test_price_curves.py tests\test_study_runner.py`：54 项通过。
+- `python -m pytest -q`：157 项通过。
+- 本地 Streamlit `http://localhost:8502` 浏览器验收：Demo 技术仿真完成，528 个方案 / 62 达标；03 经济性测算出现新增固定到户价输入并成功渲染“负荷到户电价对比”；04 推荐卡片展示到户价字段；05 图表概览展示方案组到户价卡片，且点击 S0162 方案按钮后详细图表切换正常。

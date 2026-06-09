@@ -141,7 +141,7 @@
 - 与电网交换功率限制；
 - 批量测算；
 - 汇总 Excel 和逐小时 CSV / ZIP 导出；
-- 五模块 Streamlit 工程工作台第一版；
+- 六模块 Streamlit 工程工作台第一版（推荐与图表已拆页）；
 - 图表模块初步实现；
 - pytest 测试基线。
 
@@ -327,7 +327,7 @@ git status --short
 
 ## 11. 当前交接摘要
 
-截至 2026-06-03：
+截至 2026-06-04：
 
 - 已完成 V0.1 风光储技术测算基线；
 - 已形成图表模块初步能力；
@@ -362,13 +362,14 @@ git status --short
 - 2026-05-27 已确认负荷侧默认席位改为 `负荷侧可成交收益最优`：新增基础参数 `电源侧最低可接受 FIRR`，默认 7%，字段建议 `min_power_side_acceptable_firr`。本席位先筛政策达标、负荷侧收益为正、电源侧 FIRR 可可靠计算且不低于最低可接受 FIRR，再按负荷侧年度综合用能收益排序。若用户清空最低 FIRR，则不对本席位排序并提示缺少可成交性约束。V1 暂不反算绿电结算价，只在用户给定价格条件下排序；
 - 2026-05-27 已实现推荐方案 V1 试用并补齐四个默认席位：`同一主体 FIRR 最优`、`电源侧 FIRR 最优`、`负荷侧可成交收益最优` 和可切换的 `工程代表方案`。页面经济性区域下方新增 `推荐方案 V1（试用）`；完成经济性评价后应同时构造四个席位，同一方案命中多个席位时合并标签，不应静默漏掉同一主体或电源侧 FIRR 席位。合并标签时必须同时保留各席位贡献的关键指标，不能出现命中负荷侧席位但负荷侧收益字段缺失的推荐表。推荐组合 Excel 包含推荐组合、电源侧经济性汇总、同一主体经济性汇总和负荷侧可成交收益明细；
 - 2026-05-28 已新增经济性评价与推荐 V1 导览文档 `docs/ECONOMY_RECOMMENDATION_V1_MAP.md`，用于给第一次接触项目的人说明参数、含义、代码入口、推荐席位和计算方式；
-- 2026-05-28 已新增价格曲线模板草案 `docs/templates/price_curves/price_curve_template.csv` 和说明 `docs/templates/price_curves/README.md`。当前只作为字段评审草案，尚未接入读取和计算；
+- 2026-06-04 已接入价格曲线 V1：`src/green_direct/economy/price_curves.py` 支持 CSV / Excel 读取、中文字段映射、8760 / 8784 校验、时间戳 / hour_index / 行序对齐和逐方案年度金额聚合；`run_economic_study()` 可选接收 `price_curve` 与 `hourly_details`，曲线模式只影响经济性和推荐排序，不改变技术调度。价格曲线 V1 只作为下网购电账单原始组分曲线，推荐模板为 `samples/price_curve_template_down_grid.csv`，文档副本为 `docs/templates/price_curves/price_curve_template_down_grid.csv`，字段包括 `timestamp`、`hour_index`、电度/市场购电价、线损费、系统运行费、输配电价、政府性基金及附加，以及当前不参与计算的 `month`、`peak_valley` 辅助列；绿电结算价、上网电价、度电环境价值、增值税率、负荷侧可减少费用和同一主体税前净节费不放入模板，继续由网页固定参数或内部公式得到。政府性基金及附加按不含税处理，其他下网电价组分按含税处理；计算方法审阅文档见 `docs/PRICE_CURVE_ECONOMY_CALCULATION_METHOD.md`。UI 口径：电价曲线在“方案仿真”页上传为项目级输入，保存到 `project_price_curve_data` / `project_price_curve_meta`；“经济性测算”页自动使用，不再二次上传，且已有曲线时置灰外部购电净成本固定输入、电费清单组价开关和负荷侧单独覆盖。更换曲线或重跑技术仿真会清空旧经济性/推荐结果；测试见 `tests/test_price_curves.py`、`tests/test_study_runner.py` 和 `tests/test_ui_import.py`；
 - 2026-05-28 已调整推荐默认口径：工程代表方案默认改为 `政策达标最小投资`；同一主体席位保留 FIRR 默认视角，并支持切换为 `同一主体动态回收期最短`；固定价模式默认减少用户输入，由外部购电净成本口径内部派生负荷侧筛选价，需要精确区分时再使用高级覆盖或电费清单组价；
-- 2026-06-01 已在 Streamlit 继续落地五阶段工作流：`欢迎页`、`方案仿真`、`经济性测算`、`方案推荐及图表概览`、`图表下载和报告生成`。保留旧页面名到新页面名的兼容映射，避免旧会话状态导致页面进入异常；方案仿真页不再继续渲染经济性和图表；经济性测算页计算成功后保存 `recommendation_v1_inputs`；推荐图表页集中展示推荐组合和图表分析；下载报告页集中导出方案汇总、逐小时明细、图表 HTML ZIP、技术+经济汇总和简版 Markdown 报告；
-- 2026-06-02 已把 Streamlit UI 深度改造成工程软件工作台第一版：左侧深蓝固定导航，顶部轻量项目状态条，主区按五模块组织。方案仿真页把曲线数据、候选方案池、政策约束和专业参数放在主工作区；经济性测算页保留完整参数但分层收纳；推荐页先展示代表方案卡片和图表概览；所有下载按钮集中到“图表下载和报告生成”页。按钮跳转继续使用 `_workflow_page_target` pending 状态，仿真和经济计算完成后用 `st.rerun()` 刷新顶部状态条；推荐图表页已优先消费正式 `RecommendationPortfolio`，下载页图表 HTML ZIP 的多方案对比范围收窄为“推荐组合 + 当前报告方案”；Demo 候选范围为 27 个小方案，浏览器验证显示 15 个达标方案，未再出现 `workflow_page` widget key 报错；
+- 2026-06-01 已在 Streamlit 继续落地工作流：`欢迎页`、`方案仿真`、`经济性测算`、`方案推荐及图表概览`、`图表下载和报告生成`。保留旧页面名到新页面名的兼容映射，避免旧会话状态导致页面进入异常；方案仿真页不再继续渲染经济性和图表；经济性测算页计算成功后保存 `recommendation_v1_inputs`；推荐图表页集中展示推荐组合和图表分析；下载报告页集中导出方案汇总、逐小时明细、图表 HTML ZIP、技术+经济汇总和简版 Markdown 报告；
+- 2026-06-02 已把 Streamlit UI 深度改造成工程软件工作台第一版：左侧深蓝固定导航，顶部轻量项目状态条，主区按模块组织。方案仿真页把曲线数据、候选方案池、政策约束和专业参数放在主工作区；经济性测算页保留完整参数但分层收纳；推荐页先展示代表方案卡片和图表概览；所有下载按钮集中到“图表下载和报告生成”页。按钮跳转继续使用 `_workflow_page_target` pending 状态，仿真和经济计算完成后用 `st.rerun()` 刷新顶部状态条；推荐图表页已优先消费正式 `RecommendationPortfolio`，下载页图表 HTML ZIP 的多方案对比范围收窄为“推荐组合 + 当前报告方案”；Demo 候选范围为 27 个小方案，浏览器验证显示 15 个达标方案，未再出现 `workflow_page` widget key 报错；
 - 2026-06-03 已把静态推荐样板页映射进一步接入正式 Streamlit 推荐图表页：`docs/ui/recommendation_dashboard_sample.html` 仍只作为视觉参考，mock 数据只允许留在 `docs/ui/`；正式推荐页卡片读取 `RecommendationPortfolio` 和技术/经济真实字段，新增排序标识、上网比例、无候选/待排序状态区分；顶部状态条从 `hourly_details.timestamp` 推导数据时间范围；推荐页底部新增下载报告入口和状态提示，默认报告方案优先取推荐组合有效 `scenario_id`，真实 CSV/Excel/HTML ZIP/Markdown 下载仍集中到“图表下载和报告生成”页；浏览器验证已走通欢迎页、Demo 仿真、经济性测算、推荐页、运行时序典型日和下载页；
 - 2026-05-28 已新增第一层服务抽象 `src/green_direct/services/study_runner.py`：`run_economic_study()` 统一执行电源侧和同一主体经济性，`build_recommendation_study()` 统一构造推荐组合，`RecommendationInputSnapshot` 保存推荐所需的价格和门槛输入；
 - 2026-06-04 已继续抽出技术研究服务入口：`TechnicalStudyInput`、`TechnicalStudyResult`、`StudyResult` 和 `run_technical_study()` 已落地；Streamlit 方案仿真页的 Demo 和正式测算不再直接调用 `read_curve_set()` / `run_batch()`，而是触发服务层。当前 UI 仍兼容写入 `batch_result`，同时新增 `study_result` 作为后续迁移入口；
+- 2026-06-04 已把 Streamlit 主工作流调整为六模块：`欢迎页`、`方案仿真`、`经济性测算`、`方案推荐`、`图表概览`、`图表下载和报告生成`。旧 `方案推荐及图表概览` 会话状态映射到 `方案推荐`；02 页曲线卡 hover 显示负荷年总用电量、光伏/风电年利用小时；侧栏折叠态保留 48px 深蓝工具轨；Sankey 文字样式仅做展示层修正，不改变能源流向计算；
 - 2026-06-01 已把四季典型日从固定月份中位日改为季节中心日法：按春 3-5 月、夏 6-8 月、秋 9-11 月、冬 12/1/2 月的完整 24 小时日期，使用负荷、风光、储能、电网、弃电、SOC 等逐小时字段标准化后选离季节平均曲线最近的真实日期；图表标题和说明标注 `MM/DD`；
 - 2026-05-25 已新增独立方案遍历试用程序入口：`src/green_direct/services/batch_trial_runner.py`、`src/green_direct/ui/batch_trial_gui.py`、`packaging/pyinstaller/run_batch_trial_tool.py`、`GreenDirectBatchTrial.spec` 和 `scripts/build_batch_trial_exe.ps1`。该入口只包装三条 CSV 读取、风光储容量枚举、逐小时技术仿真、方案概览 Excel 和全部方案逐小时详表 ZIP，不代表长期主产品要回到全量枚举表优先；配套说明见 `docs/BATCH_TRIAL_TOOL_USER_GUIDE.md` 和 `docs/BATCH_TRIAL_DISPATCH_AND_CALCULATION.md`；
 - 下一步建议继续把推荐页、导出页和图表模块从兼容层 `batch_result` 逐步迁移到 `StudyResult` 读取；再补轻量 `ResultStore`，完善 `recommendation/` 模块的数据模型和导出契约，并为典型日选择、图表包和报告输出补充更细的审计数据。

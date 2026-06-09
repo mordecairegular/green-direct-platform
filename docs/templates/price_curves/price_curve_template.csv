@@ -1,4 +1,0 @@
-timestamp,hour_index,green_power_settlement_price_with_vat,grid_export_price_with_vat,load_side_avoided_charge_price,net_avoided_grid_cost_price,energy_market_price_with_vat,line_loss_price_with_vat,system_operation_fee_with_vat,transmission_distribution_tariff_with_vat,gov_fund_surcharge,green_direct_retained_transmission_distribution_tariff_with_vat,green_direct_retained_gov_fund_surcharge,grid_purchase_vat_rate,environmental_value_per_kwh,note
-2026-01-01 00:00,0,0.40,0.25,0.50,0.50,,,,,,,,0.13,0.00,示例：固定价曲线首小时
-2026-01-01 01:00,1,0.40,0.25,0.50,0.50,,,,,,,,0.13,0.00,示例：可向下填充到8760或8784行
-2026-01-01 02:00,2,0.40,0.25,0.50,0.50,,,,,,,,0.13,0.00,示例：若使用电费清单组价，可留空load_side/net两列并填写后续账单组价列

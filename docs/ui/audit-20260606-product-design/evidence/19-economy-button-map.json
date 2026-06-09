@@ -1,0 +1,468 @@
+{
+  "scrollHeight": 1100,
+  "bodyScrollHeight": 0,
+  "viewportHeight": 1100,
+  "buttons": [
+    {
+      "i": 0,
+      "text": "keyboard_double_arrow_left",
+      "x": 187,
+      "y": 16,
+      "width": 28,
+      "height": 28,
+      "disabled": false
+    },
+    {
+      "i": 1,
+      "text": "01 欢迎页",
+      "x": 30,
+      "y": 189.1875,
+      "width": 187,
+      "height": 46,
+      "disabled": false
+    },
+    {
+      "i": 2,
+      "text": "01  欢迎页",
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "disabled": false
+    },
+    {
+      "i": 3,
+      "text": "02 方案仿真",
+      "x": 30,
+      "y": 251.1875,
+      "width": 187,
+      "height": 46,
+      "disabled": false
+    },
+    {
+      "i": 4,
+      "text": "02  方案仿真",
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "disabled": false
+    },
+    {
+      "i": 5,
+      "text": "04 方案推荐",
+      "x": 30,
+      "y": 365.1875,
+      "width": 187,
+      "height": 46,
+      "disabled": false
+    },
+    {
+      "i": 6,
+      "text": "04  方案推荐",
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "disabled": false
+    },
+    {
+      "i": 7,
+      "text": "05 图表概览",
+      "x": 30,
+      "y": 427.1875,
+      "width": 187,
+      "height": 46,
+      "disabled": false
+    },
+    {
+      "i": 8,
+      "text": "05  图表概览",
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "disabled": false
+    },
+    {
+      "i": 9,
+      "text": "06 下载报告",
+      "x": 30,
+      "y": 489.1875,
+      "width": 187,
+      "height": 46,
+      "disabled": false
+    },
+    {
+      "i": 10,
+      "text": "06  下载报告",
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "disabled": false
+    },
+    {
+      "i": 11,
+      "text": "Deploy",
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "disabled": false
+    },
+    {
+      "i": 12,
+      "text": "",
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "disabled": false
+    },
+    {
+      "i": 13,
+      "text": "",
+      "x": 582.53125,
+      "y": 403.5625,
+      "width": 32,
+      "height": 38,
+      "disabled": false
+    },
+    {
+      "i": 14,
+      "text": "",
+      "x": 614.53125,
+      "y": 403.5625,
+      "width": 32,
+      "height": 38,
+      "disabled": false
+    },
+    {
+      "i": 15,
+      "text": "",
+      "x": 1385.40625,
+      "y": 378.5625,
+      "width": 16,
+      "height": 16,
+      "disabled": false
+    },
+    {
+      "i": 16,
+      "text": "",
+      "x": 820,
+      "y": 508.5625,
+      "width": 16,
+      "height": 16,
+      "disabled": false
+    },
+    {
+      "i": 17,
+      "text": "",
+      "x": 820,
+      "y": 1034.546875,
+      "width": 16,
+      "height": 16,
+      "disabled": false
+    },
+    {
+      "i": 18,
+      "text": "",
+      "x": 1102.703125,
+      "y": 1034.546875,
+      "width": 16,
+      "height": 16,
+      "disabled": false
+    },
+    {
+      "i": 19,
+      "text": "",
+      "x": 1268.453125,
+      "y": 1288.9375,
+      "width": 22.390625,
+      "height": 22.390625,
+      "disabled": false
+    },
+    {
+      "i": 20,
+      "text": "",
+      "x": 1290.84375,
+      "y": 1288.9375,
+      "width": 22.390625,
+      "height": 22.390625,
+      "disabled": false
+    },
+    {
+      "i": 21,
+      "text": "",
+      "x": 1313.234375,
+      "y": 1288.9375,
+      "width": 22.390625,
+      "height": 22.390625,
+      "disabled": false
+    },
+    {
+      "i": 22,
+      "text": "",
+      "x": 1335.625,
+      "y": 1288.9375,
+      "width": 22.390625,
+      "height": 22.390625,
+      "disabled": false
+    },
+    {
+      "i": 23,
+      "text": "",
+      "x": 1358.015625,
+      "y": 1288.9375,
+      "width": 22.390625,
+      "height": 22.390625,
+      "disabled": false
+    },
+    {
+      "i": 24,
+      "text": "",
+      "x": 749.59375,
+      "y": 1367.34375,
+      "width": 16,
+      "height": 16,
+      "disabled": false
+    },
+    {
+      "i": 25,
+      "text": "",
+      "x": 605.59375,
+      "y": 1407.34375,
+      "width": 16,
+      "height": 16,
+      "disabled": false
+    },
+    {
+      "i": 26,
+      "text": "计算经济性 V1（当前已实现视角）",
+      "x": 269.59375,
+      "y": 1380.34375,
+      "width": 269.40625,
+      "height": 38,
+      "disabled": false
+    }
+  ],
+  "inputs": [
+    {
+      "i": 0,
+      "value": "25",
+      "placeholder": "",
+      "x": 287.59375,
+      "y": 403.375,
+      "width": 294.9375,
+      "height": 38.390625
+    },
+    {
+      "i": 1,
+      "value": "6",
+      "placeholder": "",
+      "x": 664.53125,
+      "y": 403.5625,
+      "width": 358.9375,
+      "height": 38
+    },
+    {
+      "i": 2,
+      "value": "7",
+      "placeholder": "",
+      "x": 1041.46875,
+      "y": 403.5625,
+      "width": 358.9375,
+      "height": 38
+    },
+    {
+      "i": 3,
+      "value": "4500",
+      "placeholder": "",
+      "x": 287.59375,
+      "y": 533.5625,
+      "width": 264.703125,
+      "height": 38
+    },
+    {
+      "i": 4,
+      "value": "2500",
+      "placeholder": "",
+      "x": 570.296875,
+      "y": 533.5625,
+      "width": 264.703125,
+      "height": 38
+    },
+    {
+      "i": 5,
+      "value": "900",
+      "placeholder": "",
+      "x": 853,
+      "y": 533.5625,
+      "width": 264.703125,
+      "height": 38
+    },
+    {
+      "i": 6,
+      "value": "0",
+      "placeholder": "",
+      "x": 1135.703125,
+      "y": 533.5625,
+      "width": 264.703125,
+      "height": 38
+    },
+    {
+      "i": 7,
+      "value": "0",
+      "placeholder": "",
+      "x": 287.59375,
+      "y": 617.5625,
+      "width": 547.40625,
+      "height": 38
+    },
+    {
+      "i": 8,
+      "value": "10",
+      "placeholder": "",
+      "x": 853,
+      "y": 617.5625,
+      "width": 547.40625,
+      "height": 38
+    },
+    {
+      "i": 9,
+      "value": "50",
+      "placeholder": "",
+      "x": 287.59375,
+      "y": 754.359375,
+      "width": 264.703125,
+      "height": 38
+    },
+    {
+      "i": 10,
+      "value": "25",
+      "placeholder": "",
+      "x": 570.296875,
+      "y": 754.359375,
+      "width": 264.703125,
+      "height": 38
+    },
+    {
+      "i": 11,
+      "value": "18",
+      "placeholder": "",
+      "x": 853,
+      "y": 754.359375,
+      "width": 264.703125,
+      "height": 38
+    },
+    {
+      "i": 12,
+      "value": "0",
+      "placeholder": "",
+      "x": 1135.703125,
+      "y": 754.359375,
+      "width": 264.703125,
+      "height": 38
+    },
+    {
+      "i": 13,
+      "value": "50",
+      "placeholder": "",
+      "x": 287.59375,
+      "y": 922.75,
+      "width": 547.40625,
+      "height": 38
+    },
+    {
+      "i": 14,
+      "value": "13",
+      "placeholder": "",
+      "x": 853,
+      "y": 922.75,
+      "width": 547.40625,
+      "height": 38
+    },
+    {
+      "i": 15,
+      "value": "0.25",
+      "placeholder": "",
+      "x": 287.59375,
+      "y": 1059.546875,
+      "width": 264.703125,
+      "height": 38
+    },
+    {
+      "i": 16,
+      "value": "0.4",
+      "placeholder": "",
+      "x": 570.296875,
+      "y": 1059.546875,
+      "width": 264.703125,
+      "height": 38
+    },
+    {
+      "i": 17,
+      "value": "0.5",
+      "placeholder": "",
+      "x": 853,
+      "y": 1059.546875,
+      "width": 264.703125,
+      "height": 38
+    },
+    {
+      "i": 18,
+      "value": "0",
+      "placeholder": "",
+      "x": 1135.703125,
+      "y": 1059.546875,
+      "width": 264.703125,
+      "height": 38
+    },
+    {
+      "i": 19,
+      "value": "13",
+      "placeholder": "",
+      "x": 287.59375,
+      "y": 1143.546875,
+      "width": 358.9375,
+      "height": 38
+    },
+    {
+      "i": 20,
+      "value": "25",
+      "placeholder": "",
+      "x": 664.53125,
+      "y": 1143.546875,
+      "width": 358.9375,
+      "height": 38
+    },
+    {
+      "i": 21,
+      "value": "",
+      "placeholder": null,
+      "x": 1142.8125,
+      "y": 1151.359375,
+      "width": 2,
+      "height": 22.390625
+    },
+    {
+      "i": 22,
+      "value": "",
+      "placeholder": null,
+      "x": 303.59375,
+      "y": 1363.34375,
+      "width": 0,
+      "height": 0
+    },
+    {
+      "i": 23,
+      "value": "",
+      "placeholder": null,
+      "x": 303.59375,
+      "y": 1403.34375,
+      "width": 0,
+      "height": 0
+    }
+  ]
+}
