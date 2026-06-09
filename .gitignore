@@ -10,6 +10,7 @@ __pycache__/
 htmlcov/
 *.tmp
 *.log
+*.pid
 build/
 dist/
 release/

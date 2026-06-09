@@ -1,5 +1,17 @@
 # Project Context For ChatGPT Project
 
+GitHub repository:
+
+```text
+https://github.com/mordecairegular/green-direct-platform
+```
+
+Current local working branch for this UI review package:
+
+```text
+codex/UI
+```
+
 ## Product
 
 Green Direct Power and Microgrid Planning Platform.
@@ -24,7 +36,7 @@ project inputs
 Current UI pages:
 
 ```text
-01 项目启动 / 欢迎页
+01 项目启动台 / 欢迎页
 02 方案仿真
 03 经济测算
 04 方案推荐
@@ -44,6 +56,22 @@ Current UI pages:
   - Technical simulation remains the source of truth for economy, recommendation, charts, and export.
 - UI recommendations may change information architecture, page grouping, components, copy, state flow, chart choices, and export workflow.
 - Avoid decorative "make it modern" advice. This is a professional engineering planning tool; clarity, auditability, and decision quality matter more than visual flourish.
+
+## Latest Implemented UI Baseline
+
+As of 2026-06-09, recent Streamlit work has already implemented several ideas that may still need review:
+
+- six-step workbench navigation;
+- project launch/status page;
+- scenario simulation page with both capacity-range enumeration and specified single-scenario input;
+- project-level down-grid electricity price curve upload on the scenario simulation page;
+- economy page that automatically reuses the project-level price curve;
+- landed load price before/after green power display;
+- recommendation cards with technical/economic metrics and merged labels;
+- chart overview with policy bottom-margin matrix, curtailment rate as a low-priority operational indicator, capacity configuration structure matrix, and scenario quick buttons;
+- centralized export/report page.
+
+The UI review should evaluate whether these implementations are clear and decision-useful, not assume they are still only ideas.
 
 ## Important Recent Decisions
 
@@ -98,53 +126,57 @@ The UI should make the difference before/after green power easy to understand. K
 
 ### 01 Welcome / Project launch
 
-Question: does this page have a real job? If kept, it should not be a generic landing page. It should help the user understand project readiness, data inputs, workflow status, and next action.
+Question: does this page now have a real job as a project launch/status console? It should not be a generic landing page. It should help the user understand project readiness, data inputs, workflow status, current result availability, and next action.
 
 ### 02 Scenario simulation
 
-Known issues or desired changes:
+Review focus:
 
-- Need a function to calculate one specified Wind/PV/BESS configuration, not only capacity-range enumeration.
-- Batch import should recognize the down-grid price curve together with load/PV/wind files.
-- Input data curve area and parameter areas do not need equal widths; file import can be more compact.
+- Capacity-range enumeration and specified single-scenario calculation now both exist; check whether the two modes are obvious and safe.
+- Batch import now can recognize the down-grid price curve together with load/PV/wind files; check whether the distinction between technical curves and economy price curve is clear.
+- Input data curve area and parameter areas do not need equal widths; check whether the current layout supports scanning.
 - Input diagnostics should tell the user whether the price curve is recognized and whether fixed price fallback will be used.
+- Enumeration should be framed as internal candidate generation, not the product's main result.
 
 ### 03 Economy
 
-Known needs:
+Review focus:
 
-- Show landed load price before/after green power.
+- Landed load price before/after green power is now displayed; check whether users can understand how fixed-price mode and hourly price-curve mode differ.
 - Explain when hourly price curve mode is active.
 - Avoid duplicate upload controls for the price curve.
 - Keep common economic inputs visible; do not bury key fields behind perspective-specific switches.
+- Economy result feedback should make clear whether recommendation seats can now be ranked.
 
 ### 04 Recommendation
 
-Known needs:
+Review focus:
 
 - Recommendation cards must show why a scenario is useful, not just its ID.
 - Scenario cards need capacity text, technical metrics, policy status, and economic metrics.
-- Add before/after landed load price and down-grid ratio to recommendation cards.
+- Before/after landed load price and down-grid ratio now appear in the UI path; check whether they are placed in the right hierarchy.
 - If one scenario wins multiple seats, merge labels rather than duplicate cards.
+- Pending/no-candidate seats should be visible and explain why they cannot be ranked.
 
 ### 05 Charts
 
-Known needs:
+Review focus:
 
-- The policy bottom-margin matrix should include curtailment rate as well as green load rate, self-use rate, and export cap.
-- "容量配置指纹矩阵" is a strange name; choose a clearer name.
+- The policy bottom-margin matrix now includes curtailment rate as a low-priority operational indicator; check whether positive/negative indicators are understandable.
+- "容量配置指纹矩阵" has been renamed to "容量配置结构矩阵"; check whether this name works.
 - Matrix color bands should not be too harsh.
 - Detail chart selection should default to recommended scenarios, while allowing selection of any calculated scenario.
-- Quick scenario cards/buttons should actually switch the selected detail chart.
+- Quick scenario buttons now switch the selected detail chart; check whether the interaction is obvious.
 - Do not hide useful detail charts behind vague "advanced" wording if they are core review artifacts.
 - Reconsider whether "方案总览" belongs in the detail chart area or should be absorbed into a scenario selector/status panel.
 
 ### 06 Export
 
-Known needs:
+Review focus:
 
 - Treat this as a delivery center: selected scenario, report package, technical package, economy table, chart package, simplified report.
 - Avoid scattered download buttons across earlier pages.
+- Show package readiness: available, needs technical run, needs economy run, needs chart package preparation, pending feature.
 
 ## Future Readiness
 
@@ -158,4 +190,4 @@ The website may later go online. UI and underlying presentation-layer design sho
 
 ## Short Project Instruction To Paste
 
-Act as a senior product manager + UI/UX designer + Streamlit application reviewer for a green direct power / microgrid planning platform. Give specific, implementable UI and interaction recommendations grounded in the project workflow, energy/economy metrics, and screenshots. Do not suggest changes to core dispatch or calculation口径 unless explicitly marked as a separate future model decision. Prioritize clarity, auditability, professional decision support, and Codex-ready implementation tasks.
+Act as a senior product manager + UI/UX designer + Streamlit application reviewer for a green direct power / microgrid planning platform. Give specific, implementable UI and interaction recommendations grounded in the project workflow, energy/economy metrics, screenshots, and current Streamlit implementation. Do not suggest changes to core dispatch or calculation口径 unless explicitly marked as a separate future model decision. Prioritize clarity, auditability, professional decision support, and Codex-ready implementation tasks. Distinguish already-implemented-but-needs-polish from new work.

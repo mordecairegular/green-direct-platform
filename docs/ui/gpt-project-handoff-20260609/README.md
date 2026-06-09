@@ -1,37 +1,37 @@
-# GPT Project UI Review Handoff
+# GPT Project UI Review Handoff - 2026-06-09
 
 This folder is an isolated handoff package for moving the next UI review round into a ChatGPT Project.
 
 Current local branch: `codex/UI`
 
-Current code baseline commit for the implemented UI/economy work:
+GitHub repository provided by the user:
 
 ```text
+https://github.com/mordecairegular/green-direct-platform
+```
+
+Useful GitHub links:
+
+```text
+Repository:
+https://github.com/mordecairegular/green-direct-platform
+
+Branch:
+https://github.com/mordecairegular/green-direct-platform/tree/codex/UI
+
+Last committed local HEAD before this handoff refresh:
+6432f15e6738397db1a5784e66ad21a6da399146
+docs(ui): add ChatGPT Project handoff package
+
+Current implemented UI/economy baseline before the docs-only handoff commit:
 c93d17a9f03dbafd113d90ab229680be296250cc
 feat(ui): surface price-curve workflow and landed price metrics
 ```
 
-## GitHub Link Status
-
-This local repository currently has no GitHub remote configured. `git remote -v` returns empty, so there is no real repository URL I can safely provide yet.
-
-After you create or connect a GitHub repository and push this branch, use these links in ChatGPT Project:
+This folder has local working-copy updates for the 2026-06-09 GPT Project handoff. If ChatGPT Project cannot see the branch through the GitHub connector, upload the Markdown files from this folder manually and either push `codex/UI` later or ask GPT to inspect the default branch plus the uploaded docs. If the repository is private or newly created and the connector does not find it, run a repository import/search in ChatGPT using:
 
 ```text
-Repository:
-https://github.com/<owner>/<repo>
-
-Branch:
-https://github.com/<owner>/<repo>/tree/codex/UI
-
-Code baseline commit:
-https://github.com/<owner>/<repo>/commit/c93d17a9f03dbafd113d90ab229680be296250cc
-```
-
-If the repository is private or newly created and ChatGPT does not find it through the GitHub connector, run a repository import search in ChatGPT/GitHub connector using:
-
-```text
-repo:<owner>/<repo> import
+repo:mordecairegular/green-direct-platform import
 ```
 
 Official references:
@@ -56,7 +56,7 @@ Project-only memory
 
 Reason: this UI review should stay isolated from other work and should not blend with unrelated ChatGPT context.
 
-Upload these 5 Markdown files from this folder:
+Upload these Markdown files from this folder:
 
 ```text
 README.md
@@ -64,6 +64,7 @@ README.md
 02_UI_REVIEW_PROMPT.md
 03_CODEX_RETURN_BRIEF.md
 04_SOURCE_FILE_MANIFEST.md
+05_SCREENSHOT_AND_RECORDING_CHECKLIST.md
 ```
 
 Then paste the contents of `01_PROJECT_CONTEXT.md` into Project instructions, or keep it uploaded and paste the shorter instruction block from that file.
@@ -72,25 +73,27 @@ Start the first Project chat by pasting `02_UI_REVIEW_PROMPT.md`.
 
 ## Optional Screenshot Uploads
 
-If you want GPT to visually inspect the current UI, upload screenshots from:
+Current main-interface long screenshots generated for this handoff are in:
 
 ```text
-docs/ui/audit-20260606-product-design/screenshots/
+docs/ui/gpt-project-handoff-20260609/screenshots-main-long-20260609/
 ```
 
-Most useful first batch:
+Upload this first batch:
 
 ```text
-01-welcome.png
-40-streamlit-02-simulation-guardrail.png
-streamlit-20260609-landed-price-cards.png
-23-recommendation-after-economy.png
-streamlit-20260609-chart-overview-landed-cards.png
-52-streamlit-20260608-chart-detail-selector.png
-25-export-after-economy.png
+01-main-long-project-launch.png
+02-main-long-simulation-before-demo.png
+03-main-long-simulation-after-demo.png
+05-main-long-economy-after-run.png
+06-main-long-recommendation.png
+07-main-long-chart-overview-and-detail.png
+08-main-long-export-center.png
 ```
 
-If your plan has a low file limit, upload `02_UI_REVIEW_PROMPT.md`, `01_PROJECT_CONTEXT.md`, and 2-3 screenshots first.
+Also upload `09-mobile-full-project-launch.png` and `10-mobile-full-simulation.png` if you want GPT to review narrow-screen layout issues.
+
+If your plan has a low file limit, upload `02_UI_REVIEW_PROMPT.md`, `01_PROJECT_CONTEXT.md`, `05_SCREENSHOT_AND_RECORDING_CHECKLIST.md`, and screenshots `01`, `03`, `05`, `07`, `08` first.
 
 ## How To Bring Work Back To Codex
 

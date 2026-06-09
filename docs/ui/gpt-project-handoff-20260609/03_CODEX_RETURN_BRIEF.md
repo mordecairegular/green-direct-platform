@@ -36,5 +36,6 @@ For the next Codex implementation round, ask Codex to report:
 - how 02 handles batch import plus specified single scenario;
 - how 03/04/05 show landed load price before and after green power;
 - how 05 chart selector and scenario quick cards interact;
+- how export/download actions stay centralized in the delivery center;
 - what tests and browser checks passed;
 - remaining questions for the next UI review loop.

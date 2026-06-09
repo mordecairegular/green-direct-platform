@@ -16,7 +16,28 @@ Current branch:
 codex/UI
 ```
 
-Current implemented code baseline:
+GitHub repository:
+
+```text
+https://github.com/mordecairegular/green-direct-platform
+```
+
+Branch URL:
+
+```text
+https://github.com/mordecairegular/green-direct-platform/tree/codex/UI
+```
+
+Last committed local HEAD before this handoff refresh:
+
+```text
+6432f15e6738397db1a5784e66ad21a6da399146
+docs(ui): add ChatGPT Project handoff package
+```
+
+This folder has local working-copy updates for the 2026-06-09 GPT Project handoff. If those updates are not pushed to GitHub, upload this folder's Markdown files manually to ChatGPT Project.
+
+Current implemented UI/economy baseline before the docs-only handoff commit:
 
 ```text
 c93d17a9f03dbafd113d90ab229680be296250cc
@@ -26,13 +47,7 @@ feat(ui): surface price-curve workflow and landed price metrics
 GitHub remote:
 
 ```text
-Not configured locally. `git remote -v` returns empty.
-```
-
-Do not invent a GitHub URL. After the user pushes the repo, use:
-
-```text
-https://github.com/<owner>/<repo>/tree/codex/UI
+origin https://github.com/mordecairegular/green-direct-platform.git
 ```
 
 ## Most Important Files For UI Review
@@ -98,22 +113,29 @@ docs/ui/prototype-dashboard.html
 Recommended minimal screenshot batch:
 
 ```text
-docs/ui/audit-20260606-product-design/screenshots/01-welcome.png
-docs/ui/audit-20260606-product-design/screenshots/40-streamlit-02-simulation-guardrail.png
-docs/ui/audit-20260606-product-design/screenshots/streamlit-20260609-landed-price-cards.png
-docs/ui/audit-20260606-product-design/screenshots/23-recommendation-after-economy.png
-docs/ui/audit-20260606-product-design/screenshots/streamlit-20260609-chart-overview-landed-cards.png
-docs/ui/audit-20260606-product-design/screenshots/52-streamlit-20260608-chart-detail-selector.png
-docs/ui/audit-20260606-product-design/screenshots/25-export-after-economy.png
+docs/ui/gpt-project-handoff-20260609/screenshots-main-long-20260609/01-main-long-project-launch.png
+docs/ui/gpt-project-handoff-20260609/screenshots-main-long-20260609/02-main-long-simulation-before-demo.png
+docs/ui/gpt-project-handoff-20260609/screenshots-main-long-20260609/03-main-long-simulation-after-demo.png
+docs/ui/gpt-project-handoff-20260609/screenshots-main-long-20260609/05-main-long-economy-after-run.png
+docs/ui/gpt-project-handoff-20260609/screenshots-main-long-20260609/06-main-long-recommendation.png
+docs/ui/gpt-project-handoff-20260609/screenshots-main-long-20260609/07-main-long-chart-overview-and-detail.png
+docs/ui/gpt-project-handoff-20260609/screenshots-main-long-20260609/08-main-long-export-center.png
 ```
 
 If file upload limits are tight, prioritize:
 
 ```text
-01-welcome.png
-40-streamlit-02-simulation-guardrail.png
-streamlit-20260609-landed-price-cards.png
-streamlit-20260609-chart-overview-landed-cards.png
+01-main-long-project-launch.png
+03-main-long-simulation-after-demo.png
+05-main-long-economy-after-run.png
+07-main-long-chart-overview-and-detail.png
+08-main-long-export-center.png
+```
+
+For screenshot purpose and upload order, see:
+
+```text
+docs/ui/gpt-project-handoff-20260609/05_SCREENSHOT_AND_RECORDING_CHECKLIST.md
 ```
 
 ## Known Untracked Local Reference Folders
