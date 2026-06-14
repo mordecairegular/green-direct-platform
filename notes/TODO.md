@@ -41,6 +41,7 @@
 - 经济性入口已支持 `retain_annual_cashflows=False` 和指定方案年度现金流保留。
 - 技术批量入口已支持 `PerformanceParams.parallel_workers`，02 页高级性能区已可配置并行进程数，默认 1。
 - Claude Code 上线前 review/debug、UI 提升和后台账户/Job/ResultStore 架构提示词已收敛到 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`。
+- 经济性批量评价已做低风险底层提速：去除 `iterrows()`，缓存年度折现因子，NPV 使用等价 Horner 形式，同一主体批量评价减少重复参数校验。
 
 后续方向：
 

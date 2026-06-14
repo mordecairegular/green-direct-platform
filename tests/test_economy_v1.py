@@ -199,6 +199,15 @@ def test_irr_explains_all_zero_cashflow():
     assert "全为0" in status
 
 
+def test_npv_matches_discounted_cashflow_sum():
+    cashflows = [-100.0, 35.0, 42.0, -8.0, 60.0]
+    rate = 0.073
+
+    assert _npv(cashflows, rate) == pytest.approx(
+        sum(value / ((1 + rate) ** index) for index, value in enumerate(cashflows))
+    )
+
+
 def test_irr_returns_unique_root_when_replacement_creates_temporary_cashflow_dip():
     cashflows = [-73400.0] + [7000.0] * 21 + [-1000.0] + [7000.0] * 3
 

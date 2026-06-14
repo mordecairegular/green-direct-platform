@@ -3005,3 +3005,24 @@ exchange_import_shortfall_energy == 0
 
 验证：
 - 本轮仅修改文档，未改变可执行代码。
+
+### 2026-06-15 经济性测算性能低风险优化
+
+用户强调经济性测算在成千上万方案下也会变慢。本轮在不改变经济性 V1 口径的前提下，先做底层循环和重复计算优化。
+
+本轮判断：
+- 完整 DataFrame/NumPy 批量化仍是后续较大工程，需要更系统地拆现金流和 IRR 求解；
+- 当前可先减少每个方案重复的 Python 层开销，尤其是 `iterrows()`、折现因子构造、NPV 求值和重复公共参数校验；
+- 这类优化不改变年度现金流字段、FNPV、FIRR、静态/动态回收期、推荐排序口径。
+
+本轮实现：
+- `evaluate_batch_economy()` 改为基于 `itertuples()` 生成映射行，避免 `iterrows()` 的 Series 开销；
+- 年度折现因子按 `(operation_years, discount_rate)` 缓存，电源侧和同一主体评价共用；
+- `_npv()` 改为等价 Horner 形式，减少 IRR 搜索过程中反复幂运算；
+- `evaluate_batch_single_entity_pre_tax_economy()` 批量入口先校验一次 `AvoidedGridPurchaseParams`，单方案内部不再重复校验；
+- 新增测试锁定 `_npv()` 与原折现求和公式一致。
+
+验证：
+- `python -m pytest tests/test_economy_v1.py tests/test_single_entity_economy.py tests/test_study_runner.py -q`：33 项通过；
+- `python -m pytest tests/test_economy_v1.py tests/test_single_entity_economy.py tests/test_study_runner.py tests/test_recommendation_v1.py -q`：43 项通过；
+- `python -m pytest -q`：180 项通过。

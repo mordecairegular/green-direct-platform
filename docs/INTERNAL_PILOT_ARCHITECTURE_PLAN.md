@@ -84,7 +84,8 @@ PNG 图表包后台任务也按会话隔离：
 - `PerformanceParams(parallel_workers=N)` 可让 `run_batch()` 使用 `ProcessPoolExecutor` 并行执行单方案技术仿真；默认 `1`，02 页“高级：枚举性能提醒”已暴露并行进程数；
 - `TechnicalStudyInput(retain_hourly_details=False, hourly_detail_scenario_ids=(...))` 已把该能力接入服务层，并写入 `config_snapshot["detail_retention"]`；
 - `run_economic_study(..., retain_annual_cashflows=False, annual_cashflow_scenario_ids=[...])` 可保留经济性 summary 指标，同时不常驻全部年度现金流表，或只保留报告方案/推荐组合现金流；
-- 这些接口默认保持旧行为，不改变当前 UI 和 V0.1 计算口径。轻量保留接口主要降低大批量模式的内存、快照和结果传输压力；并行技术仿真入口为后续后台 Job 和 UI 大批量模式提供缩短等待时间的基础。
+- 经济性批量评价已去除 `iterrows()` 行遍历，年度折现因子按年限和折现率缓存，NPV 使用等价 Horner 形式计算，同一主体批量评价只做一次公共参数校验；
+- 这些接口和内部优化默认保持旧行为，不改变当前 UI、V0.1 技术计算口径或经济性口径。轻量保留接口主要降低大批量模式的内存、快照和结果传输压力；并行技术仿真和经济性底层优化为后续后台 Job 和 UI 大批量模式提供缩短等待时间的基础。
 
 建议路线：
 

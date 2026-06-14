@@ -148,7 +148,16 @@ def _calculate_payback(years: list[int], cashflows: list[float]) -> float | None
 
 
 def _npv(cashflows: list[float], rate: float) -> float:
-    return sum(value / ((1 + rate) ** index) for index, value in enumerate(cashflows))
+    discount_base = 1 / (1 + rate)
+    total = 0.0
+    for value in reversed(cashflows):
+        total = total * discount_base + value
+    return total
+
+
+@lru_cache(maxsize=128)
+def _discount_factors(operation_years: int, discount_rate: float) -> tuple[float, ...]:
+    return tuple(1 / ((1 + discount_rate) ** year) for year in range(operation_years + 1))
 
 
 def _linear_rates(start: float, end: float, count: int) -> list[float]:
@@ -265,6 +274,12 @@ def _calculate_irr(cashflows: list[float]) -> tuple[float | None, str]:
     if not unique_roots:
         return None, "IRR 无法可靠计算：未找到稳定求解区间。"
     return None, "IRR 无法可靠计算：现金流存在多个IRR解。"
+
+
+def _summary_records(summary: pd.DataFrame) -> Iterable[dict[Any, Any]]:
+    columns = list(summary.columns)
+    for values in summary.itertuples(index=False, name=None):
+        yield dict(zip(columns, values))
 
 
 def evaluate_scenario_economy(
@@ -560,8 +575,9 @@ def evaluate_scenario_economy(
 
     annual = pd.DataFrame(rows)
     annual["cumulative_net_cash_flow"] = annual["net_cash_flow"].cumsum()
-    annual["discount_factor"] = annual["year"].map(
-        lambda year: 1 / ((1 + economic_params.discount_rate) ** int(year))
+    annual["discount_factor"] = _discount_factors(
+        int(economic_params.operation_years),
+        float(economic_params.discount_rate),
     )
     annual["discounted_net_cash_flow"] = annual["net_cash_flow"] * annual["discount_factor"]
     annual["cumulative_discounted_net_cash_flow"] = annual["discounted_net_cash_flow"].cumsum()
@@ -621,7 +637,7 @@ def evaluate_batch_economy(
     results: list[dict[str, Any]] = []
     annual_cashflows: dict[str, pd.DataFrame] = {}
     retained_scenario_ids = {str(scenario_id) for scenario_id in annual_cashflow_scenario_ids or []}
-    for _, row in summary.iterrows():
+    for row in _summary_records(summary):
         result = evaluate_scenario_economy(row, params=params)
         results.append(result.metrics)
         if retain_annual_cashflows or result.scenario_id in retained_scenario_ids:

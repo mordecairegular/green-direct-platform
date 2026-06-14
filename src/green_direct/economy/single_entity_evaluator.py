@@ -10,10 +10,12 @@ from green_direct.economy.economic_evaluator import (
     EconomicResult,
     _calculate_irr,
     _calculate_payback,
+    _discount_factors,
     _other_revenue_for_year,
     _override_value,
     _replacement_operation_years,
     _scenario_id,
+    _summary_records,
     _value,
     split_amount_with_vat,
 )
@@ -50,6 +52,8 @@ def evaluate_single_entity_pre_tax_economy(
     summary: Mapping[str, Any] | pd.Series,
     avoided_grid_params: AvoidedGridPurchaseParams,
     params: EconomicParams | None = None,
+    *,
+    validate_params: bool = True,
 ) -> EconomicResult:
     """Evaluate same-investor incremental pre-tax cash flow for one scenario.
 
@@ -58,7 +62,8 @@ def evaluate_single_entity_pre_tax_economy(
     internal green-power settlement revenue.
     """
 
-    validate_avoided_grid_purchase_params(avoided_grid_params)
+    if validate_params:
+        validate_avoided_grid_purchase_params(avoided_grid_params)
     economic_params = params or EconomicParams()
     summary_map: Mapping[str, Any] = summary.to_dict() if isinstance(summary, pd.Series) else summary
     scenario_id = _scenario_id(summary_map)
@@ -218,8 +223,9 @@ def evaluate_single_entity_pre_tax_economy(
 
     annual = pd.DataFrame(rows)
     annual["cumulative_net_cash_flow"] = annual["net_cash_flow"].cumsum()
-    annual["discount_factor"] = annual["year"].map(
-        lambda year: 1 / ((1 + economic_params.discount_rate) ** int(year))
+    annual["discount_factor"] = _discount_factors(
+        int(economic_params.operation_years),
+        float(economic_params.discount_rate),
     )
     annual["discounted_net_cash_flow"] = annual["net_cash_flow"] * annual["discount_factor"]
     annual["cumulative_discounted_net_cash_flow"] = annual["discounted_net_cash_flow"].cumsum()
@@ -278,11 +284,13 @@ def evaluate_batch_single_entity_pre_tax_economy(
     results: list[dict[str, Any]] = []
     annual_cashflows: dict[str, pd.DataFrame] = {}
     retained_scenario_ids = {str(scenario_id) for scenario_id in annual_cashflow_scenario_ids or []}
-    for _, row in summary.iterrows():
+    validate_avoided_grid_purchase_params(avoided_grid_params)
+    for row in _summary_records(summary):
         result = evaluate_single_entity_pre_tax_economy(
             row,
             avoided_grid_params=avoided_grid_params,
             params=params,
+            validate_params=False,
         )
         results.append(result.metrics)
         if retain_annual_cashflows or result.scenario_id in retained_scenario_ids:
