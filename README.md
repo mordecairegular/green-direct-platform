@@ -17,7 +17,7 @@
 7. 提供 Streamlit 交互界面和结果导出；
 8. 提供经济性评价 V1：年度现金流、FNPV、FIRR、静态/动态回收期；
 9. 提供围绕代表方案和用户加入方案的“方案图谱”展示；
-10. 提供内部试用后台的本地账号、认证、权限、任务和结果存储服务骨架，以及 `pilot-admin` 命令行账号管理入口。
+10. 提供内部试用后台的本地账号、认证、可选登录门禁、权限、任务和结果存储服务骨架，以及 `pilot-admin` 命令行账号管理入口。
 
 ## 重要文档
 
@@ -71,4 +71,12 @@ PYTHONPATH=src python -m green_direct.cli pilot-admin bootstrap \
 
 如已执行 `python -m pip install -e .` 安装为可编辑包，也可使用 `green-direct pilot-admin ...`。
 
-该 CLI 是管理员页面完成前的本地运维入口，不代表正式公网 SaaS 身份系统已完成。
+启用 Streamlit 内部试用登录门禁示例：
+
+```bash
+export GREEN_DIRECT_ENABLE_PILOT_AUTH=1
+export GREEN_DIRECT_PILOT_STORE_DIR=.runtime/pilot_store
+streamlit run src/green_direct/ui/app.py
+```
+
+该 CLI 和登录门禁是管理员页面完成前的本地账号控制入口，不代表正式公网 SaaS 身份系统已完成。

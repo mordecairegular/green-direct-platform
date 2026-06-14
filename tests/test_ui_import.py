@@ -113,6 +113,128 @@ def test_runtime_snapshot_is_disabled_by_default(tmp_path, monkeypatch):
     assert not snapshot_path.exists()
 
 
+def test_pilot_auth_gate_is_disabled_by_default(monkeypatch):
+    import green_direct.ui.app as app
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {}
+
+    monkeypatch.delenv(app.PILOT_AUTH_ENV, raising=False)
+
+    assert app._pilot_auth_enabled() is False
+    assert app._ensure_pilot_authenticated(DummyStreamlit()) is True
+
+
+def test_pilot_authenticated_user_validates_local_session(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import User
+    from green_direct.services import LocalPilotAuth, LocalPilotRegistry, LocalResultStore
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+
+    registry = LocalPilotRegistry(tmp_path)
+    registry.save_user(User("admin", "admin@example.local", "Admin", is_platform_admin=True))
+    auth = LocalPilotAuth(tmp_path, registry=registry, result_store=LocalResultStore(tmp_path))
+    auth.set_password(user_id="admin", password="admin-password")
+    session = auth.login(login_name="admin@example.local", password="admin-password")
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.PILOT_SESSION_ID_KEY: session.session_id,
+                app.PILOT_SESSION_TOKEN_KEY: session.token,
+            }
+
+    dummy = DummyStreamlit()
+    user = app._pilot_authenticated_user(dummy)
+
+    assert user.user_id == "admin"
+    assert dummy.session_state[app.PILOT_USER_ID_KEY] == "admin"
+    assert dummy.session_state[app.PILOT_USER_DISPLAY_KEY] == "Admin"
+    assert dummy.session_state[app.PILOT_LOGIN_NAME_KEY] == "admin@example.local"
+
+
+def test_pilot_invalid_session_clears_work_state(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import User
+    from green_direct.services import LocalPilotAuth, LocalPilotRegistry, LocalResultStore
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+
+    registry = LocalPilotRegistry(tmp_path)
+    registry.save_user(User("admin", "admin@example.local", "Admin", is_platform_admin=True))
+    auth = LocalPilotAuth(tmp_path, registry=registry, result_store=LocalResultStore(tmp_path))
+    auth.set_password(user_id="admin", password="admin-password")
+    session = auth.login(login_name="admin@example.local", password="admin-password")
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.PILOT_SESSION_ID_KEY: session.session_id,
+                app.PILOT_SESSION_TOKEN_KEY: "wrong-token",
+                "batch_result": object(),
+                "download_payloads": {"demo": True},
+            }
+
+    dummy = DummyStreamlit()
+
+    assert app._pilot_authenticated_user(dummy) is None
+    assert app.PILOT_SESSION_ID_KEY not in dummy.session_state
+    assert app.PILOT_SESSION_TOKEN_KEY not in dummy.session_state
+    assert "batch_result" not in dummy.session_state
+    assert "download_payloads" not in dummy.session_state
+    assert dummy.session_state[app.WORKFLOW_PAGE_KEY] == app.WORKFLOW_PAGES[0]
+    assert app.PILOT_LOGIN_NOTICE_KEY in dummy.session_state
+
+
+def test_streamlit_app_shows_pilot_login_gate_when_enabled(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+
+    app_test = AppTest.from_file("src/green_direct/ui/app.py")
+    app_test.run(timeout=10)
+
+    assert len(app_test.exception) == 0
+    assert any(text_input.label == "账号 / 邮箱" for text_input in app_test.text_input)
+    assert not any(button.label == "开始方案仿真" for button in app_test.button)
+
+
+def test_streamlit_app_allows_login_with_pilot_account(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import User
+    from green_direct.services import LocalPilotAdminService, LocalPilotAuth, LocalPilotRegistry, LocalResultStore
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+
+    registry = LocalPilotRegistry(tmp_path)
+    result_store = LocalResultStore(tmp_path)
+    auth = LocalPilotAuth(tmp_path, registry=registry, result_store=result_store)
+    admin = LocalPilotAdminService(registry=registry, auth=auth, result_store=result_store)
+    admin.bootstrap_platform_admin(
+        user=User("admin", "admin@example.local", "Admin", is_platform_admin=True),
+        password="admin-password",
+    )
+
+    app_test = AppTest.from_file("src/green_direct/ui/app.py")
+    app_test.run(timeout=10)
+    app_test.text_input[0].input("admin@example.local")
+    app_test.text_input[1].input("admin-password")
+    app_test.button[0].click().run(timeout=10)
+
+    assert len(app_test.exception) == 0
+    assert not any(text_input.label == "密码" for text_input in app_test.text_input)
+    assert any(button.label == "退出登录" for button in app_test.button)
+    assert any(button.label == "开始方案仿真" for button in app_test.button)
+
+
 def test_curve_display_tooltip_shows_input_curve_metrics():
     from green_direct.ui.app import _curve_display_tooltip
 

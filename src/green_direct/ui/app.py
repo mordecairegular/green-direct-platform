@@ -44,6 +44,10 @@ from green_direct.recommendation import (
     SINGLE_ENTITY_VIEW_LABELS,
 )
 from green_direct.services import (
+    LocalPilotAuth,
+    LocalPilotRegistry,
+    LocalResultStore,
+    PilotAuthError,
     RecommendationInputSnapshot,
     StudyResult,
     TechnicalStudyInput,
@@ -115,6 +119,15 @@ PROJECT_PRICE_CURVE_SESSION_UPLOAD_KEY = "_project_price_curve_uploaded_current_
 RUNTIME_STATE_DIR = PROJECT_ROOT / ".runtime"
 LATEST_SESSION_SNAPSHOT_PATH = RUNTIME_STATE_DIR / "latest_session_snapshot.pkl"
 RUNTIME_SNAPSHOT_ENV = "GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT"
+PILOT_AUTH_ENV = "GREEN_DIRECT_ENABLE_PILOT_AUTH"
+PILOT_STORE_DIR_ENV = "GREEN_DIRECT_PILOT_STORE_DIR"
+PILOT_DEFAULT_STORE_DIR = RUNTIME_STATE_DIR / "pilot_store"
+PILOT_SESSION_ID_KEY = "_pilot_auth_session_id"
+PILOT_SESSION_TOKEN_KEY = "_pilot_auth_session_token"
+PILOT_USER_ID_KEY = "_pilot_auth_user_id"
+PILOT_USER_DISPLAY_KEY = "_pilot_auth_user_display"
+PILOT_LOGIN_NAME_KEY = "_pilot_auth_login_name"
+PILOT_LOGIN_NOTICE_KEY = "_pilot_auth_notice"
 CHART_PNG_DOCX_SESSION_ID_KEY = "_chart_png_docx_session_id"
 _CHART_PNG_DOCX_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="green-direct-png")
 _CHART_PNG_DOCX_JOBS: dict[str, dict[str, object]] = {}
@@ -127,6 +140,29 @@ RUNTIME_SNAPSHOT_KEYS = [
     "recommendation_v1_inputs",
     "curve_metric_snapshot",
 ]
+PILOT_AUTH_SESSION_KEYS = (
+    PILOT_SESSION_ID_KEY,
+    PILOT_SESSION_TOKEN_KEY,
+    PILOT_USER_ID_KEY,
+    PILOT_USER_DISPLAY_KEY,
+    PILOT_LOGIN_NAME_KEY,
+)
+PILOT_AUTH_WORK_STATE_KEYS = tuple(
+    dict.fromkeys(
+        [
+            *RUNTIME_SNAPSHOT_KEYS,
+            PROJECT_PRICE_CURVE_DATA_KEY,
+            PROJECT_PRICE_CURVE_META_KEY,
+            PROJECT_PRICE_CURVE_NOTICE_KEY,
+            PROJECT_PRICE_CURVE_SESSION_UPLOAD_KEY,
+            "download_payloads",
+            "chart_png_docx_export",
+            "chart_png_docx_export_error",
+            "chart_png_docx_active_signature",
+            "export_report_scenario",
+        ]
+    )
+)
 WORKFLOW_PAGE_ALIASES = {
     "项目启动": "欢迎页",
     "项目启动台": "欢迎页",
@@ -1711,6 +1747,124 @@ def _truthy_env(value: str | None) -> bool:
 
 def _runtime_snapshot_enabled() -> bool:
     return _truthy_env(os.environ.get(RUNTIME_SNAPSHOT_ENV))
+
+
+def _pilot_auth_enabled() -> bool:
+    return _truthy_env(os.environ.get(PILOT_AUTH_ENV))
+
+
+def _pilot_store_dir() -> Path:
+    configured = os.environ.get(PILOT_STORE_DIR_ENV)
+    return Path(configured).expanduser().resolve() if configured else PILOT_DEFAULT_STORE_DIR.resolve()
+
+
+def _pilot_auth_service() -> LocalPilotAuth:
+    root = _pilot_store_dir()
+    registry = LocalPilotRegistry(root)
+    result_store = LocalResultStore(root)
+    return LocalPilotAuth(root, registry=registry, result_store=result_store)
+
+
+def _clear_pilot_work_state(st) -> None:
+    for key in PILOT_AUTH_WORK_STATE_KEYS:
+        st.session_state.pop(key, None)
+    st.session_state[WORKFLOW_PAGE_KEY] = WORKFLOW_PAGES[0]
+
+
+def _clear_pilot_session(st, *, clear_work_state: bool) -> None:
+    for key in PILOT_AUTH_SESSION_KEYS:
+        st.session_state.pop(key, None)
+    if clear_work_state:
+        _clear_pilot_work_state(st)
+
+
+def _pilot_authenticated_user(st):
+    session_id = st.session_state.get(PILOT_SESSION_ID_KEY)
+    token = st.session_state.get(PILOT_SESSION_TOKEN_KEY)
+    if not session_id or not token:
+        return None
+    try:
+        user = _pilot_auth_service().require_session(session_id=str(session_id), token=str(token))
+    except (PilotAuthError, FileNotFoundError, ValueError):
+        _clear_pilot_session(st, clear_work_state=True)
+        st.session_state[PILOT_LOGIN_NOTICE_KEY] = "登录状态已失效，请重新登录。"
+        return None
+    st.session_state[PILOT_USER_ID_KEY] = user.user_id
+    st.session_state[PILOT_USER_DISPLAY_KEY] = user.display_name
+    st.session_state[PILOT_LOGIN_NAME_KEY] = user.login_name
+    return user
+
+
+def _render_pilot_login_page(st) -> None:
+    st.markdown("## 内部试用登录")
+    st.caption("当前部署已启用账号门禁。请使用管理员通过 pilot-admin 创建的账号登录。")
+
+    notice = st.session_state.pop(PILOT_LOGIN_NOTICE_KEY, None)
+    if notice:
+        st.warning(notice)
+
+    with st.form("pilot_login_form"):
+        login_name = st.text_input("账号 / 邮箱", key="pilot_login_name_input")
+        password = st.text_input("密码", type="password", key="pilot_login_password_input")
+        submitted = st.form_submit_button("登录", type="primary")
+
+    if not submitted:
+        st.info(
+            "如果还没有账号，请先在部署机器上使用 "
+            "`green-direct pilot-admin bootstrap` 或 "
+            "`PYTHONPATH=src python -m green_direct.cli pilot-admin bootstrap` 创建首个平台管理员。"
+        )
+        return
+
+    if not str(login_name).strip() or not str(password):
+        st.error("请输入账号和密码。")
+        return
+
+    try:
+        session = _pilot_auth_service().login(login_name=str(login_name).strip(), password=str(password))
+    except PilotAuthError:
+        st.error("账号或密码不正确，或账号已停用。")
+        return
+    except FileNotFoundError:
+        st.error("未找到内部试用账号数据。请先使用 pilot-admin bootstrap 创建首个平台管理员。")
+        return
+
+    _clear_pilot_work_state(st)
+    st.session_state[PILOT_SESSION_ID_KEY] = session.session_id
+    st.session_state[PILOT_SESSION_TOKEN_KEY] = session.token
+    st.session_state[PILOT_USER_ID_KEY] = session.user_id
+    st.session_state[PILOT_LOGIN_NOTICE_KEY] = "登录成功。"
+    st.rerun()
+
+
+def _render_pilot_account_sidebar(st, user) -> None:
+    with st.sidebar:
+        st.markdown("---")
+        st.caption("内部试用账号")
+        st.write(f"{user.display_name}（{user.login_name}）")
+        if user.is_platform_admin:
+            st.caption("平台管理员")
+        if st.button("退出登录", key="pilot_logout"):
+            session_id = st.session_state.get(PILOT_SESSION_ID_KEY)
+            if session_id:
+                try:
+                    _pilot_auth_service().revoke_session(str(session_id))
+                except Exception:  # noqa: BLE001 - logout should still clear local UI state
+                    pass
+            _clear_pilot_session(st, clear_work_state=True)
+            st.session_state[PILOT_LOGIN_NOTICE_KEY] = "已退出登录。"
+            st.rerun()
+
+
+def _ensure_pilot_authenticated(st) -> bool:
+    if not _pilot_auth_enabled():
+        return True
+    user = _pilot_authenticated_user(st)
+    if user is None:
+        _render_pilot_login_page(st)
+        return False
+    _render_pilot_account_sidebar(st, user)
+    return True
 
 
 def _chart_png_docx_session_id(st) -> str:
@@ -6469,10 +6623,12 @@ def main() -> None:
 
     _install_html_render_compat(st)
     st.set_page_config(page_title="绿电直连风光储方案策划平台", layout="wide")
+    _inject_workbench_style(st)
+    if not _ensure_pilot_authenticated(st):
+        return
     _restore_runtime_snapshot_if_needed(st)
     if _clear_unconfirmed_project_price_curve(st):
         _save_runtime_snapshot(st)
-    _inject_workbench_style(st)
     workflow_page = _render_workflow_navigation(st)
     if workflow_page != "方案仿真":
         _preserve_widget_state(st, SIMULATION_WIDGET_STATE_KEYS)

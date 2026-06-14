@@ -3293,14 +3293,46 @@ exchange_import_shortfall_energy == 0
 本轮将上线前质量审查固化到 `notes/PRELAUNCH_QUALITY_REVIEW_20260615.md`。当前判断是：项目可以进入受控内部 10-20 人 pilot，但不应直接对外公网生产发布。
 
 主要依据：
-- 全量测试 236 项通过，`src` 编译检查通过，CLI 源码树启动口径已验证；
+- 全量测试 241 项通过，`src` 编译检查通过，CLI 源码树启动口径已验证；
 - V0.1 风光储核心调度测试未破坏；
 - 多人试用的关键风险已有第一层缓解：默认直接 Streamlit 不恢复本地 pickle 快照，PNG ZIP 后台任务 key 带会话 ID，价格曲线不会从旧快照静默复用；
 - 后台账号、认证、权限、任务和结果存储已有服务层骨架和测试，但尚未接入 Streamlit 登录/管理员/项目页面。
 
 上线阻塞仍包括：
-- 登录、会话和项目权限未接入主 UI；
+- 项目级权限、管理员页和正式会话/数据库适配未接入主 UI；
 - 没有真正后台 worker、队列、限流、重试和任务取消闭环；
 - 本地 JSON store 没有事务锁、备份和正式数据库适配；
 - 部署仍缺少服务守护、日志、监控、HTTPS、反向代理和 runbook；
 - 大批量汇总优先模式还需要代表方案按需补算，避免推荐方案缺少逐小时明细。
+
+### 2026-06-15 Streamlit 可选内部试用登录门禁
+
+本轮继续推进内部 10-20 人试用的后台账户控制闭环。已有 `LocalPilotAuth` 和 `pilot-admin` CLI 后，如果 Streamlit 主界面仍完全裸露，部署到多人访问环境时仍无法阻止未登录用户直接进入方案仿真。本轮先做最小登录门禁，而不仓促实现完整管理员页面或项目权限系统。
+
+本轮判断：
+- 默认本地开发和桌面启动不应突然要求登录；
+- 内部试用部署应可以通过环境变量显式开启门禁；
+- 登录门禁必须复用 `LocalPilotAuth.require_session()`，不能在 UI 里重新手写密码校验；
+- 退出登录、token 错误或会话失效时必须清理当前浏览器会话内的测算结果和下载缓存，避免下一位用户看到上一位用户的临时结果。
+
+本轮实现：
+- `src/green_direct/ui/app.py` 新增 `GREEN_DIRECT_ENABLE_PILOT_AUTH` 开关；
+- 新增 `GREEN_DIRECT_PILOT_STORE_DIR`，用于指向与 `pilot-admin --store-dir` 相同的账号数据目录，默认 `.runtime/pilot_store`；
+- 开启门禁后，未登录用户只看到登录表单，不能进入六步工作流；
+- 登录成功后保存本地 session id 和 bearer token 到当前 Streamlit 会话；
+- 每次渲染主界面前用 `LocalPilotAuth.require_session()` 校验会话；
+- 会话失效或退出登录时清理 `batch_result`、`study_result`、经济性/推荐结果、下载缓存、价格曲线和 PNG 导出缓存；
+- 侧栏显示当前内部试用账号，并提供退出登录按钮。
+
+边界说明：
+- 这不是完整公网身份系统；
+- 暂未实现 Streamlit 管理员页面、项目列表、项目成员权限拦截、数据库会话表、CSRF 防护或企业 IAM；
+- 当前仍建议只在内网/VPN/可信机器中用于内部 pilot。
+
+验证：
+- `python -m pytest tests/test_ui_import.py::test_streamlit_app_allows_login_with_pilot_account tests/test_ui_import.py::test_streamlit_app_shows_pilot_login_gate_when_enabled tests/test_ui_import.py::test_pilot_invalid_session_clears_work_state -q` 通过，3 项通过；
+- `python -m pytest tests/test_ui_import.py::test_streamlit_app_shows_pilot_login_gate_when_enabled tests/test_ui_import.py::test_pilot_auth_gate_is_disabled_by_default tests/test_ui_import.py::test_pilot_authenticated_user_validates_local_session tests/test_ui_import.py::test_pilot_invalid_session_clears_work_state -q` 通过，4 项通过；
+- `python -m pytest tests/test_ui_import.py::test_pilot_auth_gate_is_disabled_by_default tests/test_ui_import.py::test_pilot_authenticated_user_validates_local_session tests/test_ui_import.py::test_pilot_invalid_session_clears_work_state tests/test_pilot_auth.py tests/test_pilot_admin.py -q` 通过，18 项通过；
+- `python -m pytest tests/test_ui_import.py tests/test_pilot_auth.py tests/test_pilot_admin.py -q` 通过，63 项通过；
+- `python -m pytest -q` 通过，241 项通过；
+- `python -m compileall -q src` 通过。

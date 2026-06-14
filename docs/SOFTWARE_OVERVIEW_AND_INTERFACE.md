@@ -1025,6 +1025,15 @@ python -m pytest
 
 密码参数支持 `--password-env`，优先从环境变量读取，避免把密码直接写入命令历史。该 CLI 使用与服务层相同的本地 store，不替代后续 Streamlit 管理员页面。
 
+`src/green_direct/ui/app.py` 已接入可选内部试用登录门禁：
+
+- 默认不启用，保持本地开发和现有桌面启动体验；
+- 设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，Streamlit 主界面会先要求登录，未登录用户不能进入六步工作流；
+- 设置 `GREEN_DIRECT_PILOT_STORE_DIR` 可指定与 `pilot-admin --store-dir` 相同的账号数据目录，默认 `.runtime/pilot_store`；
+- 登录成功会用 `LocalPilotAuth.require_session()` 校验本地 bearer-token 会话；
+- 会话失效、token 错误或退出登录时，会清理当前浏览器会话内的测算结果、下载缓存、价格曲线和图表导出缓存，避免下一位用户看到上一位用户的临时结果；
+- 当前门禁只解决“进入主 UI 前必须登录”，还没有项目列表、管理员页面、项目成员权限拦截、数据库会话表或 CSRF 防护。
+
 `src/green_direct/services/job_store.py` 已提供第一版 `LocalJobStore`：
 
 - `submit_job()` / `load_job()`：保存和读取排队任务；

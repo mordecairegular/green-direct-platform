@@ -33,6 +33,15 @@ PNG 图表包后台任务也按会话隔离：
 - PNG ZIP 缓存签名包含 `summary`、所选方案 `hourly_detail` 和对比方案表的数据指纹；
 - 新技术仿真完成后清空旧 PNG 导出缓存，避免同名方案和同时间范围复用旧图。
 
+2026-06-15 起，Streamlit 主界面已新增可选内部试用登录门禁：
+
+- 默认不启用，避免影响本地开发和桌面单机体验；
+- 多人内部试用部署可设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1`；
+- `GREEN_DIRECT_PILOT_STORE_DIR` 应指向 `pilot-admin --store-dir` 使用的同一受控目录，默认 `.runtime/pilot_store`；
+- 未登录用户只能看到登录表单，不能进入方案仿真、经济性测算、推荐或导出页面；
+- 会话校验复用 `LocalPilotAuth.require_session()`，退出登录或会话失效时清理当前 Streamlit 会话内的测算结果和下载缓存；
+- 这只是 Phase A/B 之间的最小门禁，还不是完整项目隔离、管理员页面、正式数据库会话或企业 IAM。
+
 ## 3. 内部试用部署形态
 
 建议分三步走：

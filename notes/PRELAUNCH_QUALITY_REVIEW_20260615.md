@@ -14,7 +14,7 @@
 - UI 大改造、方案图谱、经济性参数工作台与导出体验；
 - 大批量汇总优先策略与可选并行技术仿真；
 - 经济性批量评价性能优化；
-- 内部试用后台模型、结果存储、账号注册表、认证、管理员服务、任务状态存储和权限审计门面；
+- 内部试用后台模型、结果存储、账号注册表、认证、可选 Streamlit 登录门禁、管理员服务、任务状态存储和权限审计门面；
 - `pilot-admin` 命令行账号管理入口；
 - 面向 Claude Code 的内部试用审查 / 后台架构 prompt 和跨机器 handoff 文档。
 
@@ -35,7 +35,7 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 
 结果：
 
-- 全量测试通过：236 项通过；
+- 全量测试通过：241 项通过；
 - `src` 编译检查通过；
 - 源码树下 CLI 启动口径验证通过；
 - `git diff --check` 没有实际空白错误，仅有 Windows 换行转换提示；
@@ -57,8 +57,8 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 
 ### P0：公网生产阻塞
 
-1. Streamlit 主 UI 还没有接入登录、会话和项目权限。
-   `LocalPilotAuth`、`LocalPilotAdminService`、`PilotAccessService` 已经落地，但当前 UI 仍主要依赖 `st.session_state`，访问到应用的人仍可直接操作页面。正式上线前必须接入登录页、会话校验、项目隔离和管理员入口。
+1. Streamlit 主 UI 已有可选登录门禁，但还没有项目级权限和管理员页。
+   设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，未登录用户不能进入六步工作流；登录会话复用 `LocalPilotAuth.require_session()`，退出或会话失效会清理当前浏览器会话内的临时测算结果。正式上线前仍必须接入项目列表、项目成员权限、管理员入口和更正式的会话/数据库适配。
 
 2. 没有正式后台任务队列和 worker。
    当前重计算仍发生在 Streamlit 进程内，PNG ZIP 使用进程内后台线程。`LocalJobStore` 只是任务状态契约，不会真正调度 worker。多人同时大算例时缺少排队、取消、限流、重试和失败恢复。
@@ -98,4 +98,4 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 2. 运行 `python -m pytest -q` 和 `python -m compileall -q src`；
 3. 重点审查 `src/green_direct/ui/app.py` 是否存在跨用户状态、旧结果复用、价格曲线误用、导出缓存串会话；
 4. 重点审查 `src/green_direct/services/` 下本地后台服务的权限边界、路径校验、审计记录和失败场景；
-5. 设计并实现下一阶段最小闭环：登录页 + 管理员页 + 项目列表 + 任务状态页 + 结果存储接入。
+5. 设计并实现下一阶段最小闭环：管理员页 + 项目列表 + 项目权限拦截 + 任务状态页 + 结果存储接入。
