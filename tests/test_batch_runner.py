@@ -115,3 +115,36 @@ def test_batch_runner_reports_progress():
     run_batch(_curves(), grid, progress_callback=lambda done, total, scenario: calls.append((done, total, scenario.scenario_id)))
 
     assert calls == [(1, 1, "S0001")]
+
+
+def test_batch_runner_parallel_matches_sequential_results():
+    grid = {
+        "pv_capacity": {"start": 0, "end": 1, "step": 1},
+        "wind_capacity": {"start": 0, "end": 1, "step": 1},
+        "bess_power": {"start": 0, "end": 1, "step": 1},
+        "bess_duration_hours": [0, 2],
+    }
+    sequential = run_batch(
+        _curves(),
+        grid,
+        policy_params=PolicyParams(allow_export=False),
+        performance_params=PerformanceParams(parallel_workers=1),
+    )
+    calls = []
+    parallel = run_batch(
+        _curves(),
+        grid,
+        policy_params=PolicyParams(allow_export=False),
+        performance_params=PerformanceParams(parallel_workers=2),
+        progress_callback=lambda done, total, scenario: calls.append((done, total, scenario.scenario_id)),
+    )
+
+    pd.testing.assert_frame_equal(parallel.summary, sequential.summary)
+    assert set(parallel.hourly_details) == set(sequential.hourly_details)
+    for scenario_id, sequential_hourly in sequential.hourly_details.items():
+        pd.testing.assert_frame_equal(parallel.hourly_details[scenario_id], sequential_hourly)
+    assert parallel.errors.equals(sequential.errors)
+    assert calls == [
+        (index, sequential.scenario_count, scenario_id)
+        for index, scenario_id in enumerate(["S0001", "S0002", "S0003", "S0004", "S0005", "S0006"], start=1)
+    ]

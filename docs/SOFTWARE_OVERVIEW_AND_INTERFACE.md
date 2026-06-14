@@ -256,10 +256,11 @@ TimeParams(
 ```python
 PerformanceParams(
     warn_if_scenarios_exceed=5000,
+    parallel_workers=1,
 )
 ```
 
-用于批量测算时给出大方案数量提醒。未来可扩展为自动切换大批量模式的入口。
+用于批量测算时给出大方案数量提醒，并控制技术仿真的可选并行 worker 数。`parallel_workers=1` 为默认串行口径；设置为大于 1 时，`run_batch()` 会使用 `ProcessPoolExecutor` 按方案并行执行单方案调度，结果聚合仍保持 `scenario_id`、warning、error 和进度回调顺序稳定。未来可扩展为自动切换大批量模式的入口。
 
 ## 8. 方案模型接口
 

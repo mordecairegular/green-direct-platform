@@ -2953,3 +2953,25 @@ exchange_import_shortfall_energy == 0
 
 验证：
 - `python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/test_economy_v1.py -q`：33 项通过。
+
+### 2026-06-15 技术批量仿真并行入口
+
+用户继续推进成千上万方案下的计算等待问题。本轮在不改变默认 UI 行为和调度口径的前提下，给技术批量仿真增加可选并行入口。
+
+本轮判断：
+- 单方案调度天然可以按 `scenario_id` 拆分，适合先作为进程级并行的最小切入点；
+- Windows 环境下若每个任务都传整张 8760 曲线会造成额外序列化开销，因此 worker 通过 initializer 接收曲线和公共参数；
+- 默认仍必须串行，避免现有 UI、测试和小方案测算引入多进程开销；
+- 并行聚合必须保持结果顺序、错误记录和进度回调可预测。
+
+本轮实现：
+- `PerformanceParams` 新增 `parallel_workers: int = 1`；
+- `run_batch()` 在 `parallel_workers > 1` 且方案数大于 1 时使用 `ProcessPoolExecutor`；
+- worker 初始化时保存曲线、储能参数、政策参数和 `dt_hours`，单方案任务只传 `Scenario`；
+- 并行与串行共用同一个 `_scenario_run_record()`，不改变 `run_single_scenario()` 口径；
+- `executor.map()` 保持输入顺序，进度回调仍按 `S0001...` 顺序回报。
+
+验证：
+- `python -m pytest tests/test_batch_runner.py -q`：7 项通过；
+- `python -m pytest tests/test_study_runner.py tests/test_batch_runner.py -q`：16 项通过；
+- `python -m pytest -q`：178 项通过。

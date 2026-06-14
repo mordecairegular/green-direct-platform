@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from typing import Callable, Iterable
 
@@ -23,8 +24,113 @@ class BatchResult:
     scenario_count: int
 
 
+@dataclass
+class _ScenarioRunRecord:
+    scenario: Scenario
+    summary: dict | None
+    hourly_detail: pd.DataFrame | None
+    warnings: list[str]
+    error: str | None
+
+
+_WORKER_CURVES: pd.DataFrame | None = None
+_WORKER_BESS_PARAMS: BessParams | None = None
+_WORKER_POLICY_PARAMS: PolicyParams | None = None
+_WORKER_DT_HOURS: float = 1.0
+
+
 def estimate_scenario_count(raw_grid: dict) -> int:
     return len(generate_scenarios(raw_grid))
+
+
+def _error_record(scenario: Scenario, exc: Exception) -> _ScenarioRunRecord:
+    return _ScenarioRunRecord(
+        scenario=scenario,
+        summary=None,
+        hourly_detail=None,
+        warnings=[],
+        error=str(exc),
+    )
+
+
+def _scenario_run_record(
+    curves: pd.DataFrame,
+    scenario: Scenario,
+    *,
+    bess_params: BessParams | None,
+    policy_params: PolicyParams | None,
+    dt_hours: float,
+) -> _ScenarioRunRecord:
+    try:
+        result: ScenarioResult = run_single_scenario(
+            curves,
+            scenario,
+            bess_params=bess_params,
+            policy_params=policy_params,
+            dt_hours=dt_hours,
+        )
+    except Exception as exc:  # noqa: BLE001 - per-scenario failure must be recorded
+        return _error_record(scenario, exc)
+    return _ScenarioRunRecord(
+        scenario=scenario,
+        summary=result.summary,
+        hourly_detail=result.hourly_detail,
+        warnings=result.warnings,
+        error=None,
+    )
+
+
+def _init_parallel_worker(
+    curves: pd.DataFrame,
+    bess_params: BessParams | None,
+    policy_params: PolicyParams | None,
+    dt_hours: float,
+) -> None:
+    global _WORKER_CURVES, _WORKER_BESS_PARAMS, _WORKER_POLICY_PARAMS, _WORKER_DT_HOURS
+    _WORKER_CURVES = curves
+    _WORKER_BESS_PARAMS = bess_params
+    _WORKER_POLICY_PARAMS = policy_params
+    _WORKER_DT_HOURS = dt_hours
+
+
+def _scenario_run_record_from_worker(scenario: Scenario) -> _ScenarioRunRecord:
+    if _WORKER_CURVES is None:
+        return _error_record(scenario, RuntimeError("Batch worker was not initialised with curve data."))
+    return _scenario_run_record(
+        _WORKER_CURVES,
+        scenario,
+        bess_params=_WORKER_BESS_PARAMS,
+        policy_params=_WORKER_POLICY_PARAMS,
+        dt_hours=_WORKER_DT_HOURS,
+    )
+
+
+def _scenario_records(
+    curves: pd.DataFrame,
+    scenarios: list[Scenario],
+    *,
+    bess_params: BessParams | None,
+    policy_params: PolicyParams | None,
+    dt_hours: float,
+    parallel_workers: int,
+) -> Iterable[_ScenarioRunRecord]:
+    if parallel_workers <= 1 or len(scenarios) <= 1:
+        for scenario in scenarios:
+            yield _scenario_run_record(
+                curves,
+                scenario,
+                bess_params=bess_params,
+                policy_params=policy_params,
+                dt_hours=dt_hours,
+            )
+        return
+
+    with ProcessPoolExecutor(
+        max_workers=parallel_workers,
+        initializer=_init_parallel_worker,
+        initargs=(curves, bess_params, policy_params, dt_hours),
+    ) as executor:
+        yield from executor.map(_scenario_run_record_from_worker, scenarios)
 
 
 def run_batch(
@@ -41,6 +147,7 @@ def run_batch(
 ) -> BatchResult:
     scenarios = generate_scenarios(scenario_grid)
     performance = performance_params or PerformanceParams()
+    parallel_workers = max(1, int(performance.parallel_workers or 1))
     retained_hourly_ids = {str(scenario_id) for scenario_id in hourly_detail_scenario_ids or []}
     warnings: list[str] = []
     if len(scenarios) > performance.warn_if_scenarios_exceed:
@@ -54,20 +161,26 @@ def run_batch(
     hourly_details: dict[str, pd.DataFrame] = {}
     errors: list[dict] = []
     total = len(scenarios)
-    for index, scenario in enumerate(scenarios, start=1):
-        try:
-            result: ScenarioResult = run_single_scenario(
-                curves,
-                scenario,
-                bess_params=bess_params,
-                policy_params=policy_params,
-                dt_hours=dt_hours,
-            )
-            summaries.append(result.summary)
-            if retain_hourly_details or scenario.scenario_id in retained_hourly_ids:
-                hourly_details[scenario.scenario_id] = result.hourly_detail
-            warnings.extend(result.warnings)
-        except Exception as exc:  # noqa: BLE001 - per-scenario failure must be recorded
+    for index, record in enumerate(
+        _scenario_records(
+            curves,
+            scenarios,
+            bess_params=bess_params,
+            policy_params=policy_params,
+            dt_hours=dt_hours,
+            parallel_workers=parallel_workers,
+        ),
+        start=1,
+    ):
+        scenario = record.scenario
+        if record.error is None and record.summary is not None:
+            summaries.append(record.summary)
+            if record.hourly_detail is not None and (
+                retain_hourly_details or scenario.scenario_id in retained_hourly_ids
+            ):
+                hourly_details[scenario.scenario_id] = record.hourly_detail
+            warnings.extend(record.warnings)
+        else:
             errors.append(
                 {
                     "scenario_id": scenario.scenario_id,
@@ -75,12 +188,11 @@ def run_batch(
                     "wind_capacity": scenario.wind_capacity,
                     "bess_power": scenario.bess_power,
                     "bess_energy": scenario.bess_energy,
-                    "error": str(exc),
+                    "error": record.error,
                 }
             )
-        finally:
-            if progress_callback is not None:
-                progress_callback(index, total, scenario)
+        if progress_callback is not None:
+            progress_callback(index, total, scenario)
 
     summary = pd.DataFrame(summaries)
     if not summary.empty and "pass_policy" in summary.columns:
