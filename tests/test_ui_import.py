@@ -235,6 +235,76 @@ def test_streamlit_app_allows_login_with_pilot_account(tmp_path, monkeypatch):
     assert any(button.label == "开始方案仿真" for button in app_test.button)
 
 
+def test_streamlit_platform_admin_can_create_user(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import User
+    from green_direct.services import LocalPilotAdminService, LocalPilotAuth, LocalPilotRegistry, LocalResultStore
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+
+    registry = LocalPilotRegistry(tmp_path)
+    result_store = LocalResultStore(tmp_path)
+    auth = LocalPilotAuth(tmp_path, registry=registry, result_store=result_store)
+    admin = LocalPilotAdminService(registry=registry, auth=auth, result_store=result_store)
+    admin.bootstrap_platform_admin(
+        user=User("admin", "admin@example.local", "Admin", is_platform_admin=True),
+        password="admin-password",
+    )
+
+    app_test = AppTest.from_file("src/green_direct/ui/app.py")
+    app_test.run(timeout=10)
+    app_test.text_input[0].input("admin@example.local")
+    app_test.text_input[1].input("admin-password")
+    app_test.button[0].click().run(timeout=10)
+
+    next(button for button in app_test.button if button.label == "Admin  平台管理").click().run(timeout=10)
+    inputs = {text_input.label: text_input for text_input in app_test.text_input}
+    inputs["用户 ID"].input("analyst")
+    inputs["登录名 / 邮箱"].input("analyst@example.local")
+    inputs["显示名称"].input("Analyst")
+    inputs["初始密码"].input("analyst-password")
+    next(button for button in app_test.button if button.label == "创建用户").click().run(timeout=10)
+
+    created = LocalPilotRegistry(tmp_path).load_user("analyst")
+    assert created.login_name == "analyst@example.local"
+    assert created.is_platform_admin is False
+
+
+def test_streamlit_non_admin_does_not_show_platform_admin_entry(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import User
+    from green_direct.services import LocalPilotAdminService, LocalPilotAuth, LocalPilotRegistry, LocalResultStore
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+
+    registry = LocalPilotRegistry(tmp_path)
+    result_store = LocalResultStore(tmp_path)
+    auth = LocalPilotAuth(tmp_path, registry=registry, result_store=result_store)
+    admin = LocalPilotAdminService(registry=registry, auth=auth, result_store=result_store)
+    admin.bootstrap_platform_admin(
+        user=User("admin", "admin@example.local", "Admin", is_platform_admin=True),
+        password="admin-password",
+    )
+    admin.create_user(
+        actor_user_id="admin",
+        user=User("analyst", "analyst@example.local", "Analyst"),
+        initial_password="analyst-password",
+    )
+
+    app_test = AppTest.from_file("src/green_direct/ui/app.py")
+    app_test.run(timeout=10)
+    app_test.text_input[0].input("analyst@example.local")
+    app_test.text_input[1].input("analyst-password")
+    app_test.button[0].click().run(timeout=10)
+
+    assert len(app_test.exception) == 0
+    assert not any(button.label == "Admin  平台管理" for button in app_test.button)
+
+
 def test_curve_display_tooltip_shows_input_curve_metrics():
     from green_direct.ui.app import _curve_display_tooltip
 

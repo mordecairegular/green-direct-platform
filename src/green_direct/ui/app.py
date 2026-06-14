@@ -39,6 +39,7 @@ from green_direct.export.excel_exporter import export_summary_excel
 from green_direct.io.read_curves import read_csv_auto_encoding
 from green_direct.io.validators import DataValidationError
 from green_direct.models.params import BessParams, DataCleaningParams, PerformanceParams, PolicyParams
+from green_direct.models.pilot_backend import User
 from green_direct.recommendation import (
     ENGINEERING_VIEW_LABELS,
     SINGLE_ENTITY_VIEW_LABELS,
@@ -47,6 +48,8 @@ from green_direct.services import (
     LocalPilotAuth,
     LocalPilotRegistry,
     LocalResultStore,
+    LocalPilotAdminService,
+    PilotAdminError,
     PilotAuthError,
     RecommendationInputSnapshot,
     StudyResult,
@@ -127,7 +130,10 @@ PILOT_SESSION_TOKEN_KEY = "_pilot_auth_session_token"
 PILOT_USER_ID_KEY = "_pilot_auth_user_id"
 PILOT_USER_DISPLAY_KEY = "_pilot_auth_user_display"
 PILOT_LOGIN_NAME_KEY = "_pilot_auth_login_name"
+PILOT_IS_PLATFORM_ADMIN_KEY = "_pilot_auth_is_platform_admin"
 PILOT_LOGIN_NOTICE_KEY = "_pilot_auth_notice"
+PILOT_ADMIN_NOTICE_KEY = "_pilot_admin_notice"
+PLATFORM_ADMIN_PAGE = "平台管理"
 CHART_PNG_DOCX_SESSION_ID_KEY = "_chart_png_docx_session_id"
 _CHART_PNG_DOCX_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="green-direct-png")
 _CHART_PNG_DOCX_JOBS: dict[str, dict[str, object]] = {}
@@ -146,6 +152,7 @@ PILOT_AUTH_SESSION_KEYS = (
     PILOT_USER_ID_KEY,
     PILOT_USER_DISPLAY_KEY,
     PILOT_LOGIN_NAME_KEY,
+    PILOT_IS_PLATFORM_ADMIN_KEY,
 )
 PILOT_AUTH_WORK_STATE_KEYS = tuple(
     dict.fromkeys(
@@ -1765,6 +1772,23 @@ def _pilot_auth_service() -> LocalPilotAuth:
     return LocalPilotAuth(root, registry=registry, result_store=result_store)
 
 
+def _pilot_admin_service() -> LocalPilotAdminService:
+    root = _pilot_store_dir()
+    registry = LocalPilotRegistry(root)
+    result_store = LocalResultStore(root)
+    auth = LocalPilotAuth(root, registry=registry, result_store=result_store)
+    return LocalPilotAdminService(registry=registry, auth=auth, result_store=result_store)
+
+
+def _current_pilot_user_id(st) -> str | None:
+    user_id = st.session_state.get(PILOT_USER_ID_KEY)
+    return str(user_id) if user_id else None
+
+
+def _current_pilot_user_is_platform_admin(st) -> bool:
+    return bool(st.session_state.get(PILOT_IS_PLATFORM_ADMIN_KEY))
+
+
 def _clear_pilot_work_state(st) -> None:
     for key in PILOT_AUTH_WORK_STATE_KEYS:
         st.session_state.pop(key, None)
@@ -1792,6 +1816,7 @@ def _pilot_authenticated_user(st):
     st.session_state[PILOT_USER_ID_KEY] = user.user_id
     st.session_state[PILOT_USER_DISPLAY_KEY] = user.display_name
     st.session_state[PILOT_LOGIN_NAME_KEY] = user.login_name
+    st.session_state[PILOT_IS_PLATFORM_ADMIN_KEY] = bool(user.is_platform_admin)
     return user
 
 
@@ -1833,6 +1858,7 @@ def _render_pilot_login_page(st) -> None:
     st.session_state[PILOT_SESSION_ID_KEY] = session.session_id
     st.session_state[PILOT_SESSION_TOKEN_KEY] = session.token
     st.session_state[PILOT_USER_ID_KEY] = session.user_id
+    st.session_state[PILOT_IS_PLATFORM_ADMIN_KEY] = False
     st.session_state[PILOT_LOGIN_NOTICE_KEY] = "登录成功。"
     st.rerun()
 
@@ -1865,6 +1891,193 @@ def _ensure_pilot_authenticated(st) -> bool:
         return False
     _render_pilot_account_sidebar(st, user)
     return True
+
+
+def _platform_admin_user_frame(users: list[User]) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "用户 ID": user.user_id,
+                "登录名": user.login_name,
+                "显示名称": user.display_name,
+                "状态": user.status.value,
+                "平台管理员": "是" if user.is_platform_admin else "否",
+                "创建时间": user.created_at.isoformat(),
+            }
+            for user in users
+        ]
+    )
+
+
+def _platform_admin_session_frame(sessions) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "session_id": session.session_id,
+                "user_id": session.user_id,
+                "expires_at": session.expires_at.isoformat(),
+                "revoked": "是" if session.is_revoked else "否",
+            }
+            for session in sessions
+        ]
+    )
+
+
+def _handle_platform_admin_error(st, exc: Exception) -> None:
+    if isinstance(exc, (PilotAdminError, PilotAuthError, FileExistsError, FileNotFoundError, ValueError)):
+        st.error(str(exc))
+    else:
+        raise exc
+
+
+def _render_platform_admin_page(st) -> None:
+    if not _pilot_auth_enabled() or not _current_pilot_user_is_platform_admin(st):
+        st.warning("当前账号没有平台管理权限。")
+        return
+
+    actor_user_id = _current_pilot_user_id(st)
+    if not actor_user_id:
+        st.warning("登录状态缺少用户信息，请重新登录。")
+        return
+
+    admin_service = _pilot_admin_service()
+    try:
+        users = admin_service.list_users(actor_user_id=actor_user_id)
+    except Exception as exc:  # noqa: BLE001 - render permission/storage errors as page feedback
+        _handle_platform_admin_error(st, exc)
+        return
+
+    st.markdown("## 平台管理")
+    st.caption("用于内部试用的本地账号管理。当前仍不是正式企业身份系统。")
+    notice = st.session_state.pop(PILOT_ADMIN_NOTICE_KEY, None)
+    if notice:
+        st.success(notice)
+
+    users_by_id = {user.user_id: user for user in users}
+    user_ids = list(users_by_id)
+    active_count = sum(1 for user in users if user.is_active)
+    admin_count = sum(1 for user in users if user.is_active and user.is_platform_admin)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("账号数", len(users))
+    c2.metric("活跃账号", active_count)
+    c3.metric("活跃平台管理员", admin_count)
+
+    st.dataframe(_platform_admin_user_frame(users), width="stretch", hide_index=True)
+
+    create_tab, password_tab, status_tab, session_tab = st.tabs(["创建账号", "重置密码", "权限和停用", "会话"])
+
+    with create_tab:
+        with st.form("pilot_admin_create_user_form"):
+            user_id = st.text_input("用户 ID", key="pilot_admin_create_user_id")
+            login_name = st.text_input("登录名 / 邮箱", key="pilot_admin_create_login_name")
+            display_name = st.text_input("显示名称", key="pilot_admin_create_display_name")
+            initial_password = st.text_input("初始密码", type="password", key="pilot_admin_create_password")
+            is_platform_admin = st.checkbox("设为平台管理员", key="pilot_admin_create_is_admin")
+            submitted = st.form_submit_button("创建用户", type="primary")
+        if submitted:
+            try:
+                if not initial_password:
+                    raise ValueError("初始密码不能为空。")
+                created = admin_service.create_user(
+                    actor_user_id=actor_user_id,
+                    user=User(
+                        str(user_id).strip(),
+                        str(login_name).strip(),
+                        str(display_name).strip(),
+                        is_platform_admin=bool(is_platform_admin),
+                    ),
+                    initial_password=str(initial_password),
+                )
+                st.session_state[PILOT_ADMIN_NOTICE_KEY] = f"已创建用户：{created.user_id}"
+                st.rerun()
+            except Exception as exc:  # noqa: BLE001 - form errors should be visible
+                _handle_platform_admin_error(st, exc)
+
+    with password_tab:
+        if not user_ids:
+            st.info("暂无用户。")
+        else:
+            with st.form("pilot_admin_reset_password_form"):
+                reset_user_id = st.selectbox("选择用户", user_ids, key="pilot_admin_reset_user_id")
+                new_password = st.text_input("新密码", type="password", key="pilot_admin_reset_password")
+                reset_submitted = st.form_submit_button("重置密码", type="primary")
+            if reset_submitted:
+                try:
+                    if not new_password:
+                        raise ValueError("新密码不能为空。")
+                    admin_service.set_user_password(
+                        actor_user_id=actor_user_id,
+                        user_id=str(reset_user_id),
+                        password=str(new_password),
+                    )
+                    st.session_state[PILOT_ADMIN_NOTICE_KEY] = f"已重置密码：{reset_user_id}"
+                    st.rerun()
+                except Exception as exc:  # noqa: BLE001 - form errors should be visible
+                    _handle_platform_admin_error(st, exc)
+
+    with status_tab:
+        if not user_ids:
+            st.info("暂无用户。")
+        else:
+            selected_user_id = st.selectbox("选择账号", user_ids, key="pilot_admin_status_user_id")
+            selected_user = users_by_id[selected_user_id]
+            st.caption(
+                f"{selected_user.display_name} / {selected_user.login_name} / "
+                f"{selected_user.status.value} / 平台管理员={'是' if selected_user.is_platform_admin else '否'}"
+            )
+            grant_col, revoke_col, disable_col = st.columns(3)
+            with grant_col:
+                if st.button("授予平台管理员", key="pilot_admin_grant_admin", disabled=selected_user.is_platform_admin):
+                    try:
+                        admin_service.set_platform_admin(
+                            actor_user_id=actor_user_id,
+                            user_id=selected_user_id,
+                            is_platform_admin=True,
+                        )
+                        st.session_state[PILOT_ADMIN_NOTICE_KEY] = f"已授予平台管理员：{selected_user_id}"
+                        st.rerun()
+                    except Exception as exc:  # noqa: BLE001
+                        _handle_platform_admin_error(st, exc)
+            with revoke_col:
+                if st.button("撤销平台管理员", key="pilot_admin_revoke_admin", disabled=not selected_user.is_platform_admin):
+                    try:
+                        admin_service.set_platform_admin(
+                            actor_user_id=actor_user_id,
+                            user_id=selected_user_id,
+                            is_platform_admin=False,
+                        )
+                        st.session_state[PILOT_ADMIN_NOTICE_KEY] = f"已撤销平台管理员：{selected_user_id}"
+                        st.rerun()
+                    except Exception as exc:  # noqa: BLE001
+                        _handle_platform_admin_error(st, exc)
+            with disable_col:
+                if st.button("停用账号", key="pilot_admin_disable_user", disabled=not selected_user.is_active):
+                    try:
+                        admin_service.disable_user(actor_user_id=actor_user_id, user_id=selected_user_id)
+                        if selected_user_id == actor_user_id:
+                            _clear_pilot_session(st, clear_work_state=True)
+                            st.session_state[PILOT_LOGIN_NOTICE_KEY] = "当前账号已停用，请使用其他账号登录。"
+                        else:
+                            st.session_state[PILOT_ADMIN_NOTICE_KEY] = f"已停用账号：{selected_user_id}"
+                        st.rerun()
+                    except Exception as exc:  # noqa: BLE001
+                        _handle_platform_admin_error(st, exc)
+
+    with session_tab:
+        if not user_ids:
+            st.info("暂无用户。")
+        else:
+            session_user_id = st.selectbox("查看用户", user_ids, key="pilot_admin_session_user_id")
+            active_only = st.checkbox("只看有效会话", value=True, key="pilot_admin_session_active_only")
+            try:
+                sessions = _pilot_auth_service().list_user_sessions(str(session_user_id), active_only=bool(active_only))
+            except Exception as exc:  # noqa: BLE001
+                _handle_platform_admin_error(st, exc)
+                sessions = []
+            if sessions:
+                st.dataframe(_platform_admin_session_frame(sessions), width="stretch", hide_index=True)
+            else:
+                st.info("该用户暂无会话记录。")
 
 
 def _chart_png_docx_session_id(st) -> str:
@@ -3918,6 +4131,9 @@ def _normalize_workflow_page(st) -> str:
         st.session_state.get(WORKFLOW_PAGE_KEY, WORKFLOW_PAGES[0]),
     )
     normalized = WORKFLOW_PAGE_ALIASES.get(current, current)
+    if normalized == PLATFORM_ADMIN_PAGE and _current_pilot_user_is_platform_admin(st):
+        st.session_state[WORKFLOW_PAGE_KEY] = normalized
+        return normalized
     if normalized not in WORKFLOW_PAGES:
         normalized = WORKFLOW_PAGES[0]
     st.session_state[WORKFLOW_PAGE_KEY] = normalized
@@ -3970,6 +4186,19 @@ def _render_workflow_navigation(st) -> str:
                 help=meta["subtitle"],
             ):
                 _go_to_workflow_page(st, workflow_item)
+        if _current_pilot_user_is_platform_admin(st):
+            if page == PLATFORM_ADMIN_PAGE:
+                st.markdown(
+                    """
+                    <div class="gd-nav-item gd-nav-active">
+                      <div class="gd-nav-index">Admin</div>
+                      <div class="gd-nav-title">平台管理</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            elif st.button("Admin  平台管理", key="workflow_nav_platform_admin", help="管理内部试用账号、密码、权限和会话"):
+                _go_to_workflow_page(st, PLATFORM_ADMIN_PAGE)
         batch_result = st.session_state.get("batch_result")
         economy_result = st.session_state.get("economy_v1_result")
         economy_done = bool(economy_result and not economy_result.get("summary", pd.DataFrame()).empty)
@@ -6635,6 +6864,10 @@ def main() -> None:
     restore_notice = st.session_state.pop("_runtime_restore_notice", None)
     if restore_notice:
         st.info(f"{restore_notice} 如需完全重新开始，请回到方案仿真页重新测算。")
+
+    if workflow_page == PLATFORM_ADMIN_PAGE:
+        _render_platform_admin_page(st)
+        return
 
     if workflow_page == "欢迎页":
         _render_welcome_page(st)

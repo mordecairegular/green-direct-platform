@@ -1032,7 +1032,8 @@ python -m pytest
 - 设置 `GREEN_DIRECT_PILOT_STORE_DIR` 可指定与 `pilot-admin --store-dir` 相同的账号数据目录，默认 `.runtime/pilot_store`；
 - 登录成功会用 `LocalPilotAuth.require_session()` 校验本地 bearer-token 会话；
 - 会话失效、token 错误或退出登录时，会清理当前浏览器会话内的测算结果、下载缓存、价格曲线和图表导出缓存，避免下一位用户看到上一位用户的临时结果；
-- 当前门禁只解决“进入主 UI 前必须登录”，还没有项目列表、管理员页面、项目成员权限拦截、数据库会话表或 CSRF 防护。
+- 平台管理员登录后，侧栏会出现“平台管理”入口，当前支持创建账号、重置密码、停用账号、授予/撤销平台管理员和查看会话；
+- 当前门禁和平台管理页只解决内部试用账号控制，还没有项目列表、项目成员权限拦截、数据库会话表或 CSRF 防护。
 
 `src/green_direct/services/job_store.py` 已提供第一版 `LocalJobStore`：
 

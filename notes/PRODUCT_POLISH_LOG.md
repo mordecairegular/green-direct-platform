@@ -3277,7 +3277,7 @@ exchange_import_shortfall_energy == 0
 边界说明：
 - 本轮不实现 Streamlit 管理员页面；
 - 不替代正式企业身份系统或数据库会话表；
-- CLI 不应成为普通用户入口，只作为内部试用部署和管理员页面完成前的本地运维入口。
+- CLI 不应成为普通用户入口；在最小平台管理页已接入后，它仍作为内部试用部署、bootstrap 和应急运维入口，与网页端账号管理互补。
 
 验证：
 - `python -m pytest tests/test_cli.py tests/test_pilot_admin.py tests/test_pilot_auth.py -q` 通过，19 项通过；
@@ -3293,7 +3293,7 @@ exchange_import_shortfall_energy == 0
 本轮将上线前质量审查固化到 `notes/PRELAUNCH_QUALITY_REVIEW_20260615.md`。当前判断是：项目可以进入受控内部 10-20 人 pilot，但不应直接对外公网生产发布。
 
 主要依据：
-- 全量测试 241 项通过，`src` 编译检查通过，CLI 源码树启动口径已验证；
+- 全量测试 243 项通过，`src` 编译检查通过，CLI 源码树启动口径已验证；
 - V0.1 风光储核心调度测试未破坏；
 - 多人试用的关键风险已有第一层缓解：默认直接 Streamlit 不恢复本地 pickle 快照，PNG ZIP 后台任务 key 带会话 ID，价格曲线不会从旧快照静默复用；
 - 后台账号、认证、权限、任务和结果存储已有服务层骨架和测试，但尚未接入 Streamlit 登录/管理员/项目页面。
@@ -3335,4 +3335,36 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_ui_import.py::test_pilot_auth_gate_is_disabled_by_default tests/test_ui_import.py::test_pilot_authenticated_user_validates_local_session tests/test_ui_import.py::test_pilot_invalid_session_clears_work_state tests/test_pilot_auth.py tests/test_pilot_admin.py -q` 通过，18 项通过；
 - `python -m pytest tests/test_ui_import.py tests/test_pilot_auth.py tests/test_pilot_admin.py -q` 通过，63 项通过；
 - `python -m pytest -q` 通过，241 项通过；
+- `python -m compileall -q src` 通过。
+
+### 2026-06-15 Streamlit 最小平台账号管理页
+
+本轮继续推进内部试用后台控制能力。已有 `pilot-admin` CLI 可以完成账号维护，但内部试用时不能长期要求业务管理员在服务器命令行里操作；因此在登录门禁之后，补一个只对平台管理员可见的最小平台账号管理页。
+
+本轮判断：
+- 平台账号管理页应复用 `LocalPilotAdminService`，不要直接在 UI 里绕过权限和审计；
+- 普通用户不应看到平台管理入口；
+- 本轮仍不做项目管理、项目成员授权、后台 worker 或正式数据库会话，避免一次性重构过大。
+
+本轮实现：
+- 侧栏新增条件入口 `Admin  平台管理`，仅在 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 且当前用户 `is_platform_admin=True` 时显示；
+- `平台管理` 页展示账号列表、账号数、活跃账号数和活跃平台管理员数；
+- 支持创建账号并设置初始密码；
+- 支持重置密码；
+- 支持停用账号；
+- 支持授予或撤销平台管理员；
+- 支持查看用户会话；
+- 普通用户登录后不会出现平台管理入口；
+- 如果平台管理员停用自己，当前会话会被清理并回到登录页。
+
+边界说明：
+- 该页是内部 pilot 的本地账号管理入口，不是正式 IAM；
+- 暂未实现项目列表、项目成员权限拦截、项目管理员页面、后台任务 worker、数据库会话表或 CSRF 防护；
+- 后续项目/成员管理仍应走 `PilotAccessService`，不要在 UI 里直接调用底层 store。
+
+验证：
+- `python -m pytest tests/test_ui_import.py::test_streamlit_platform_admin_can_create_user tests/test_ui_import.py::test_streamlit_non_admin_does_not_show_platform_admin_entry -q` 通过，2 项通过。
+- `python -m pytest tests/test_ui_import.py::test_streamlit_platform_admin_can_create_user tests/test_ui_import.py::test_streamlit_non_admin_does_not_show_platform_admin_entry tests/test_ui_import.py::test_streamlit_app_allows_login_with_pilot_account -q` 通过，3 项通过；
+- `python -m pytest tests/test_ui_import.py tests/test_pilot_auth.py tests/test_pilot_admin.py -q` 通过，65 项通过；
+- `python -m pytest -q` 通过，243 项通过；
 - `python -m compileall -q src` 通过。
