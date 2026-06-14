@@ -9,12 +9,9 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import datetime
-from enum import Enum
 import hashlib
 import json
 from pathlib import Path
-import re
-from typing import Any, Mapping
 
 from green_direct.models.pilot_backend import (
     ArtifactKind,
@@ -22,40 +19,12 @@ from green_direct.models.pilot_backend import (
     JobArtifact,
     StudyResultRecord,
 )
-
-
-_SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
-
-
-def _validate_segment(value: str, field_name: str) -> str:
-    text = str(value)
-    if not _SAFE_SEGMENT.fullmatch(text):
-        raise ValueError(f"{field_name} contains unsafe path characters.")
-    return text
-
-
-def _json_value(value: Any) -> Any:
-    if isinstance(value, Enum):
-        return value.value
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if isinstance(value, Mapping):
-        return {str(key): _json_value(nested) for key, nested in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_value(item) for item in value]
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_json_value(payload), ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+from green_direct.services.local_store_utils import (
+    json_value,
+    read_json,
+    validate_path_segment,
+    write_json,
+)
 
 
 class LocalResultStore:
@@ -65,23 +34,23 @@ class LocalResultStore:
         self.root = Path(root).resolve()
 
     def _project_dir(self, project_id: str) -> Path:
-        return self.root / "projects" / _validate_segment(project_id, "project_id")
+        return self.root / "projects" / validate_path_segment(project_id, "project_id")
 
     def _study_dir(self, project_id: str, study_id: str) -> Path:
-        return self._project_dir(project_id) / "studies" / _validate_segment(study_id, "study_id")
+        return self._project_dir(project_id) / "studies" / validate_path_segment(study_id, "study_id")
 
     def _artifact_dir(self, project_id: str, study_id: str, artifact_id: str) -> Path:
         return (
             self._study_dir(project_id, study_id)
             / "artifacts"
-            / _validate_segment(artifact_id, "artifact_id")
+            / validate_path_segment(artifact_id, "artifact_id")
         )
 
     def _result_path(self, project_id: str, study_id: str, result_id: str) -> Path:
         return (
             self._study_dir(project_id, study_id)
             / "results"
-            / f"{_validate_segment(result_id, 'result_id')}.json"
+            / f"{validate_path_segment(result_id, 'result_id')}.json"
         )
 
     def store_artifact(
@@ -99,7 +68,7 @@ class LocalResultStore:
     ) -> JobArtifact:
         """Write an artifact payload and return its immutable index record."""
 
-        safe_filename = _validate_segment(filename, "filename")
+        safe_filename = validate_path_segment(filename, "filename")
         artifact_dir = self._artifact_dir(project_id, study_id, artifact_id)
         payload_path = artifact_dir / safe_filename
         metadata_path = artifact_dir / "artifact.json"
@@ -111,9 +80,9 @@ class LocalResultStore:
         payload_path.write_bytes(data)
         digest = hashlib.sha256(data).hexdigest()
         storage_uri = (
-            f"local-result-store://{_validate_segment(project_id, 'project_id')}/"
-            f"{_validate_segment(study_id, 'study_id')}/artifacts/"
-            f"{_validate_segment(artifact_id, 'artifact_id')}/{safe_filename}"
+            f"local-result-store://{validate_path_segment(project_id, 'project_id')}/"
+            f"{validate_path_segment(study_id, 'study_id')}/artifacts/"
+            f"{validate_path_segment(artifact_id, 'artifact_id')}/{safe_filename}"
         )
         artifact = JobArtifact(
             artifact_id=artifact_id,
@@ -126,14 +95,14 @@ class LocalResultStore:
             sha256=digest,
             size_bytes=len(data),
         )
-        _write_json(metadata_path, asdict(artifact))
+        write_json(metadata_path, asdict(artifact))
         return artifact
 
     def load_artifact(self, project_id: str, study_id: str, artifact_id: str) -> JobArtifact:
         """Load an artifact index record without reading its binary payload."""
 
         metadata_path = self._artifact_dir(project_id, study_id, artifact_id) / "artifact.json"
-        data = _read_json(metadata_path)
+        data = read_json(metadata_path)
         return JobArtifact(
             artifact_id=data["artifact_id"],
             project_id=data["project_id"],
@@ -152,7 +121,7 @@ class LocalResultStore:
 
         artifact_dir = self._artifact_dir(artifact.project_id, artifact.study_id, artifact.artifact_id)
         filename = artifact.storage_uri.rsplit("/", 1)[-1]
-        payload = (artifact_dir / _validate_segment(filename, "filename")).read_bytes()
+        payload = (artifact_dir / validate_path_segment(filename, "filename")).read_bytes()
         if artifact.sha256 and hashlib.sha256(payload).hexdigest() != artifact.sha256:
             raise ValueError("Artifact checksum mismatch.")
         return payload
@@ -163,13 +132,13 @@ class LocalResultStore:
         path = self._result_path(record.project_id, record.study_id, record.result_id)
         if path.exists() and not overwrite:
             raise FileExistsError(f"Result record already exists: {record.result_id}")
-        _write_json(path, asdict(record))
+        write_json(path, asdict(record))
         return record
 
     def load_result_record(self, project_id: str, study_id: str, result_id: str) -> StudyResultRecord:
         """Load a study result index."""
 
-        data = _read_json(self._result_path(project_id, study_id, result_id))
+        data = read_json(self._result_path(project_id, study_id, result_id))
         return StudyResultRecord(
             result_id=data["result_id"],
             project_id=data["project_id"],
@@ -193,7 +162,7 @@ class LocalResultStore:
             path = self._project_dir(event.project_id) / "audit.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(_json_value(asdict(event)), ensure_ascii=False, sort_keys=True))
+            handle.write(json.dumps(json_value(asdict(event)), ensure_ascii=False, sort_keys=True))
             handle.write("\n")
         return event
 

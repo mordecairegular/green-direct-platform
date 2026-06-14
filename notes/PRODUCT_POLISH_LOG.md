@@ -3070,3 +3070,30 @@ exchange_import_shortfall_energy == 0
 验证：
 - `python -m pytest tests/test_result_store.py tests/test_pilot_backend_models.py -q`：12 项通过；
 - `python -m pytest -q`：192 项通过。
+
+### 2026-06-15 本地账户与项目注册表第一版
+
+本轮继续推进内部试用所需的后台账户管理控制能力。在 `pilot_backend` 模型和 `LocalResultStore` 之后，新增服务层本地 JSON 注册表，先支撑用户、项目和项目成员角色管理。
+
+本轮判断：
+- 当前不应仓促实现密码登录或会话认证，避免制造“看起来能登录但安全边界不完整”的半成品；
+- 更稳的下一步是把用户、项目和成员关系的创建、停用、角色授权等管理动作做成可测试服务；
+- 后续管理员页面、SQLite/Postgres 表或企业身份集成都应复用这层语义，而不是直接散落在 Streamlit UI。
+
+本轮实现：
+- 新增 `src/green_direct/services/local_store_utils.py`，复用本地 JSON 写读、枚举/时间序列化和路径片段白名单校验；
+- `LocalResultStore` 改为复用上述工具；
+- 新增 `src/green_direct/services/pilot_registry.py`；
+- `LocalPilotRegistry` 支持保存、读取、列出和停用 `User`；
+- 支持保存、读取、列出和归档 `Project`；
+- 支持 `grant_project_role()` 更新或创建 `ProjectMembership`，并支持 `disable_membership()`；
+- 写入 membership 时会检查项目和用户已存在，避免孤立授权；
+- `green_direct.services` 包导出 `LocalPilotRegistry`。
+
+边界说明：
+- 本轮不存储密码，不处理登录会话，不提供管理员 UI；
+- 后续可先接 Streamlit 管理页，也可把本地 JSON 适配器替换为 SQLite/Postgres。
+
+验证：
+- `python -m pytest tests/test_pilot_registry.py tests/test_result_store.py tests/test_pilot_backend_models.py -q`：18 项通过；
+- `python -m pytest -q`：198 项通过。

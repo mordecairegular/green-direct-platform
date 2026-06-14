@@ -980,6 +980,14 @@ python -m pytest
 
 `LocalResultStore` 目前是服务层骨架，不接管现有 Streamlit 工作流。后续接入时，技术仿真、经济测算、推荐组合和导出文件应逐步写入该 store 或其数据库/对象存储替代实现。
 
+`src/green_direct/services/pilot_registry.py` 已提供第一版 `LocalPilotRegistry`：
+
+- `save_user()` / `load_user()` / `list_users()` / `disable_user()`；
+- `save_project()` / `load_project()` / `list_projects()` / `archive_project()`；
+- `grant_project_role()` / `disable_membership()` / `list_project_memberships()`。
+
+`LocalPilotRegistry` 只管理账户、项目和成员关系元数据，不存储密码、不处理登录会话。后续管理员页面可以先调用该服务完成用户停用、项目归档和角色授权；正式部署时再替换为 SQLite/Postgres 或企业身份系统映射。
+
 ## 23. 本地运行方式
 
 安装依赖：

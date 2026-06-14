@@ -147,7 +147,7 @@ python -m pytest -q
 ```text
 请先做架构设计，不要一次性实现完整后台。
 
-目标是支持内部 10-20 人试用，不是正式公网 SaaS。请先阅读 `src/green_direct/models/pilot_backend.py` 和 `src/green_direct/services/result_store.py`，把它们视为已经落地的第一步模型和本地文件版 ResultStore，再基于当前 Streamlit 前台和 Python 服务层，设计下一阶段最小后台能力：
+目标是支持内部 10-20 人试用，不是正式公网 SaaS。请先阅读 `src/green_direct/models/pilot_backend.py`、`src/green_direct/services/result_store.py` 和 `src/green_direct/services/pilot_registry.py`，把它们视为已经落地的第一步模型、本地文件版 ResultStore 和本地账户/项目注册表，再基于当前 Streamlit 前台和 Python 服务层，设计下一阶段最小后台能力：
 1. User、Role、Project、ProjectMembership；
 2. ProjectStudy、StudyResult、ResultStore；
 3. Job、JobStatus、JobArtifact；

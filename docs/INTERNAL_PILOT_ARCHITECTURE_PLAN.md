@@ -86,6 +86,15 @@ PNG 图表包后台任务也按会话隔离：
 - 路径片段使用白名单校验，防止把用户输入直接拼成越权文件路径；
 - 当前实现是本地文件适配器，不替代后续 SQLite/Postgres、对象存储或正式权限控制。
 
+已落地的第一步账户/项目注册表：
+
+- `src/green_direct/services/pilot_registry.py` 提供 `LocalPilotRegistry`；
+- 支持保存、读取、列出和停用 `User`；
+- 支持保存、读取、列出和归档 `Project`；
+- 支持为项目授予/更新/停用用户角色，角色沿用 `admin`、`analyst`、`viewer`；
+- 写入成员关系时会检查用户和项目已存在，避免孤立 membership；
+- 当前注册表不存储密码、不处理登录会话、不替代正式认证；后续登录页或企业身份集成只应把认证主体映射到这些 `User` / `ProjectMembership` 记录。
+
 试用版可以先用 SQLite / Postgres 加密码登录；正式内网版再评估企业微信、OIDC、LDAP 或公司统一身份。
 
 ## 5. 性能优化路线
