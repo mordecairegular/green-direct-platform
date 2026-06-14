@@ -61,12 +61,14 @@ streamlit run src/green_direct/ui/app.py
 
 ```bash
 export GREEN_DIRECT_ADMIN_PASSWORD='change-me-before-use'
-python -m green_direct.cli pilot-admin bootstrap \
+PYTHONPATH=src python -m green_direct.cli pilot-admin bootstrap \
   --store-dir .runtime/pilot_store \
   --user-id admin \
   --login-name admin@example.local \
   --display-name Admin \
   --password-env GREEN_DIRECT_ADMIN_PASSWORD
 ```
+
+如已执行 `python -m pip install -e .` 安装为可编辑包，也可使用 `green-direct pilot-admin ...`。
 
 该 CLI 是管理员页面完成前的本地运维入口，不代表正式公网 SaaS 身份系统已完成。

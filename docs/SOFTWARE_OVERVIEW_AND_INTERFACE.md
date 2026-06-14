@@ -1067,6 +1067,7 @@ python -m streamlit run src/green_direct/ui/app.py --server.port=8503
 内部试用后台账号 CLI 示例：
 
 ```powershell
+$env:PYTHONPATH = "src"
 $env:GREEN_DIRECT_ADMIN_PASSWORD = "change-me-before-use"
 python -m green_direct.cli pilot-admin bootstrap `
     --store-dir .runtime/pilot_store `
@@ -1089,7 +1090,7 @@ python -m green_direct.cli pilot-admin list-users `
     --actor-user-id admin
 ```
 
-安装为包后也可使用 `green-direct pilot-admin ...`。当前 CLI 是管理员页面前的本地运维入口，不代表正式身份系统已完成。
+上述 `python -m green_direct.cli` 示例按源码树运行，因此需要先把 `src` 加入 `PYTHONPATH`。如已执行 `python -m pip install -e .` 安装为包，也可使用 `green-direct pilot-admin ...`。当前 CLI 是管理员页面前的本地运维入口，不代表正式身份系统已完成。
 
 如果端口已有旧进程，可先停止：
 

@@ -3283,3 +3283,7 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_cli.py tests/test_pilot_admin.py tests/test_pilot_auth.py -q` 通过，19 项通过；
 - `python -m pytest -q` 通过，236 项通过；
 - `python -m compileall -q src` 通过。
+
+上线前启动口径补充：
+- 源码树内直接运行 `python -m green_direct.cli ...` 前必须设置 `PYTHONPATH=src`，否则 Python 无法在 src-layout 项目中找到 `green_direct` 包；
+- README、接口总览文档和跨机器 handoff 已同步改为源码树 `PYTHONPATH=src python -m green_direct.cli ...` / 安装后 `green-direct pilot-admin ...` 两种入口，避免试用部署人员复制到失败命令。
