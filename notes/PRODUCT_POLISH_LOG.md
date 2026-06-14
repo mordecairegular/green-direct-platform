@@ -2975,3 +2975,17 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_batch_runner.py -q`：7 项通过；
 - `python -m pytest tests/test_study_runner.py tests/test_batch_runner.py -q`：16 项通过；
 - `python -m pytest -q`：178 项通过。
+
+### 2026-06-15 02 页接入并行仿真控制
+
+本轮将上一节的底层并行能力接入用户工作流。
+
+本轮实现：
+- 02 页“高级：枚举性能提醒”中新增“并行计算进程数”；
+- 默认值为 1，即保持串行；
+- 可选范围为 1-8，设置大于 1 时只并行单方案技术仿真，不改变储能调度、政策筛选或经济性口径；
+- Demo 和正式测算都会把该值写入 `PerformanceParams(parallel_workers=...)`；
+- `simulation_parallel_workers` 加入跨页面状态保留列表。
+
+验证：
+- `python -m pytest tests/test_ui_import.py::test_simulation_page_exposes_parallel_worker_control tests/test_ui_import.py::test_simulation_capacity_input_survives_workflow_navigation -q`：2 项通过。

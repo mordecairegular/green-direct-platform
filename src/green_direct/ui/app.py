@@ -195,6 +195,7 @@ SIMULATION_WIDGET_STATE_KEYS = [
     "simulation_exact_bess_power",
     "simulation_exact_bess_energy",
     "simulation_warn_threshold",
+    "simulation_parallel_workers",
     "simulation_allow_export",
     "simulation_enforce_export_cap",
     "simulation_self_use_rate_min",
@@ -5597,6 +5598,7 @@ def _render_simulation_page(st) -> None:
     scenario_grid = None
     scenario_count: int | None = None
     warn_threshold = 5000
+    parallel_workers = 1
     grid_exchange_power_limit = None
     duration_text = str(_stored_widget_value(st, "simulation_bess_duration_text", "2,4"))
     exact_pv_capacity = None
@@ -5792,8 +5794,9 @@ def _render_simulation_page(st) -> None:
             _store_widget_value(st, "simulation_scenario_pool_mode", scenario_mode)
 
             with st.expander("高级：枚举性能提醒", expanded=False):
+                perf_cols = st.columns(2)
                 warn_threshold = int(
-                    st.number_input(
+                    perf_cols[0].number_input(
                         "方案数提醒阈值",
                         value=int(_stored_widget_value(st, "simulation_warn_threshold", 5000)),
                         min_value=1,
@@ -5803,7 +5806,20 @@ def _render_simulation_page(st) -> None:
                         args=(st, "simulation_warn_threshold"),
                     )
                 )
-                st.caption("指定单方案可绕开大规模遍历；范围遍历较慢时，优先缩小步长/范围，再考虑并行执行。")
+                parallel_workers = int(
+                    perf_cols[1].number_input(
+                        "并行计算进程数",
+                        value=int(_stored_widget_value(st, "simulation_parallel_workers", 1)),
+                        min_value=1,
+                        max_value=8,
+                        step=1,
+                        help="默认 1 为串行。设置为 2-8 时会并行执行单方案技术仿真；小方案可能因多进程启动开销不一定更快。",
+                        key="simulation_parallel_workers",
+                        on_change=_sync_stored_widget_value,
+                        args=(st, "simulation_parallel_workers"),
+                    )
+                )
+                st.caption("指定单方案可绕开大规模遍历；范围遍历较慢时，优先缩小步长/范围。进程数大于 1 时只并行技术仿真，不改变调度口径。")
 
             if scenario_mode == "指定单方案":
                 exact_row_1 = st.columns(2, gap="small")
@@ -6057,6 +6073,7 @@ def _render_simulation_page(st) -> None:
         ("simulation_exact_bess_power", exact_bess_power),
         ("simulation_exact_bess_energy", exact_bess_energy),
         ("simulation_warn_threshold", warn_threshold),
+        ("simulation_parallel_workers", parallel_workers),
         ("simulation_self_use_rate_min", self_use_rate_min),
         ("simulation_green_load_rate_min", green_load_rate_min),
         ("simulation_export_rate_max", export_rate_max),
@@ -6151,7 +6168,10 @@ def _render_simulation_page(st) -> None:
                         scenario_grid=demo_grid,
                         bess_params=BessParams(),
                         policy_params=PolicyParams(export_control_mode="annual_cap_runtime"),
-                        performance_params=PerformanceParams(warn_if_scenarios_exceed=int(warn_threshold)),
+                        performance_params=PerformanceParams(
+                            warn_if_scenarios_exceed=int(warn_threshold),
+                            parallel_workers=int(parallel_workers),
+                        ),
                         cleaning_params=DataCleaningParams(),
                         config_metadata={
                             "bess_calendar_life_years": 15.0,
@@ -6232,7 +6252,10 @@ def _render_simulation_page(st) -> None:
                     scenario_grid=scenario_grid,
                     bess_params=bess_params,
                     policy_params=policy_params,
-                    performance_params=PerformanceParams(warn_if_scenarios_exceed=int(warn_threshold)),
+                    performance_params=PerformanceParams(
+                        warn_if_scenarios_exceed=int(warn_threshold),
+                        parallel_workers=int(parallel_workers),
+                    ),
                     cleaning_params=DataCleaningParams(),
                     config_metadata={
                         "bess_calendar_life_years": bess_calendar_life,

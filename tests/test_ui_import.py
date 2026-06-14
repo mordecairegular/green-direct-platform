@@ -532,6 +532,21 @@ def test_simulation_capacity_input_survives_workflow_navigation():
     assert len(app_test.exception) == 0
 
 
+def test_simulation_page_exposes_parallel_worker_control():
+    import green_direct.ui.app as app
+    from streamlit.testing.v1 import AppTest
+
+    app_test = AppTest.from_file("src/green_direct/ui/app.py")
+    app_test.session_state["workflow_page"] = "方案仿真"
+    app_test.run(timeout=10)
+
+    worker_input = next(widget for widget in app_test.number_input if widget.label == "并行计算进程数")
+
+    assert worker_input.value == 1
+    assert "simulation_parallel_workers" in app.SIMULATION_WIDGET_STATE_KEYS
+    assert len(app_test.exception) == 0
+
+
 def test_simple_markdown_report_mentions_typical_day_method():
     from green_direct.ui.app import _build_simple_report_markdown
 
