@@ -2989,3 +2989,19 @@ exchange_import_shortfall_energy == 0
 
 验证：
 - `python -m pytest tests/test_ui_import.py::test_simulation_page_exposes_parallel_worker_control tests/test_ui_import.py::test_simulation_capacity_input_survives_workflow_navigation -q`：2 项通过。
+
+### 2026-06-15 Claude Code 上线审查与 UI 提升提示词收敛
+
+用户希望让 Claude Code 继续做上线前全面 review/debug，同时希望它对 UI 做提升。本轮判断：
+- 现有 GPT 提示词方向正确，应该拆成“上线审查”和“UI 提升”两轮；
+- 但原提示词缺少固定审查范围、修复权限边界、交付格式、浏览器验证和 UI 禁区说明；
+- 如果把 review/debug 和 UI uplift 混在一轮，容易既漏掉多人上线风险，又让 UI 优化越界到计算口径或前端重写。
+
+本轮实现：
+- 新增 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`；
+- 将提示词拆为上下文读取、上线前 review/debug、Streamlit UI 提升、后台账户/Job/ResultStore 架构设计四类；
+- `docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md` 和 `notes/HANDOFF_FOR_NEW_MACHINE.md` 改为引用该统一提示词文档，避免两处长提示词后续不一致；
+- 明确 Claude Code 审查时应覆盖多人 session 隔离、全局缓存、运行快照、后台任务、下载文件、电价曲线、V0.1 调度口径、经济性/推荐只读技术结果、性能保留策略和浏览器验证。
+
+验证：
+- 本轮仅修改文档，未改变可执行代码。

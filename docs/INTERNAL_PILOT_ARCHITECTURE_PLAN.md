@@ -116,18 +116,10 @@ PNG 图表包后台任务也按会话隔离：
 
 ## 6. Claude Code 审查与 UI 提升提示词
 
-建议把 Claude Code 任务拆成两轮。
+完整可复制提示词已拆到 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`，避免本文件和换机交接文档维护两套长提示词。
 
-第一轮是上线安全审查：
-
-```text
-请按“内部 10-20 人试用上线前审查”全面 review/debug 本项目。先阅读 AGENTS.md、CLAUDE.md、notes/HANDOFF_FOR_NEW_MACHINE.md、notes/PRODUCT_POLISH_LOG.md、docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md、docs/SOFTWARE_OVERVIEW_AND_INTERFACE.md、docs/ECONOMY_RECOMMENDATION_V1_MAP.md、docs/CHART_MODULE_CURRENT_LOGIC.md、docs/WEB_APP_WORKFLOW_AND_UI_RESTRUCTURE.md，以及 notes/architecture_reframe_20260519/ 下的文档。然后执行 git status --short 和 python -m pytest -q，把当前改动视为既有工作，不要回滚。
-
-请重点审查：多人部署下是否存在跨用户 session_state、全局缓存、运行快照、后台任务、下载文件和价格曲线串数据风险；V0.1 风光储逐小时调度口径是否被破坏；经济性和推荐是否只读取技术结果、不反向改变调度；PNG/HTML 图表导出、启动器和测试覆盖是否存在上线阻断问题。发现问题按 P0/P1/P2 排序列出文件和行号；P0/P1 可直接修复，但任何会改变计算口径的修复必须先说明原因并同步测试和文档。
-```
-
-第二轮是 UI 提升：
-
-```text
-请在不改变核心计算口径的前提下提升 Streamlit UI。目标用户是内部能源项目规划人员，界面应像工程测算/规划辅助决策后台，不要做营销页。优先优化六步工作流的信息层级、输入区密度、推荐卡片可读性、图表页对比体验、导出页状态反馈和错误提示。不要重写为新前端框架；不要大改调度、经济性和推荐算法；不要把 raw scenario enumeration 变成主入口。每个 UI 改动都应说明对应的用户任务、涉及文件和验证方式。完成后运行 python -m pytest -q，并用浏览器打开本地 Streamlit 验证主要页面无异常。
-```
+使用建议：
+- 先让 Claude Code 做上下文读取和上线前 review/debug；
+- P0/P1 风险清零或明确记录后，再做 UI 提升；
+- UI 提升必须限制在当前 Streamlit 工程工作台内，不要改调度、经济性和推荐算法；
+- 如果继续推进多人后台，单独使用账户、Job 和 `ResultStore` 架构提示词，不要和 UI 提升混在同一轮。
