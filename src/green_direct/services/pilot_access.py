@@ -138,6 +138,24 @@ class PilotAccessService:
         )
         return saved
 
+    def list_accessible_projects(
+        self,
+        *,
+        actor_user_id: str,
+        include_archived: bool = False,
+    ) -> list[tuple[Project, ProjectMembership]]:
+        """List projects where the actor has an active membership."""
+
+        self._active_user(actor_user_id)
+        visible: list[tuple[Project, ProjectMembership]] = []
+        for project in self.registry.list_projects():
+            if not include_archived and project.status != ProjectStatus.ACTIVE:
+                continue
+            membership = self.registry.get_project_membership(project.project_id, actor_user_id)
+            if membership is not None and membership.can_view_project():
+                visible.append((project, membership))
+        return visible
+
     def archive_project(self, *, actor_user_id: str, project_id: str) -> Project:
         """Archive a project after checking admin membership."""
 

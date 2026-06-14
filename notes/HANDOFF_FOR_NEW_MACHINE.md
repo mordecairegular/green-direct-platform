@@ -158,13 +158,16 @@
 - 下网电价曲线 V1，可选 CSV / Excel 上传，且只能使用当前会话明确上传的曲线；
 - 图表模块、HTML 图表包和 Word 友好 PNG 图表包；
 - 启动器、端口自检、本地单机结果快照恢复和会话隔离的后台 PNG 生成；
+- 可选内部试用登录门禁、项目工作区门禁和最小平台账号/项目成员管理页；
+- 本地 pilot backend 服务骨架：`LocalPilotAuth`、`LocalPilotRegistry`、`LocalPilotAdminService`、`PilotAccessService`、`LocalJobStore`、`LocalResultStore`；
 - pytest 测试基线。
 
 最近一次上线前交接检查，已验证：
 
 ```text
 python -m pytest -q
-169 passed
+248 passed
+python -m compileall -q src
 ```
 
 ## 6. 后续开发优先方向
@@ -176,7 +179,7 @@ python -m pytest -q
 3. 推荐引擎和 `RecommendationPortfolio`；
 4. 轻量经济性排序；
 5. 柴发资产和离网 / 备用调度策略；
-6. 大批量结果存储和按需明细；
+6. 项目级 Job 状态页、ResultStore 结果接入和代表方案按需明细；
 7. UI 和报告围绕推荐方案重塑。
 
 当前特别说明：

@@ -39,16 +39,19 @@ from green_direct.export.excel_exporter import export_summary_excel
 from green_direct.io.read_curves import read_csv_auto_encoding
 from green_direct.io.validators import DataValidationError
 from green_direct.models.params import BessParams, DataCleaningParams, PerformanceParams, PolicyParams
-from green_direct.models.pilot_backend import User
+from green_direct.models.pilot_backend import Project, ProjectMembership, ProjectRole, User
 from green_direct.recommendation import (
     ENGINEERING_VIEW_LABELS,
     SINGLE_ENTITY_VIEW_LABELS,
 )
 from green_direct.services import (
+    LocalJobStore,
     LocalPilotAuth,
     LocalPilotRegistry,
     LocalResultStore,
     LocalPilotAdminService,
+    PilotAccessError,
+    PilotAccessService,
     PilotAdminError,
     PilotAuthError,
     RecommendationInputSnapshot,
@@ -133,6 +136,10 @@ PILOT_LOGIN_NAME_KEY = "_pilot_auth_login_name"
 PILOT_IS_PLATFORM_ADMIN_KEY = "_pilot_auth_is_platform_admin"
 PILOT_LOGIN_NOTICE_KEY = "_pilot_auth_notice"
 PILOT_ADMIN_NOTICE_KEY = "_pilot_admin_notice"
+PILOT_ACTIVE_PROJECT_ID_KEY = "_pilot_active_project_id"
+PILOT_ACTIVE_PROJECT_NAME_KEY = "_pilot_active_project_name"
+PILOT_ACTIVE_PROJECT_ROLE_KEY = "_pilot_active_project_role"
+PILOT_PROJECT_NOTICE_KEY = "_pilot_project_notice"
 PLATFORM_ADMIN_PAGE = "平台管理"
 CHART_PNG_DOCX_SESSION_ID_KEY = "_chart_png_docx_session_id"
 _CHART_PNG_DOCX_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="green-direct-png")
@@ -153,6 +160,9 @@ PILOT_AUTH_SESSION_KEYS = (
     PILOT_USER_DISPLAY_KEY,
     PILOT_LOGIN_NAME_KEY,
     PILOT_IS_PLATFORM_ADMIN_KEY,
+    PILOT_ACTIVE_PROJECT_ID_KEY,
+    PILOT_ACTIVE_PROJECT_NAME_KEY,
+    PILOT_ACTIVE_PROJECT_ROLE_KEY,
 )
 PILOT_AUTH_WORK_STATE_KEYS = tuple(
     dict.fromkeys(
@@ -1753,6 +1763,8 @@ def _truthy_env(value: str | None) -> bool:
 
 
 def _runtime_snapshot_enabled() -> bool:
+    if _pilot_auth_enabled():
+        return False
     return _truthy_env(os.environ.get(RUNTIME_SNAPSHOT_ENV))
 
 
@@ -1778,6 +1790,14 @@ def _pilot_admin_service() -> LocalPilotAdminService:
     result_store = LocalResultStore(root)
     auth = LocalPilotAuth(root, registry=registry, result_store=result_store)
     return LocalPilotAdminService(registry=registry, auth=auth, result_store=result_store)
+
+
+def _pilot_access_service() -> PilotAccessService:
+    root = _pilot_store_dir()
+    registry = LocalPilotRegistry(root)
+    job_store = LocalJobStore(root)
+    result_store = LocalResultStore(root)
+    return PilotAccessService(registry=registry, job_store=job_store, result_store=result_store)
 
 
 def _current_pilot_user_id(st) -> str | None:
@@ -1893,6 +1913,183 @@ def _ensure_pilot_authenticated(st) -> bool:
     return True
 
 
+def _current_pilot_project_id(st) -> str | None:
+    project_id = st.session_state.get(PILOT_ACTIVE_PROJECT_ID_KEY)
+    return str(project_id) if project_id else None
+
+
+def _clear_pilot_project_context(st, *, clear_work_state: bool) -> None:
+    for key in (
+        PILOT_ACTIVE_PROJECT_ID_KEY,
+        PILOT_ACTIVE_PROJECT_NAME_KEY,
+        PILOT_ACTIVE_PROJECT_ROLE_KEY,
+    ):
+        st.session_state.pop(key, None)
+    if clear_work_state:
+        _clear_pilot_work_state(st)
+
+
+def _activate_pilot_project(
+    st,
+    *,
+    project: Project,
+    membership: ProjectMembership,
+    clear_work_state: bool,
+) -> None:
+    previous_project_id = _current_pilot_project_id(st)
+    previous_role = st.session_state.get(PILOT_ACTIVE_PROJECT_ROLE_KEY)
+    st.session_state[PILOT_ACTIVE_PROJECT_ID_KEY] = project.project_id
+    st.session_state[PILOT_ACTIVE_PROJECT_NAME_KEY] = project.name
+    st.session_state[PILOT_ACTIVE_PROJECT_ROLE_KEY] = membership.role.value
+    if clear_work_state and previous_project_id and previous_project_id != project.project_id:
+        _clear_pilot_work_state(st)
+    elif previous_role and previous_role != membership.role.value:
+        _clear_pilot_work_state(st)
+
+
+def _current_pilot_project_can_submit_jobs(st) -> bool:
+    if not _pilot_auth_enabled():
+        return True
+    return st.session_state.get(PILOT_ACTIVE_PROJECT_ROLE_KEY) in {
+        ProjectRole.ADMIN.value,
+        ProjectRole.ANALYST.value,
+    }
+
+
+def _render_pilot_project_submit_permission_block(st) -> None:
+    st.markdown("## 当前项目为只读权限")
+    st.warning("你的项目角色当前不能发起新的技术仿真或经济性测算。请联系项目管理员或平台管理员调整为 admin / analyst 后再运行计算。")
+
+
+def _pilot_project_option_label(option: tuple[Project, ProjectMembership]) -> str:
+    project, membership = option
+    return f"{project.name} ({project.project_id}, {membership.role.value})"
+
+
+def _render_create_project_form(st, *, actor_user_id: str, form_key: str) -> None:
+    with st.form(form_key):
+        project_id = st.text_input(
+            "项目 ID",
+            key=f"{form_key}_project_id",
+            help="建议使用英文、数字、下划线或短横线，例如 pilot_project_01。",
+        )
+        project_name = st.text_input("项目名称", key=f"{form_key}_project_name")
+        submitted = st.form_submit_button("创建项目", type="primary")
+
+    if not submitted:
+        return
+
+    try:
+        project = _pilot_access_service().create_project(
+            actor_user_id=actor_user_id,
+            project=Project(
+                str(project_id).strip(),
+                str(project_name).strip(),
+                created_by_user_id=actor_user_id,
+            ),
+        )
+        membership = _pilot_access_service().registry.get_project_membership(project.project_id, actor_user_id)
+        if membership is None:
+            raise PilotAccessError("Project was created but membership was not initialized.")
+        _activate_pilot_project(st, project=project, membership=membership, clear_work_state=True)
+        st.session_state[PILOT_PROJECT_NOTICE_KEY] = f"已创建并进入项目：{project.name}"
+        st.rerun()
+    except Exception as exc:  # noqa: BLE001 - form errors should be visible
+        if isinstance(exc, (PilotAccessError, FileExistsError, FileNotFoundError, ValueError)):
+            st.error(str(exc))
+        else:
+            raise exc
+
+
+def _render_pilot_project_sidebar(
+    st,
+    *,
+    actor_user_id: str,
+    visible_projects: list[tuple[Project, ProjectMembership]],
+) -> None:
+    with st.sidebar:
+        st.markdown("---")
+        st.caption("项目工作区")
+        if visible_projects:
+            project_ids = [project.project_id for project, _membership in visible_projects]
+            active_project_id = _current_pilot_project_id(st)
+            active_index = project_ids.index(active_project_id) if active_project_id in project_ids else 0
+            selected_project_id = st.selectbox(
+                "当前项目",
+                project_ids,
+                index=active_index,
+                format_func=lambda project_id: _pilot_project_option_label(
+                    visible_projects[project_ids.index(project_id)]
+                ),
+                key="pilot_active_project_select",
+            )
+            selected_project, selected_membership = visible_projects[project_ids.index(selected_project_id)]
+            if selected_project_id != active_project_id:
+                _activate_pilot_project(
+                    st,
+                    project=selected_project,
+                    membership=selected_membership,
+                    clear_work_state=True,
+                )
+                st.session_state[PILOT_PROJECT_NOTICE_KEY] = f"已切换到项目：{selected_project.name}"
+                st.rerun()
+            st.caption(f"当前角色：{selected_membership.role.value}")
+            with st.expander("新建项目"):
+                _render_create_project_form(
+                    st,
+                    actor_user_id=actor_user_id,
+                    form_key="pilot_sidebar_create_project_form",
+                )
+        else:
+            st.info("当前账号尚未加入项目。")
+
+
+def _ensure_pilot_project_selected(st) -> bool:
+    if not _pilot_auth_enabled():
+        return True
+
+    actor_user_id = _current_pilot_user_id(st)
+    if not actor_user_id:
+        st.warning("登录状态缺少用户信息，请重新登录。")
+        return False
+
+    try:
+        visible_projects = _pilot_access_service().list_accessible_projects(actor_user_id=actor_user_id)
+    except Exception as exc:  # noqa: BLE001 - permission/storage errors should be visible
+        if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError)):
+            st.error(str(exc))
+            return False
+        raise exc
+
+    active_project_id = _current_pilot_project_id(st)
+    visible_by_id = {project.project_id: (project, membership) for project, membership in visible_projects}
+    if active_project_id in visible_by_id:
+        project, membership = visible_by_id[active_project_id]
+        _activate_pilot_project(st, project=project, membership=membership, clear_work_state=False)
+    elif visible_projects:
+        if active_project_id:
+            _clear_pilot_project_context(st, clear_work_state=True)
+        project, membership = visible_projects[0]
+        _activate_pilot_project(st, project=project, membership=membership, clear_work_state=False)
+    else:
+        _clear_pilot_project_context(st, clear_work_state=True)
+
+    _render_pilot_project_sidebar(st, actor_user_id=actor_user_id, visible_projects=visible_projects)
+
+    notice = st.session_state.pop(PILOT_PROJECT_NOTICE_KEY, None)
+    if notice:
+        st.success(notice)
+
+    if _current_pilot_project_id(st):
+        return True
+
+    st.markdown("## 项目工作区")
+    st.caption("内部试用部署已启用账号和项目边界。请先创建或加入一个项目，再开始方案仿真。")
+    st.info("当前账号尚未加入任何有效项目。你可以先创建一个项目；平台管理员也可以在后台把你加入已有项目。")
+    _render_create_project_form(st, actor_user_id=actor_user_id, form_key="pilot_main_create_project_form")
+    return False
+
+
 def _platform_admin_user_frame(users: list[User]) -> pd.DataFrame:
     return pd.DataFrame(
         [
@@ -1923,8 +2120,44 @@ def _platform_admin_session_frame(sessions) -> pd.DataFrame:
     )
 
 
+def _platform_admin_project_frame(projects: list[Project]) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "项目 ID": project.project_id,
+                "项目名称": project.name,
+                "状态": project.status.value,
+                "创建人": project.created_by_user_id or "",
+                "创建时间": project.created_at.isoformat(),
+            }
+            for project in projects
+        ]
+    )
+
+
+def _platform_admin_membership_frame(
+    memberships: list[ProjectMembership],
+    users_by_id: dict[str, User],
+) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "membership_id": membership.membership_id,
+                "用户 ID": membership.user_id,
+                "显示名称": users_by_id.get(membership.user_id).display_name
+                if membership.user_id in users_by_id
+                else "",
+                "角色": membership.role.value,
+                "状态": membership.status.value,
+                "创建时间": membership.created_at.isoformat(),
+            }
+            for membership in memberships
+        ]
+    )
+
+
 def _handle_platform_admin_error(st, exc: Exception) -> None:
-    if isinstance(exc, (PilotAdminError, PilotAuthError, FileExistsError, FileNotFoundError, ValueError)):
+    if isinstance(exc, (PilotAdminError, PilotAccessError, PilotAuthError, FileExistsError, FileNotFoundError, ValueError)):
         st.error(str(exc))
     else:
         raise exc
@@ -1943,6 +2176,7 @@ def _render_platform_admin_page(st) -> None:
     admin_service = _pilot_admin_service()
     try:
         users = admin_service.list_users(actor_user_id=actor_user_id)
+        projects = admin_service.list_projects(actor_user_id=actor_user_id)
     except Exception as exc:  # noqa: BLE001 - render permission/storage errors as page feedback
         _handle_platform_admin_error(st, exc)
         return
@@ -1955,16 +2189,21 @@ def _render_platform_admin_page(st) -> None:
 
     users_by_id = {user.user_id: user for user in users}
     user_ids = list(users_by_id)
+    active_user_ids = [user.user_id for user in users if user.is_active]
+    project_ids = [project.project_id for project in projects]
     active_count = sum(1 for user in users if user.is_active)
     admin_count = sum(1 for user in users if user.is_active and user.is_platform_admin)
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("账号数", len(users))
     c2.metric("活跃账号", active_count)
     c3.metric("活跃平台管理员", admin_count)
+    c4.metric("项目数", len(projects))
 
     st.dataframe(_platform_admin_user_frame(users), width="stretch", hide_index=True)
 
-    create_tab, password_tab, status_tab, session_tab = st.tabs(["创建账号", "重置密码", "权限和停用", "会话"])
+    create_tab, password_tab, status_tab, project_tab, session_tab = st.tabs(
+        ["创建账号", "重置密码", "权限和停用", "项目和成员", "会话"]
+    )
 
     with create_tab:
         with st.form("pilot_admin_create_user_form"):
@@ -2059,6 +2298,77 @@ def _render_platform_admin_page(st) -> None:
                             st.session_state[PILOT_LOGIN_NOTICE_KEY] = "当前账号已停用，请使用其他账号登录。"
                         else:
                             st.session_state[PILOT_ADMIN_NOTICE_KEY] = f"已停用账号：{selected_user_id}"
+                        st.rerun()
+                    except Exception as exc:  # noqa: BLE001
+                        _handle_platform_admin_error(st, exc)
+
+    with project_tab:
+        if projects:
+            st.dataframe(_platform_admin_project_frame(projects), width="stretch", hide_index=True)
+        else:
+            st.info("暂无项目。用户可以在登录后先创建项目，平台管理员再在此分配成员。")
+
+        if not projects or not active_user_ids:
+            if not active_user_ids:
+                st.info("暂无可加入项目的活跃用户。")
+        else:
+            selected_project_id = st.selectbox("选择项目", project_ids, key="pilot_admin_project_id")
+            try:
+                memberships = admin_service.list_project_memberships(
+                    actor_user_id=actor_user_id,
+                    project_id=str(selected_project_id),
+                )
+            except Exception as exc:  # noqa: BLE001
+                _handle_platform_admin_error(st, exc)
+                memberships = []
+
+            if memberships:
+                st.dataframe(
+                    _platform_admin_membership_frame(memberships, users_by_id),
+                    width="stretch",
+                    hide_index=True,
+                )
+            else:
+                st.info("该项目暂无成员。")
+
+            with st.form("pilot_admin_project_member_form"):
+                member_user_id = st.selectbox("成员账号", active_user_ids, key="pilot_admin_project_member_user_id")
+                role_value = st.selectbox(
+                    "项目角色",
+                    [role.value for role in ProjectRole],
+                    key="pilot_admin_project_member_role",
+                )
+                grant_submitted = st.form_submit_button("保存项目成员", type="primary")
+            if grant_submitted:
+                try:
+                    membership = admin_service.grant_project_role(
+                        actor_user_id=actor_user_id,
+                        project_id=str(selected_project_id),
+                        user_id=str(member_user_id),
+                        role=str(role_value),
+                    )
+                    st.session_state[PILOT_ADMIN_NOTICE_KEY] = (
+                        f"已更新项目成员：{membership.user_id} / {membership.role.value}"
+                    )
+                    st.rerun()
+                except Exception as exc:  # noqa: BLE001
+                    _handle_platform_admin_error(st, exc)
+
+            active_memberships = [membership for membership in memberships if membership.is_active]
+            if active_memberships:
+                disable_user_id = st.selectbox(
+                    "移出项目成员",
+                    [membership.user_id for membership in active_memberships],
+                    key="pilot_admin_project_disable_user_id",
+                )
+                if st.button("禁用项目成员关系", key="pilot_admin_project_disable_membership"):
+                    try:
+                        disabled = admin_service.disable_project_membership(
+                            actor_user_id=actor_user_id,
+                            project_id=str(selected_project_id),
+                            user_id=str(disable_user_id),
+                        )
+                        st.session_state[PILOT_ADMIN_NOTICE_KEY] = f"已禁用项目成员关系：{disabled.user_id}"
                         st.rerun()
                     except Exception as exc:  # noqa: BLE001
                         _handle_platform_admin_error(st, exc)
@@ -6869,8 +7179,15 @@ def main() -> None:
         _render_platform_admin_page(st)
         return
 
+    if not _ensure_pilot_project_selected(st):
+        return
+
     if workflow_page == "欢迎页":
         _render_welcome_page(st)
+        return
+
+    if workflow_page in {"方案仿真", "经济性测算"} and not _current_pilot_project_can_submit_jobs(st):
+        _render_pilot_project_submit_permission_block(st)
         return
 
     if workflow_page in {"经济性测算", "方案推荐", "图表概览", "图表下载和报告生成"}:

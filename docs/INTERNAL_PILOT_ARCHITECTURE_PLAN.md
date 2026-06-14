@@ -40,8 +40,9 @@ PNG 图表包后台任务也按会话隔离：
 - `GREEN_DIRECT_PILOT_STORE_DIR` 应指向 `pilot-admin --store-dir` 使用的同一受控目录，默认 `.runtime/pilot_store`；
 - 未登录用户只能看到登录表单，不能进入方案仿真、经济性测算、推荐或导出页面；
 - 会话校验复用 `LocalPilotAuth.require_session()`，退出登录或会话失效时清理当前 Streamlit 会话内的测算结果和下载缓存；
-- 平台管理员登录后可进入“平台管理”，完成创建账号、重置密码、停用账号、授予/撤销平台管理员和查看会话；
-- 这只是 Phase A/B 之间的最小门禁和账号管理页，还不是完整项目隔离、正式数据库会话或企业 IAM。
+- 登录后必须先创建或选择一个有效项目工作区，六步业务工作流才会继续渲染；切换项目会清理当前测算结果和下载缓存；
+- 平台管理员登录后可进入“平台管理”，完成创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并在“项目和成员”中把用户加入已有项目或禁用项目成员关系；
+- 这只是 Phase A/B 之间的最小门禁、项目工作区和账号/成员管理页，还不是正式数据库会话、企业 IAM、后台任务队列或项目级结果持久化。
 
 ## 3. 内部试用部署形态
 
@@ -57,7 +58,7 @@ PNG 图表包后台任务也按会话隔离：
    - 引入登录、用户、项目、项目成员和角色；
    - 每个项目有独立 `ProjectStudy` 和 `StudyResult`；
    - 结果写入 `ResultStore`，而不是依赖 Streamlit `session_state`；
-   - 支持管理员创建用户、停用用户、查看任务状态。
+   - 支持管理员创建用户、停用用户、维护项目成员、查看任务状态。
 
 3. **Phase C：任务队列与持久化结果**
    - 技术仿真、经济性测算、PNG 导出都变为后台 `Job`；
@@ -85,7 +86,7 @@ PNG 图表包后台任务也按会话隔离：
 - `User.is_platform_admin` 已区分平台账号管理员和项目 `admin`，项目 `admin` 只管理项目成员，不能天然创建或停用全站账号；
 - `Job` 已定义排队、运行、成功、失败、取消状态、进度字段及合法状态转换；
 - `JobArtifact` 和 `StudyResultRecord` 保留 `project_id` / `study_id` 边界，用于后续 `ResultStore` 和下载文件隔离；
-- 该骨架暂不包含登录页面、密码、数据库表、任务队列或 Streamlit 接入，不代表账户后台已经完整实现。
+- 该骨架已被本地认证、最小 Streamlit 登录门禁和项目工作区复用，但仍不包含正式数据库表、任务队列或完整企业 IAM，不代表账户后台已经完整实现。
 
 已落地的第一步 ResultStore：
 
@@ -121,11 +122,12 @@ PNG 图表包后台任务也按会话隔离：
 - `src/green_direct/services/pilot_admin.py` 提供 `LocalPilotAdminService` 和 `PilotAdminError`；
 - 支持 bootstrap 首个 `is_platform_admin=True` 的平台管理员，并设置本地密码；
 - 平台管理员可创建用户、设置初始密码、重置密码、授予/撤销平台管理员标记、停用用户和列出用户；
+- 平台管理员可列出项目、查看项目成员、授予/更新项目角色、禁用项目成员关系；
 - 停用用户时会撤销该用户仍然有效的本地会话；
 - 创建用户、更新用户、重置密码、停用和平台管理员标记变更会写入全局 `AuditLog`；
 - 为避免锁死后台，服务不允许停用或降级最后一个活跃平台管理员；
 - `src/green_direct/cli.py` 已提供 `pilot-admin` 命令行入口，可执行 bootstrap、创建用户、重置密码、停用用户、授予/撤销平台管理员、列出用户和列出会话；
-- 当前服务仍未接入 Streamlit 管理员 UI，也未替代后续 SQLite/Postgres、企业身份系统或正式审计后台。
+- 当前服务已接入 Streamlit 最小平台管理页，但仍未替代后续 SQLite/Postgres、企业身份系统或正式审计后台。
 
 已落地的第一步 JobStore：
 
@@ -140,12 +142,13 @@ PNG 图表包后台任务也按会话隔离：
 
 - `src/green_direct/services/pilot_access.py` 提供 `PilotAccessService` 和 `PilotAccessError`；
 - 该服务组合 `LocalPilotRegistry`、`LocalJobStore` 和 `LocalResultStore`，让 UI、后台 worker 或未来管理页通过同一入口做项目访问控制；
+- `list_accessible_projects()` 已用于 Streamlit 登录后的项目工作区选择，只返回当前用户有有效 membership 的项目；
 - `admin` 可创建/归档项目、授予/停用成员、提交任务、查看任务和产物、取消他人任务；
 - `analyst` 可提交和查看本项目任务，并取消自己提交的任务；
 - `viewer` 只能查看本项目任务和产物，不能提交或取消任务；
 - 停用用户、停用 membership、非成员、已归档项目的新任务提交会被拒绝；
 - 创建项目、成员变更、提交任务、取消任务、读取产物 payload 会写入 `AuditLog`；
-- 当前服务仍不包含管理员 UI、worker 调度、数据库事务或并发锁；它只是后续 Streamlit 管理页和 SQLite/Postgres 适配器应复用的权限/审计语义。
+- 当前服务仍不包含 worker 调度、数据库事务或并发锁；它是当前 Streamlit 项目工作区、后续任务入口和 SQLite/Postgres 适配器应复用的权限/审计语义。
 
 试用版已有本地文件版密码与会话服务，可先用于开发和受控内网演示；正式内网版仍应评估 SQLite/Postgres 会话表、企业微信、OIDC、LDAP 或公司统一身份。
 

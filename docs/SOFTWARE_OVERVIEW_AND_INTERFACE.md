@@ -1010,9 +1010,10 @@ python -m pytest
 - `set_user_password()`：平台管理员重置用户本地密码；
 - `set_platform_admin()`：授予或撤销平台管理员标记；
 - `disable_user()`：停用用户，并撤销其有效本地会话；
-- `list_users()`：平台管理员列出用户。
+- `list_users()`：平台管理员列出用户；
+- `list_projects()` / `list_project_memberships()` / `grant_project_role()` / `disable_project_membership()`：平台管理员查看项目并维护项目成员角色。
 
-`LocalPilotAdminService` 会写入 `CREATE_USER` / `UPDATE_USER` 审计事件，并阻止停用或降级最后一个活跃平台管理员。它是后续 Streamlit 管理页和数据库适配器应复用的账号管理语义，不是完整管理员 UI。
+`LocalPilotAdminService` 会写入 `CREATE_USER` / `UPDATE_USER` / `UPDATE_MEMBERSHIP` 审计事件，并阻止停用或降级最后一个活跃平台管理员。它是后续 Streamlit 管理页和数据库适配器应复用的账号/项目成员管理语义，不是完整企业 IAM。
 
 `src/green_direct/cli.py` 已提供最小 `pilot-admin` 命令行入口，作为管理员 UI 落地前的本地运维工具：
 
@@ -1032,8 +1033,9 @@ python -m pytest
 - 设置 `GREEN_DIRECT_PILOT_STORE_DIR` 可指定与 `pilot-admin --store-dir` 相同的账号数据目录，默认 `.runtime/pilot_store`；
 - 登录成功会用 `LocalPilotAuth.require_session()` 校验本地 bearer-token 会话；
 - 会话失效、token 错误或退出登录时，会清理当前浏览器会话内的测算结果、下载缓存、价格曲线和图表导出缓存，避免下一位用户看到上一位用户的临时结果；
-- 平台管理员登录后，侧栏会出现“平台管理”入口，当前支持创建账号、重置密码、停用账号、授予/撤销平台管理员和查看会话；
-- 当前门禁和平台管理页只解决内部试用账号控制，还没有项目列表、项目成员权限拦截、数据库会话表或 CSRF 防护。
+- 登录后必须先创建或选择一个有效项目工作区，六步业务工作流才会继续渲染；切换项目会清理当前测算结果和下载缓存；
+- 平台管理员登录后，侧栏会出现“平台管理”入口，当前支持创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并在“项目和成员”中为已有项目分配或禁用成员角色；
+- 当前门禁和平台管理页只解决内部试用账号与项目工作区控制，仍没有数据库会话表、CSRF 防护、正式审计后台、项目级结果持久化或后台 worker。
 
 `src/green_direct/services/job_store.py` 已提供第一版 `LocalJobStore`：
 
@@ -1047,6 +1049,7 @@ python -m pytest
 `src/green_direct/services/pilot_access.py` 已提供第一版 `PilotAccessService`：
 
 - `create_project()`：由活跃用户创建项目，并自动授予创建者 `admin` 角色；
+- `list_accessible_projects()`：列出当前用户有有效 membership 的项目；
 - `grant_project_role()` / `disable_project_membership()` / `archive_project()`：项目管理员权限下的成员和项目管理动作；
 - `submit_job()` / `list_project_jobs()` / `load_job()` / `cancel_job()`：带项目角色校验的任务操作；
 - `load_artifact()` / `read_artifact_payload()`：带项目查看权限校验的产物索引和 payload 读取；

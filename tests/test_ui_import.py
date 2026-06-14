@@ -113,6 +113,27 @@ def test_runtime_snapshot_is_disabled_by_default(tmp_path, monkeypatch):
     assert not snapshot_path.exists()
 
 
+def test_runtime_snapshot_is_disabled_when_pilot_auth_is_enabled(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+
+    snapshot_path = tmp_path / "latest_session_snapshot.pkl"
+    monkeypatch.setenv(app.RUNTIME_SNAPSHOT_ENV, "1")
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setattr(app, "RUNTIME_STATE_DIR", tmp_path)
+    monkeypatch.setattr(app, "LATEST_SESSION_SNAPSHOT_PATH", snapshot_path)
+
+    class DummyStreamlit:
+        def __init__(self, state):
+            self.session_state = state
+
+    app._save_runtime_snapshot(
+        DummyStreamlit({"batch_result": SimpleNamespace(summary=pd.DataFrame({"scenario_id": ["S0001"]}))})
+    )
+
+    assert app._restore_runtime_snapshot_if_needed(DummyStreamlit({})) is False
+    assert not snapshot_path.exists()
+
+
 def test_pilot_auth_gate_is_disabled_by_default(monkeypatch):
     import green_direct.ui.app as app
 
@@ -190,6 +211,63 @@ def test_pilot_invalid_session_clears_work_state(tmp_path, monkeypatch):
     assert app.PILOT_LOGIN_NOTICE_KEY in dummy.session_state
 
 
+def test_pilot_project_switch_clears_work_state():
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import Project, ProjectMembership, ProjectRole
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.PILOT_ACTIVE_PROJECT_ID_KEY: "project_1",
+                "batch_result": object(),
+                "download_payloads": {"old": True},
+                app.WORKFLOW_PAGE_KEY: app.WORKFLOW_PAGES[2],
+            }
+
+    dummy = DummyStreamlit()
+    app._activate_pilot_project(
+        dummy,
+        project=Project("project_2", "Second project"),
+        membership=ProjectMembership("m2", "project_2", "admin", ProjectRole.ADMIN),
+        clear_work_state=True,
+    )
+
+    assert dummy.session_state[app.PILOT_ACTIVE_PROJECT_ID_KEY] == "project_2"
+    assert dummy.session_state[app.PILOT_ACTIVE_PROJECT_NAME_KEY] == "Second project"
+    assert dummy.session_state[app.PILOT_ACTIVE_PROJECT_ROLE_KEY] == "admin"
+    assert "batch_result" not in dummy.session_state
+    assert "download_payloads" not in dummy.session_state
+    assert dummy.session_state[app.WORKFLOW_PAGE_KEY] == app.WORKFLOW_PAGES[0]
+
+
+def test_pilot_project_role_change_to_viewer_clears_work_state_and_blocks_submit(monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import Project, ProjectMembership, ProjectRole
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.PILOT_ACTIVE_PROJECT_ID_KEY: "project_1",
+                app.PILOT_ACTIVE_PROJECT_ROLE_KEY: "analyst",
+                "batch_result": object(),
+                app.WORKFLOW_PAGE_KEY: app.WORKFLOW_PAGES[1],
+            }
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    dummy = DummyStreamlit()
+    app._activate_pilot_project(
+        dummy,
+        project=Project("project_1", "Internal pilot project"),
+        membership=ProjectMembership("m1", "project_1", "viewer", ProjectRole.VIEWER),
+        clear_work_state=False,
+    )
+
+    assert dummy.session_state[app.PILOT_ACTIVE_PROJECT_ROLE_KEY] == "viewer"
+    assert "batch_result" not in dummy.session_state
+    assert dummy.session_state[app.WORKFLOW_PAGE_KEY] == app.WORKFLOW_PAGES[0]
+    assert app._current_pilot_project_can_submit_jobs(dummy) is False
+
+
 def test_streamlit_app_shows_pilot_login_gate_when_enabled(tmp_path, monkeypatch):
     import green_direct.ui.app as app
     from streamlit.testing.v1 import AppTest
@@ -232,7 +310,17 @@ def test_streamlit_app_allows_login_with_pilot_account(tmp_path, monkeypatch):
     assert len(app_test.exception) == 0
     assert not any(text_input.label == "密码" for text_input in app_test.text_input)
     assert any(button.label == "退出登录" for button in app_test.button)
+    assert any(text_input.label == "项目 ID" for text_input in app_test.text_input)
+    assert not any(button.label == "开始方案仿真" for button in app_test.button)
+
+    inputs = {text_input.label: text_input for text_input in app_test.text_input}
+    inputs["项目 ID"].input("project_1")
+    inputs["项目名称"].input("Internal pilot project")
+    next(button for button in app_test.button if button.label == "创建项目").click().run(timeout=10)
+
+    assert len(app_test.exception) == 0
     assert any(button.label == "开始方案仿真" for button in app_test.button)
+    assert LocalPilotRegistry(tmp_path).load_project("project_1").name == "Internal pilot project"
 
 
 def test_streamlit_platform_admin_can_create_user(tmp_path, monkeypatch):

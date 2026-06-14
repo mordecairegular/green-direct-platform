@@ -1,6 +1,6 @@
 import pytest
 
-from green_direct.models.pilot_backend import AuditAction, User, UserStatus
+from green_direct.models.pilot_backend import AuditAction, Project, ProjectRole, User, UserStatus
 from green_direct.services import (
     LocalPilotAdminService,
     LocalPilotAuth,
@@ -138,6 +138,37 @@ def test_disable_user_revokes_active_sessions_and_audits(tmp_path):
     assert any(
         event.action == AuditAction.UPDATE_USER and event.metadata.get("revoked_sessions") == 1
         for event in service.result_store.read_audit_log()
+    )
+
+
+def test_platform_admin_can_manage_project_memberships_without_project_admin_role(tmp_path):
+    service = _admin_service(tmp_path)
+    service.bootstrap_platform_admin(user=User("platform_admin", "admin@example.local", "Admin"), password="admin-password")
+    service.create_user(actor_user_id="platform_admin", user=User("owner", "owner@example.local", "Owner"))
+    service.create_user(actor_user_id="platform_admin", user=User("analyst", "analyst@example.local", "Analyst"))
+    service.registry.save_project(Project("project_1", "Internal pilot project", created_by_user_id="owner"))
+
+    membership = service.grant_project_role(
+        actor_user_id="platform_admin",
+        project_id="project_1",
+        user_id="analyst",
+        role=ProjectRole.ANALYST,
+    )
+    disabled = service.disable_project_membership(
+        actor_user_id="platform_admin",
+        project_id="project_1",
+        user_id="analyst",
+    )
+
+    assert membership.role == ProjectRole.ANALYST
+    assert not disabled.is_active
+    assert [(project.project_id, project.name) for project in service.list_projects(actor_user_id="platform_admin")] == [
+        ("project_1", "Internal pilot project")
+    ]
+    assert any(
+        event.action == AuditAction.UPDATE_MEMBERSHIP
+        and event.metadata.get("platform_admin_override") is True
+        for event in service.result_store.read_audit_log("project_1")
     )
 
 

@@ -3368,3 +3368,34 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_ui_import.py tests/test_pilot_auth.py tests/test_pilot_admin.py -q` 通过，65 项通过；
 - `python -m pytest -q` 通过，243 项通过；
 - `python -m compileall -q src` 通过。
+
+### 2026-06-15 Streamlit 最小项目工作区门禁与项目成员管理
+
+本轮继续推进内部 10-20 人试用的多人边界。登录门禁和平台账号页已经能阻止未登录访问，但如果没有项目工作区，多个试用用户仍会在同一套临时 Streamlit 会话结果语义下工作，后续 `Job`、`ResultStore` 和权限审计也没有稳定挂点。因此本轮先补最小项目选择/创建/切换门禁和平台级项目成员管理。
+
+本轮判断：
+- 项目隔离应先作为 UI 入口和服务层权限语义落地，不等后台 worker、数据库和完整 ResultStore 接入后才做；
+- 切换项目必须清理当前测算结果、经济性结果、推荐结果、下载缓存、价格曲线和 PNG 导出缓存，避免跨项目复用旧结果；
+- 平台管理员可以维护项目成员，但业务工作流仍应通过 `PilotAccessService` 判断当前用户可见项目，而不是在 UI 中直接读写底层 JSON；
+- 本轮不改变 V0.1 风光储调度、经济性 V1 或推荐算法口径。
+
+本轮实现：
+- `PilotAccessService.list_accessible_projects()`：列出当前用户有有效 membership 的项目，供 Streamlit 项目工作区选择使用；
+- `LocalPilotAdminService` 新增 `list_projects()`、`list_project_memberships()`、`grant_project_role()` 和 `disable_project_membership()`，平台管理员可维护项目成员角色；
+- Streamlit 登录后新增项目工作区门禁：启用 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 时，用户必须先创建或选择有效项目才能进入六步业务工作流；
+- 项目创建复用 `PilotAccessService.create_project()`，创建者自动成为项目 `admin`；
+- 侧栏新增当前项目选择器，切换项目会清理当前工作态并回到欢迎页；
+- 如果项目角色从 `admin` / `analyst` 变为 `viewer`，当前工作态会被清理，且 `viewer` 不能发起新的技术仿真或经济性测算；
+- 平台管理页新增“项目和成员”标签页，可查看项目、查看成员、保存成员角色和禁用成员关系；
+- 启用账号门禁时，本地 runtime snapshot 即使设置了 `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=1` 也不会保存或恢复，避免多人部署时跨账号/项目恢复旧结果。
+
+边界说明：
+- 这仍是内部 pilot 的本地 JSON 版最小边界，不是正式企业 IAM、数据库会话、CSRF 防护、审计后台或多 worker 任务系统；
+- 当前技术仿真、经济性测算和导出结果仍主要保存在当前 Streamlit session_state，尚未写入 `LocalResultStore`；
+- 项目成员管理是平台管理员入口，不是完整项目管理员自助后台；
+- 后续优先把技术仿真、经济性测算、推荐和导出提交为项目级 `Job`，并把 summary、推荐组合、逐小时明细和报告产物写入 `ResultStore`。
+
+验证：
+- `python -m pytest tests/test_ui_import.py::test_pilot_project_role_change_to_viewer_clears_work_state_and_blocks_submit tests/test_ui_import.py::test_streamlit_app_allows_login_with_pilot_account tests/test_pilot_access.py tests/test_pilot_admin.py -q` 通过，21 项通过；
+- `python -m pytest -q` 通过，248 项通过；
+- `python -m compileall -q src` 通过。

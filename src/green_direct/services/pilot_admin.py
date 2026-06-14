@@ -5,7 +5,16 @@ from __future__ import annotations
 from dataclasses import replace
 from uuid import uuid4
 
-from green_direct.models.pilot_backend import AuditAction, AuditLog, User, UserStatus
+from green_direct.models.pilot_backend import (
+    AuditAction,
+    AuditLog,
+    Project,
+    ProjectMembership,
+    ProjectRole,
+    ProjectStatus,
+    User,
+    UserStatus,
+)
 from green_direct.services.pilot_auth import LocalPilotAuth, MIN_PASSWORD_LENGTH
 from green_direct.services.pilot_registry import LocalPilotRegistry
 from green_direct.services.result_store import LocalResultStore
@@ -37,7 +46,10 @@ class LocalPilotAdminService:
         *,
         actor_user_id: str,
         action: AuditAction,
-        target_user_id: str,
+        target_user_id: str | None = None,
+        project_id: str | None = None,
+        target_type: str = "user",
+        target_id: str | None = None,
         metadata: dict | None = None,
     ) -> AuditLog:
         return self.result_store.append_audit_log(
@@ -45,8 +57,9 @@ class LocalPilotAdminService:
                 event_id=self._event_id(),
                 actor_user_id=actor_user_id,
                 action=action,
-                target_type="user",
-                target_id=target_user_id,
+                project_id=project_id,
+                target_type=target_type,
+                target_id=target_id or target_user_id,
                 metadata=metadata or {},
             )
         )
@@ -182,3 +195,92 @@ class LocalPilotAdminService:
         if active_only:
             return [user for user in users if user.is_active]
         return users
+
+    def list_projects(
+        self,
+        *,
+        actor_user_id: str,
+        active_only: bool = False,
+    ) -> list[Project]:
+        """List projects after checking platform-admin permission."""
+
+        self._platform_admin(actor_user_id)
+        projects = self.registry.list_projects()
+        if active_only:
+            return [project for project in projects if project.status == ProjectStatus.ACTIVE]
+        return projects
+
+    def list_project_memberships(
+        self,
+        *,
+        actor_user_id: str,
+        project_id: str,
+        active_only: bool = False,
+    ) -> list[ProjectMembership]:
+        """List project memberships after checking platform-admin permission."""
+
+        self._platform_admin(actor_user_id)
+        return self.registry.list_project_memberships(project_id, active_only=active_only)
+
+    def grant_project_role(
+        self,
+        *,
+        actor_user_id: str,
+        project_id: str,
+        user_id: str,
+        role: ProjectRole | str,
+    ) -> ProjectMembership:
+        """Grant or update a project role after checking platform-admin permission."""
+
+        actor = self._platform_admin(actor_user_id)
+        project = self.registry.load_project(project_id)
+        if project.status != ProjectStatus.ACTIVE:
+            raise PilotAdminError("Cannot update memberships for an archived project.")
+        target = self.registry.load_user(user_id)
+        if not target.is_active:
+            raise PilotAdminError(f"User is disabled: {user_id}")
+        membership = self.registry.grant_project_role(
+            project_id=project.project_id,
+            user_id=target.user_id,
+            role=role,
+        )
+        self._audit(
+            actor_user_id=actor.user_id,
+            action=AuditAction.UPDATE_MEMBERSHIP,
+            project_id=project.project_id,
+            target_type="project_membership",
+            target_id=membership.membership_id,
+            metadata={
+                "user_id": target.user_id,
+                "role": membership.role.value,
+                "status": membership.status.value,
+                "platform_admin_override": True,
+            },
+        )
+        return membership
+
+    def disable_project_membership(
+        self,
+        *,
+        actor_user_id: str,
+        project_id: str,
+        user_id: str,
+    ) -> ProjectMembership:
+        """Disable a project membership after checking platform-admin permission."""
+
+        actor = self._platform_admin(actor_user_id)
+        disabled = self.registry.disable_membership(project_id, user_id)
+        self._audit(
+            actor_user_id=actor.user_id,
+            action=AuditAction.UPDATE_MEMBERSHIP,
+            project_id=project_id,
+            target_type="project_membership",
+            target_id=disabled.membership_id,
+            metadata={
+                "user_id": user_id,
+                "role": disabled.role.value,
+                "status": disabled.status.value,
+                "platform_admin_override": True,
+            },
+        )
+        return disabled

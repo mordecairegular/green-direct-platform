@@ -47,13 +47,14 @@
 - 内部试用后台已新增持久化无关模型骨架：`User`、`Project`、`ProjectMembership`、`ProjectStudy`、`Job`、`JobArtifact`、`StudyResultRecord`、`AuditLog`。
 - 服务层已新增 `LocalResultStore`，支持按项目/研究保存产物、结果索引和审计日志，暂未接入 UI 或数据库。
 - 服务层已新增 `LocalPilotRegistry`，支持本地 JSON 用户、项目和项目成员角色管理，不包含密码或登录会话。
-- 服务层已新增 `LocalPilotAuth`，支持本地密码哈希、登录会话、会话校验/撤销和登录审计；Streamlit 主 UI 已接入可选登录门禁，但暂未接入项目权限拦截或正式身份系统。
-- 服务层已新增 `LocalPilotAdminService`，区分平台管理员和项目管理员，支持首个管理员 bootstrap、创建用户、重置密码、授予/撤销平台管理员、停用用户并撤销会话；Streamlit 已接入最小平台账号管理页。
+- 服务层已新增 `LocalPilotAuth`，支持本地密码哈希、登录会话、会话校验/撤销和登录审计；Streamlit 主 UI 已接入可选登录门禁和最小项目工作区门禁，但暂未接入正式身份系统。
+- 服务层已新增 `LocalPilotAdminService`，区分平台管理员和项目管理员，支持首个管理员 bootstrap、创建用户、重置密码、授予/撤销平台管理员、停用用户并撤销会话，也支持平台管理员查看项目、授予/禁用项目成员；Streamlit 已接入最小平台管理页。
 - `src/green_direct/cli.py` 已新增 `pilot-admin` 命令行入口，支持 bootstrap、创建用户、重置密码、停用用户、授予/撤销平台管理员、列出用户和列出会话，作为管理员页面前的本地运维入口。
 - Streamlit 主 UI 已新增可选内部试用登录门禁：设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，未登录用户不能进入六步工作流；登录使用 `GREEN_DIRECT_PILOT_STORE_DIR` 指向的本地账号 store，默认 `.runtime/pilot_store`。
-- Streamlit 主 UI 已新增最小“平台管理”页：平台管理员可创建账号、重置密码、停用账号、授予/撤销平台管理员和查看会话，普通用户看不到该入口。
+- Streamlit 主 UI 已新增最小“平台管理”页：平台管理员可创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并在“项目和成员”中维护项目成员角色；普通用户看不到该入口。
+- Streamlit 主 UI 已新增项目工作区门禁：启用 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，登录用户必须先创建或选择有效项目才能进入六步业务工作流；切换项目会清理当前测算结果和下载缓存。
 - 服务层已新增 `LocalJobStore`，支持本地 JSON 任务提交、读取、项目/研究列表、状态筛选、进度更新、成功/失败/取消状态持久化，暂未包含 worker 调度、认证、管理员页面或数据库锁。
-- 服务层已新增 `PilotAccessService`，把项目角色权限、任务提交/取消、产物读取和审计日志统一成可测试服务门面，暂未包含认证、管理员页面、worker 调度、数据库事务或并发锁。
+- 服务层已新增 `PilotAccessService`，把项目角色权限、可见项目列表、任务提交/取消、产物读取和审计日志统一成可测试服务门面，暂未包含 worker 调度、数据库事务或并发锁。
 
 后续方向：
 
@@ -73,9 +74,9 @@
 - 多人部署默认关闭项目级运行快照，避免新会话恢复上一位用户结果；
 - 后台 PNG 任务和下载缓存按 Streamlit 会话隔离；
 - 先用受控内网/VPN/反向代理做内部试用；
-- 下一阶段把 `pilot_backend` 模型、`LocalPilotRegistry`、`LocalPilotAuth`、`LocalPilotAdminService`、`LocalJobStore`、`LocalResultStore` 和 `PilotAccessService` 接入轻量 SQLite/Postgres、项目列表/权限拦截和后台任务状态页；
-- 下一阶段把平台管理页从账号管理扩展到项目管理/成员管理；
-- 依据 `notes/PRELAUNCH_QUALITY_REVIEW_20260615.md` 推进内部 pilot 上线前闭环：项目隔离、后台任务 worker、结果存储接入、部署 runbook；
+- 下一阶段把 `pilot_backend` 模型、`LocalPilotRegistry`、`LocalPilotAuth`、`LocalPilotAdminService`、`LocalJobStore`、`LocalResultStore` 和 `PilotAccessService` 接入轻量 SQLite/Postgres、后台任务状态页和正式项目结果存储；
+- 下一阶段把技术仿真、经济性测算和图表导出提交为项目级 `Job`，并把产物写入 `ResultStore`；
+- 依据 `notes/PRELAUNCH_QUALITY_REVIEW_20260615.md` 推进内部 pilot 上线前闭环：后台任务 worker、结果存储接入、部署 runbook、数据库/备份策略；
 - 管理员页、任务提交入口和未来 worker 不应直接绕过 `PilotAccessService` 调用底层 store；
 - 后台任务接入时以 `LocalJobStore` 的 `Job` 状态契约为临时边界，再替换为 SQLite/Postgres 或正式队列实现；
 - 技术仿真、经济性测算和图表导出逐步改为后台任务。

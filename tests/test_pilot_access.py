@@ -85,6 +85,36 @@ def test_create_project_grants_creator_admin_and_writes_audit(tmp_path):
     assert [event.action for event in audit] == [AuditAction.CREATE_PROJECT]
 
 
+def test_accessible_projects_are_limited_to_active_memberships(tmp_path):
+    service = _service(tmp_path)
+    _seed_users(service)
+    first = service.create_project(
+        actor_user_id="admin",
+        project=Project("project_1", "Internal pilot project"),
+    )
+    second = service.create_project(
+        actor_user_id="analyst",
+        project=Project("project_2", "Analyst private project"),
+    )
+
+    service.grant_project_role(
+        actor_user_id="admin",
+        project_id=first.project_id,
+        user_id="analyst",
+        role=ProjectRole.VIEWER,
+    )
+    service.archive_project(actor_user_id="analyst", project_id=second.project_id)
+
+    active_visible = service.list_accessible_projects(actor_user_id="analyst")
+    all_visible = service.list_accessible_projects(actor_user_id="analyst", include_archived=True)
+
+    assert [(project.project_id, membership.role) for project, membership in active_visible] == [
+        ("project_1", ProjectRole.VIEWER)
+    ]
+    assert [project.project_id for project, _membership in all_visible] == ["project_1", "project_2"]
+    assert service.list_accessible_projects(actor_user_id="outsider") == []
+
+
 def test_project_admin_can_grant_and_disable_membership(tmp_path):
     service = _service(tmp_path)
     project = _create_project_with_members(service)
