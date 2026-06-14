@@ -991,6 +991,16 @@ python -m pytest
 
 `LocalPilotRegistry` 只管理账户、项目和成员关系元数据，不存储密码、不处理登录会话。后续管理员页面可以先调用该服务完成用户停用、项目归档和角色授权；正式部署时再替换为 SQLite/Postgres 或企业身份系统映射。
 
+`src/green_direct/services/pilot_auth.py` 已提供第一版 `LocalPilotAuth`：
+
+- `set_password()`：为活跃用户写入 PBKDF2-SHA256 密码哈希、salt、算法和迭代次数；
+- `login()` / `authenticate()`：按 `login_name` 验证密码，登录成功后创建本地会话；
+- `require_session()`：校验 `session_id` 和 bearer token，拒绝错误、过期、撤销或停用用户会话；
+- `revoke_session()` / `list_user_sessions()`：撤销和列出用户本地会话；
+- 登录成功和失败可通过 `LocalResultStore` 写入全局 `AuditLog`。
+
+`LocalPilotAuth` 不把密码写入 `User` 模型，不保存明文密码，也不在会话文件中保存明文 token。它仍只是受控内部试用的本地适配器，不替代企业 IAM、OIDC、LDAP、反向代理认证、CSRF 防护、管理员 UI 或正式数据库会话表。
+
 `src/green_direct/services/job_store.py` 已提供第一版 `LocalJobStore`：
 
 - `submit_job()` / `load_job()`：保存和读取排队任务；
@@ -1008,7 +1018,7 @@ python -m pytest
 - `load_artifact()` / `read_artifact_payload()`：带项目查看权限校验的产物索引和 payload 读取；
 - 创建项目、成员变更、提交任务、取消任务和产物读取会写入 `AuditLog`。
 
-`PilotAccessService` 是权限和审计服务门面，不是完整认证系统。它不保存密码、不建立登录会话、不启动 worker、不做数据库事务或并发锁；后续 Streamlit 管理页、后台任务入口和 SQLite/Postgres 适配器应优先复用这层语义，避免直接绕过角色控制调用底层本地文件 store。
+`PilotAccessService` 是权限和审计服务门面，不启动 worker、不做数据库事务或并发锁；后续 Streamlit 管理页、后台任务入口和 SQLite/Postgres 适配器应优先复用这层语义，避免直接绕过角色控制调用底层本地文件 store。
 
 ## 23. 本地运行方式
 

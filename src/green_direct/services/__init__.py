@@ -2,6 +2,12 @@
 
 from green_direct.services.job_store import LocalJobStore
 from green_direct.services.pilot_access import PilotAccessError, PilotAccessService
+from green_direct.services.pilot_auth import (
+    LocalPilotAuth,
+    PilotAuthError,
+    PilotLoginSession,
+    PilotSessionRecord,
+)
 from green_direct.services.pilot_registry import LocalPilotRegistry
 from green_direct.services.result_store import LocalResultStore
 from green_direct.services.study_runner import (
@@ -19,10 +25,14 @@ from green_direct.services.study_runner import (
 __all__ = [
     "EconomicStudyResult",
     "LocalJobStore",
+    "LocalPilotAuth",
     "LocalPilotRegistry",
     "LocalResultStore",
     "PilotAccessError",
+    "PilotAuthError",
     "PilotAccessService",
+    "PilotLoginSession",
+    "PilotSessionRecord",
     "RecommendationInputSnapshot",
     "RecommendationStudyResult",
     "StudyResult",

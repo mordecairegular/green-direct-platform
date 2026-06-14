@@ -3191,3 +3191,34 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_ui_import.py -q` 通过，43 项通过；
 - `python -m pytest tests/test_study_runner.py tests/test_batch_runner.py -q` 通过，16 项通过；
 - `python -m compileall -q src` 通过。
+
+### 2026-06-15 本地密码与会话认证服务第一版
+
+本轮继续推进内部 10-20 人试用的后台账户控制能力。在已有 `User`、`LocalPilotRegistry`、`LocalResultStore` 和 `PilotAccessService` 基础上，新增本地认证服务，先解决“登录页和管理员页将来应该调用什么服务来验证用户身份和会话”的问题。
+
+本轮判断：
+- 不应把密码字段塞进 `User` 模型；`User` 只表示身份主体，密码和会话属于认证适配器；
+- 也不应直接在 Streamlit 页面里手写密码校验，否则后续很难替换为 SQLite/Postgres、OIDC、LDAP 或反向代理认证；
+- 但内部试用要继续接近真实多人访问，需要先有可测试的本地密码哈希和会话校验服务。
+
+本轮实现：
+- 新增 `src/green_direct/services/pilot_auth.py`；
+- 定义 `LocalPilotAuth`、`PilotAuthError`、`PilotLoginSession` 和 `PilotSessionRecord`；
+- `set_password()` 为活跃用户写入 PBKDF2-SHA256 哈希、salt、算法和迭代次数，最小密码长度 8；
+- `login()` 按 `login_name` 验证密码，成功后创建本地 bearer-token 会话；
+- 会话文件只保存 token 的 SHA256，不保存明文 token；
+- `require_session()` 校验 session、token、过期、撤销和用户停用状态；
+- `revoke_session()` 和 `list_user_sessions()` 支持退出和会话管理；
+- 登录成功和失败可通过 `LocalResultStore` 写入全局 `AuditLog`；
+- `green_direct.services` 导出本地认证服务相关对象；
+- 新增 `tests/test_pilot_auth.py` 覆盖不保存明文、登录审计、错误密码、停用用户、错误 token、过期、撤销和 active session 筛选。
+
+边界说明：
+- 本轮暂未接入 Streamlit 登录页或管理员页面；
+- 不替代企业 IAM、OIDC、LDAP、反向代理认证、CSRF 防护或正式数据库会话表；
+- 后续登录入口应先调用 `LocalPilotAuth.require_session()` 识别用户，再调用 `PilotAccessService` 判断项目权限。
+
+验证：
+- `python -m pytest tests/test_pilot_auth.py tests/test_pilot_access.py tests/test_pilot_registry.py tests/test_result_store.py -q` 通过，25 项通过；
+- `python -m pytest -q` 通过，222 项通过；
+- `python -m compileall -q src` 通过。

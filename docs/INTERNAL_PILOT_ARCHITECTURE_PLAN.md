@@ -95,6 +95,16 @@ PNG 图表包后台任务也按会话隔离：
 - 写入成员关系时会检查用户和项目已存在，避免孤立 membership；
 - 当前注册表不存储密码、不处理登录会话、不替代正式认证；后续登录页或企业身份集成只应把认证主体映射到这些 `User` / `ProjectMembership` 记录。
 
+已落地的第一步本地认证服务：
+
+- `src/green_direct/services/pilot_auth.py` 提供 `LocalPilotAuth` 和 `PilotAuthError`；
+- 密码哈希、salt、算法和迭代次数保存在 `auth/credentials/{user_id}.json`，不写入 `User` 模型，不保存明文密码；
+- 登录成功后生成本地会话，`auth/sessions/{session_id}.json` 只保存 token 的 SHA256，不保存明文 bearer token；
+- 支持设置密码、按 `login_name` 登录、校验会话、撤销会话和列出用户会话；
+- 登录成功和失败可写入全局 `AuditLog`；
+- 停用用户不能设置密码、登录或继续使用已有会话；
+- 当前认证服务只适合受控内部试用，不替代企业 IAM、OIDC、LDAP、反向代理认证、CSRF 防护或正式数据库会话表。
+
 已落地的第一步 JobStore：
 
 - `src/green_direct/services/job_store.py` 提供 `LocalJobStore`；
@@ -113,9 +123,9 @@ PNG 图表包后台任务也按会话隔离：
 - `viewer` 只能查看本项目任务和产物，不能提交或取消任务；
 - 停用用户、停用 membership、非成员、已归档项目的新任务提交会被拒绝；
 - 创建项目、成员变更、提交任务、取消任务、读取产物 payload 会写入 `AuditLog`；
-- 当前服务仍不包含密码登录、会话认证、管理员 UI、worker 调度、数据库事务或并发锁；它只是后续 Streamlit 管理页和 SQLite/Postgres 适配器应复用的权限/审计语义。
+- 当前服务仍不包含管理员 UI、worker 调度、数据库事务或并发锁；它只是后续 Streamlit 管理页和 SQLite/Postgres 适配器应复用的权限/审计语义。
 
-试用版可以先用 SQLite / Postgres 加密码登录；正式内网版再评估企业微信、OIDC、LDAP 或公司统一身份。
+试用版已有本地文件版密码与会话服务，可先用于开发和受控内网演示；正式内网版仍应评估 SQLite/Postgres 会话表、企业微信、OIDC、LDAP 或公司统一身份。
 
 ## 5. 性能优化路线
 
