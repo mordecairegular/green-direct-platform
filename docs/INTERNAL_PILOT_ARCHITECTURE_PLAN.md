@@ -104,6 +104,17 @@ PNG 图表包后台任务也按会话隔离：
 - 路径片段使用白名单校验，防止 `project_id`、`study_id`、`job_id` 被拼接成越权路径；
 - 当前实现只持久化任务状态，不包含 worker 调度、重试策略、并发锁、鉴权或管理员 UI；后续任务队列或数据库实现应沿用同一 `Job` 契约。
 
+已落地的第一步权限与审计服务：
+
+- `src/green_direct/services/pilot_access.py` 提供 `PilotAccessService` 和 `PilotAccessError`；
+- 该服务组合 `LocalPilotRegistry`、`LocalJobStore` 和 `LocalResultStore`，让 UI、后台 worker 或未来管理页通过同一入口做项目访问控制；
+- `admin` 可创建/归档项目、授予/停用成员、提交任务、查看任务和产物、取消他人任务；
+- `analyst` 可提交和查看本项目任务，并取消自己提交的任务；
+- `viewer` 只能查看本项目任务和产物，不能提交或取消任务；
+- 停用用户、停用 membership、非成员、已归档项目的新任务提交会被拒绝；
+- 创建项目、成员变更、提交任务、取消任务、读取产物 payload 会写入 `AuditLog`；
+- 当前服务仍不包含密码登录、会话认证、管理员 UI、worker 调度、数据库事务或并发锁；它只是后续 Streamlit 管理页和 SQLite/Postgres 适配器应复用的权限/审计语义。
+
 试用版可以先用 SQLite / Postgres 加密码登录；正式内网版再评估企业微信、OIDC、LDAP 或公司统一身份。
 
 ## 5. 性能优化路线

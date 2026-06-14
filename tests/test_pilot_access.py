@@ -1,0 +1,209 @@
+import pytest
+
+from green_direct.models.pilot_backend import (
+    ArtifactKind,
+    AuditAction,
+    Job,
+    JobStatus,
+    JobType,
+    Project,
+    ProjectRole,
+    User,
+)
+from green_direct.services import (
+    LocalJobStore,
+    LocalPilotRegistry,
+    LocalResultStore,
+    PilotAccessError,
+    PilotAccessService,
+)
+
+
+def _service(tmp_path):
+    registry = LocalPilotRegistry(tmp_path)
+    job_store = LocalJobStore(tmp_path)
+    result_store = LocalResultStore(tmp_path)
+    return PilotAccessService(
+        registry=registry,
+        job_store=job_store,
+        result_store=result_store,
+    )
+
+
+def _seed_users(service: PilotAccessService) -> None:
+    service.registry.save_user(User("admin", "admin@example.local", "Admin"))
+    service.registry.save_user(User("analyst", "analyst@example.local", "Analyst"))
+    service.registry.save_user(User("viewer", "viewer@example.local", "Viewer"))
+    service.registry.save_user(User("outsider", "outsider@example.local", "Outsider"))
+
+
+def _create_project_with_members(service: PilotAccessService) -> Project:
+    _seed_users(service)
+    project = service.create_project(
+        actor_user_id="admin",
+        project=Project("project_1", "Internal pilot project"),
+    )
+    service.grant_project_role(
+        actor_user_id="admin",
+        project_id=project.project_id,
+        user_id="analyst",
+        role=ProjectRole.ANALYST,
+    )
+    service.grant_project_role(
+        actor_user_id="admin",
+        project_id=project.project_id,
+        user_id="viewer",
+        role=ProjectRole.VIEWER,
+    )
+    return project
+
+
+def _job(job_id: str, *, requested_by_user_id: str = "analyst") -> Job:
+    return Job(
+        job_id=job_id,
+        project_id="project_1",
+        study_id="study_1",
+        requested_by_user_id=requested_by_user_id,
+        job_type=JobType.TECHNICAL_STUDY,
+    )
+
+
+def test_create_project_grants_creator_admin_and_writes_audit(tmp_path):
+    service = _service(tmp_path)
+    service.registry.save_user(User("admin", "admin@example.local", "Admin"))
+
+    project = service.create_project(
+        actor_user_id="admin",
+        project=Project("project_1", "Internal pilot project"),
+    )
+
+    membership = service.registry.get_project_membership(project.project_id, "admin")
+    assert project.created_by_user_id == "admin"
+    assert membership is not None
+    assert membership.role == ProjectRole.ADMIN
+    audit = service.result_store.read_audit_log("project_1")
+    assert [event.action for event in audit] == [AuditAction.CREATE_PROJECT]
+
+
+def test_project_admin_can_grant_and_disable_membership(tmp_path):
+    service = _service(tmp_path)
+    project = _create_project_with_members(service)
+
+    updated = service.grant_project_role(
+        actor_user_id="admin",
+        project_id=project.project_id,
+        user_id="viewer",
+        role=ProjectRole.ANALYST,
+    )
+    disabled = service.disable_project_membership(
+        actor_user_id="admin",
+        project_id=project.project_id,
+        user_id="viewer",
+    )
+
+    assert updated.can_submit_jobs()
+    assert not disabled.is_active
+    assert [event.action for event in service.result_store.read_audit_log(project.project_id)].count(
+        AuditAction.UPDATE_MEMBERSHIP
+    ) >= 2
+
+
+def test_non_admin_cannot_manage_memberships(tmp_path):
+    service = _service(tmp_path)
+    _create_project_with_members(service)
+
+    with pytest.raises(PilotAccessError, match="cannot manage"):
+        service.grant_project_role(
+            actor_user_id="analyst",
+            project_id="project_1",
+            user_id="outsider",
+            role=ProjectRole.VIEWER,
+        )
+
+
+def test_analyst_can_submit_and_view_job_but_viewer_cannot_submit(tmp_path):
+    service = _service(tmp_path)
+    _create_project_with_members(service)
+
+    submitted = service.submit_job(actor_user_id="analyst", job=_job("job_1"))
+
+    assert submitted.status == JobStatus.QUEUED
+    assert service.list_project_jobs(actor_user_id="viewer", project_id="project_1") == [submitted]
+    with pytest.raises(PilotAccessError, match="cannot submit jobs"):
+        service.submit_job(actor_user_id="viewer", job=_job("job_2", requested_by_user_id="viewer"))
+    assert any(
+        event.action == AuditAction.SUBMIT_JOB
+        for event in service.result_store.read_audit_log("project_1")
+    )
+
+
+def test_non_member_and_disabled_user_are_rejected(tmp_path):
+    service = _service(tmp_path)
+    _create_project_with_members(service)
+
+    with pytest.raises(PilotAccessError, match="no active membership"):
+        service.list_project_jobs(actor_user_id="outsider", project_id="project_1")
+
+    service.registry.disable_user("analyst")
+    with pytest.raises(PilotAccessError, match="User is disabled"):
+        service.submit_job(actor_user_id="analyst", job=_job("job_1"))
+
+
+def test_archived_project_blocks_new_jobs_but_still_allows_view(tmp_path):
+    service = _service(tmp_path)
+    _create_project_with_members(service)
+    submitted = service.submit_job(actor_user_id="analyst", job=_job("job_1"))
+
+    service.archive_project(actor_user_id="admin", project_id="project_1")
+
+    assert service.list_project_jobs(actor_user_id="viewer", project_id="project_1") == [submitted]
+    with pytest.raises(PilotAccessError, match="Project is not active"):
+        service.submit_job(actor_user_id="analyst", job=_job("job_2"))
+
+
+def test_cancel_job_allows_owner_or_admin_only(tmp_path):
+    service = _service(tmp_path)
+    _create_project_with_members(service)
+    service.submit_job(actor_user_id="analyst", job=_job("job_1"))
+    service.registry.save_user(User("analyst_2", "analyst2@example.local", "Analyst 2"))
+    service.grant_project_role(
+        actor_user_id="admin",
+        project_id="project_1",
+        user_id="analyst_2",
+        role=ProjectRole.ANALYST,
+    )
+
+    with pytest.raises(PilotAccessError, match="cancel another user's job"):
+        service.cancel_job(actor_user_id="analyst_2", project_id="project_1", study_id="study_1", job_id="job_1")
+
+    canceled = service.cancel_job(actor_user_id="admin", project_id="project_1", study_id="study_1", job_id="job_1")
+    assert canceled.status == JobStatus.CANCELED
+    assert any(
+        event.action == AuditAction.CANCEL_JOB
+        for event in service.result_store.read_audit_log("project_1")
+    )
+
+
+def test_artifact_payload_read_requires_project_view_and_is_audited(tmp_path):
+    service = _service(tmp_path)
+    _create_project_with_members(service)
+    artifact = service.result_store.store_artifact(
+        artifact_id="technical_summary",
+        project_id="project_1",
+        study_id="study_1",
+        job_id="job_1",
+        kind=ArtifactKind.TECHNICAL_SUMMARY,
+        payload="scenario_id,total_load_energy\nS0001,100\n",
+        filename="summary.csv",
+        content_type="text/csv",
+    )
+
+    payload = service.read_artifact_payload(actor_user_id="viewer", artifact=artifact)
+
+    assert payload.decode("utf-8").startswith("scenario_id")
+    assert any(
+        event.action == AuditAction.DOWNLOAD_ARTIFACT
+        for event in service.result_store.read_audit_log("project_1")
+    )
+    with pytest.raises(PilotAccessError, match="no active membership"):
+        service.read_artifact_payload(actor_user_id="outsider", artifact=artifact)

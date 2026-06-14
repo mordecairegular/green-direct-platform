@@ -997,6 +997,16 @@ python -m pytest
 
 `LocalJobStore` 目前只保存任务元数据，不启动 worker、不做重试、不实现认证或管理员页面。后续接入 Streamlit 或数据库时，应让前台提交 `Job`、轮询 `JobStatus`，由后台 worker 写入 `LocalResultStore` 或其替代存储。
 
+`src/green_direct/services/pilot_access.py` 已提供第一版 `PilotAccessService`：
+
+- `create_project()`：由活跃用户创建项目，并自动授予创建者 `admin` 角色；
+- `grant_project_role()` / `disable_project_membership()` / `archive_project()`：项目管理员权限下的成员和项目管理动作；
+- `submit_job()` / `list_project_jobs()` / `load_job()` / `cancel_job()`：带项目角色校验的任务操作；
+- `load_artifact()` / `read_artifact_payload()`：带项目查看权限校验的产物索引和 payload 读取；
+- 创建项目、成员变更、提交任务、取消任务和产物读取会写入 `AuditLog`。
+
+`PilotAccessService` 是权限和审计服务门面，不是完整认证系统。它不保存密码、不建立登录会话、不启动 worker、不做数据库事务或并发锁；后续 Streamlit 管理页、后台任务入口和 SQLite/Postgres 适配器应优先复用这层语义，避免直接绕过角色控制调用底层本地文件 store。
+
 ## 23. 本地运行方式
 
 安装依赖：

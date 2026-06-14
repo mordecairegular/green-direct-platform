@@ -3126,3 +3126,38 @@ exchange_import_shortfall_energy == 0
 验证：
 - `python -m pytest tests/test_job_store.py tests/test_pilot_backend_models.py tests/test_result_store.py tests/test_pilot_registry.py -q` 通过，26 项通过；
 - `python -m pytest -q` 通过，206 项通过。
+
+### 2026-06-15 本地权限与审计服务第一版
+
+本轮继续推进内部 10-20 人试用的后台账户管理控制能力。在已有 `pilot_backend` 模型、`LocalPilotRegistry`、`LocalJobStore` 和 `LocalResultStore` 基础上，新增服务层权限门面，先解决“前台、后台任务和未来管理员页不应直接绕过角色权限调用底层 store”的问题。
+
+本轮判断：
+- 当前仍不宜一次性实现完整登录、数据库、任务 worker 和管理员 UI；
+- 但项目角色语义必须尽早集中，否则后续 Streamlit 页面、worker 和下载接口容易各自判断权限，造成越权和审计缺口；
+- 权限服务应该组合已有本地 store，并保持可替换为 SQLite/Postgres 或正式认证系统的服务契约；
+- 该改动不改变 V0.1 技术仿真、经济性测算、推荐或图表计算口径。
+
+本轮实现：
+- 新增 `src/green_direct/services/pilot_access.py`；
+- 定义 `PilotAccessService` 和 `PilotAccessError`；
+- `create_project()` 会校验活跃用户、写入项目、自动授予创建者 `admin`，并记录 `CREATE_PROJECT` 审计；
+- `grant_project_role()`、`disable_project_membership()` 和 `archive_project()` 统一要求项目 `admin`；
+- `submit_job()` 要求提交者和 `Job.requested_by_user_id` 一致，且项目角色可提交任务；
+- `list_project_jobs()`、`load_job()`、`load_artifact()` 和 `read_artifact_payload()` 要求项目查看权限；
+- `cancel_job()` 允许提交者取消自己的任务，项目 `admin` 可取消他人任务；
+- 停用用户、停用 membership、非成员、已归档项目的新任务提交会被拒绝；
+- 关键动作写入 `AuditLog`，包括创建项目、成员变更、提交任务、取消任务和产物 payload 读取；
+- `AuditAction` 新增 `UPDATE_PROJECT` 和 `CANCEL_JOB`；
+- `green_direct.services` 导出 `PilotAccessService` 和 `PilotAccessError`；
+- 新增 `tests/test_pilot_access.py` 覆盖角色授权、停用、归档、任务提交/取消、产物读取和审计。
+
+边界说明：
+- 本轮不存储密码，不处理登录会话；
+- 不包含管理员页面；
+- 不包含后台 worker、重试、并发锁、数据库事务或 SQLite/Postgres 迁移；
+- 后续 Streamlit 管理页、后台任务入口和数据库适配器应优先调用 `PilotAccessService`，不要直接绕过底层权限门面。
+
+验证：
+- `python -m pytest tests/test_pilot_access.py tests/test_pilot_registry.py tests/test_job_store.py tests/test_result_store.py tests/test_pilot_backend_models.py -q` 通过，34 项通过；
+- `python -m pytest -q` 通过，214 项通过；
+- `python -m compileall -q src` 通过。
