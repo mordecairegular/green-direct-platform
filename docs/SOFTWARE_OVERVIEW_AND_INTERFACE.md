@@ -1014,6 +1014,17 @@ python -m pytest
 
 `LocalPilotAdminService` 会写入 `CREATE_USER` / `UPDATE_USER` 审计事件，并阻止停用或降级最后一个活跃平台管理员。它是后续 Streamlit 管理页和数据库适配器应复用的账号管理语义，不是完整管理员 UI。
 
+`src/green_direct/cli.py` 已提供最小 `pilot-admin` 命令行入口，作为管理员 UI 落地前的本地运维工具：
+
+- `bootstrap`：创建首个平台管理员；
+- `create-user`：创建用户并可设置初始密码；
+- `reset-password`：重置用户密码；
+- `disable-user`：停用用户并撤销有效会话；
+- `grant-platform-admin` / `revoke-platform-admin`：授予或撤销平台管理员；
+- `list-users` / `list-sessions`：查看用户和会话。
+
+密码参数支持 `--password-env`，优先从环境变量读取，避免把密码直接写入命令历史。该 CLI 使用与服务层相同的本地 store，不替代后续 Streamlit 管理员页面。
+
 `src/green_direct/services/job_store.py` 已提供第一版 `LocalJobStore`：
 
 - `submit_job()` / `load_job()`：保存和读取排队任务；
@@ -1052,6 +1063,33 @@ python -m pytest
 ```powershell
 python -m streamlit run src/green_direct/ui/app.py --server.port=8503
 ```
+
+内部试用后台账号 CLI 示例：
+
+```powershell
+$env:GREEN_DIRECT_ADMIN_PASSWORD = "change-me-before-use"
+python -m green_direct.cli pilot-admin bootstrap `
+    --store-dir .runtime/pilot_store `
+    --user-id admin `
+    --login-name admin@example.local `
+    --display-name "平台管理员" `
+    --password-env GREEN_DIRECT_ADMIN_PASSWORD
+
+$env:GREEN_DIRECT_USER_PASSWORD = "change-me-before-use"
+python -m green_direct.cli pilot-admin create-user `
+    --store-dir .runtime/pilot_store `
+    --actor-user-id admin `
+    --user-id analyst_01 `
+    --login-name analyst01@example.local `
+    --display-name "试用用户 01" `
+    --password-env GREEN_DIRECT_USER_PASSWORD
+
+python -m green_direct.cli pilot-admin list-users `
+    --store-dir .runtime/pilot_store `
+    --actor-user-id admin
+```
+
+安装为包后也可使用 `green-direct pilot-admin ...`。当前 CLI 是管理员页面前的本地运维入口，不代表正式身份系统已完成。
 
 如果端口已有旧进程，可先停止：
 

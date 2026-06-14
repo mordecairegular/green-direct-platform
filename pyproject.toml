@@ -24,6 +24,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
 
+[project.scripts]
+green-direct = "green_direct.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

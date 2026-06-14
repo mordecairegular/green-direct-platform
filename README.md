@@ -16,7 +16,8 @@
 6. 自动判断是否满足政策约束；
 7. 提供 Streamlit 交互界面和结果导出；
 8. 提供经济性评价 V1：年度现金流、FNPV、FIRR、静态/动态回收期；
-9. 提供围绕代表方案和用户加入方案的“方案图谱”展示。
+9. 提供围绕代表方案和用户加入方案的“方案图谱”展示；
+10. 提供内部试用后台的本地账号、认证、权限、任务和结果存储服务骨架，以及 `pilot-admin` 命令行账号管理入口。
 
 ## 重要文档
 
@@ -55,3 +56,17 @@ pip install -r requirements.txt
 pytest
 streamlit run src/green_direct/ui/app.py
 ```
+
+内部试用账号 bootstrap 示例：
+
+```bash
+export GREEN_DIRECT_ADMIN_PASSWORD='change-me-before-use'
+python -m green_direct.cli pilot-admin bootstrap \
+  --store-dir .runtime/pilot_store \
+  --user-id admin \
+  --login-name admin@example.local \
+  --display-name Admin \
+  --password-env GREEN_DIRECT_ADMIN_PASSWORD
+```
+
+该 CLI 是管理员页面完成前的本地运维入口，不代表正式公网 SaaS 身份系统已完成。

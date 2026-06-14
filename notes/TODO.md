@@ -49,6 +49,7 @@
 - 服务层已新增 `LocalPilotRegistry`，支持本地 JSON 用户、项目和项目成员角色管理，不包含密码或登录会话。
 - 服务层已新增 `LocalPilotAuth`，支持本地密码哈希、登录会话、会话校验/撤销和登录审计，暂未接入 Streamlit 登录页、管理员页面或正式身份系统。
 - 服务层已新增 `LocalPilotAdminService`，区分平台管理员和项目管理员，支持首个管理员 bootstrap、创建用户、重置密码、授予/撤销平台管理员、停用用户并撤销会话，暂未接入 Streamlit 管理员页面。
+- `src/green_direct/cli.py` 已新增 `pilot-admin` 命令行入口，支持 bootstrap、创建用户、重置密码、停用用户、授予/撤销平台管理员、列出用户和列出会话，作为管理员页面前的本地运维入口。
 - 服务层已新增 `LocalJobStore`，支持本地 JSON 任务提交、读取、项目/研究列表、状态筛选、进度更新、成功/失败/取消状态持久化，暂未包含 worker 调度、认证、管理员页面或数据库锁。
 - 服务层已新增 `PilotAccessService`，把项目角色权限、任务提交/取消、产物读取和审计日志统一成可测试服务门面，暂未包含认证、管理员页面、worker 调度、数据库事务或并发锁。
 
@@ -71,6 +72,7 @@
 - 后台 PNG 任务和下载缓存按 Streamlit 会话隔离；
 - 先用受控内网/VPN/反向代理做内部试用；
 - 下一阶段把 `pilot_backend` 模型、`LocalPilotRegistry`、`LocalPilotAuth`、`LocalPilotAdminService`、`LocalJobStore`、`LocalResultStore` 和 `PilotAccessService` 接入轻量 SQLite/Postgres、登录入口、管理员页面和后台任务状态页；
+- 下一阶段把 `pilot-admin` CLI 的账号管理能力接入 Streamlit 管理员页；
 - 管理员页、任务提交入口和未来 worker 不应直接绕过 `PilotAccessService` 调用底层 store；
 - 后台任务接入时以 `LocalJobStore` 的 `Job` 状态契约为临时边界，再替换为 SQLite/Postgres 或正式队列实现；
 - 技术仿真、经济性测算和图表导出逐步改为后台任务。

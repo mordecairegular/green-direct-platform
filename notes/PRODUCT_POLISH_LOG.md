@@ -3255,3 +3255,31 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_pilot_admin.py tests/test_pilot_auth.py tests/test_pilot_registry.py tests/test_pilot_backend_models.py -q` 通过，30 项通过；
 - `python -m pytest -q` 通过，232 项通过；
 - `python -m compileall -q src` 通过。
+
+### 2026-06-15 pilot-admin 命令行账号管理入口
+
+本轮继续推进内部 10-20 人试用的“可操作后台”能力。已有服务层可以管理账号、密码、会话和平台管理员，但如果没有任何入口，部署时仍需要开发者写 Python 调服务。本轮将占位 `src/green_direct/cli.py` 改为最小可用的后台账号管理 CLI。
+
+本轮判断：
+- Streamlit 管理员页面仍需要设计登录态、导航和权限拦截，不宜仓促塞进主业务 UI；
+- 但内部试用部署前必须能创建首个管理员、创建试用用户、重置密码、停用用户和查看会话；
+- CLI 是管理员页面前的低风险入口，复用同一服务层，后续 UI 也能按这些命令背后的服务语义实现。
+
+本轮实现：
+- `src/green_direct/cli.py` 从占位提示改为 `argparse` 实现；
+- 新增 `pilot-admin` 子命令组；
+- 支持 `bootstrap`、`create-user`、`reset-password`、`disable-user`、`grant-platform-admin`、`revoke-platform-admin`、`list-users` 和 `list-sessions`；
+- 默认本地 store 为 `.runtime/pilot_store`，所有命令可通过 `--store-dir` 指定受控目录；
+- 密码支持 `--password-env` 从环境变量读取，减少把密码写入命令历史的风险；
+- `pyproject.toml` 新增 console script：`green-direct = "green_direct.cli:main"`；
+- 新增 `tests/test_cli.py` 覆盖 bootstrap、创建用户、重置密码、停用用户、授予/撤销平台管理员、列出会话和错误返回码。
+
+边界说明：
+- 本轮不实现 Streamlit 管理员页面；
+- 不替代正式企业身份系统或数据库会话表；
+- CLI 不应成为普通用户入口，只作为内部试用部署和管理员页面完成前的本地运维入口。
+
+验证：
+- `python -m pytest tests/test_cli.py tests/test_pilot_admin.py tests/test_pilot_auth.py -q` 通过，19 项通过；
+- `python -m pytest -q` 通过，236 项通过；
+- `python -m compileall -q src` 通过。
