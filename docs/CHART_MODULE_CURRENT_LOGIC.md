@@ -10,9 +10,10 @@
 
 但有三点需要特别注意：
 
-1. “春季 / 夏季 / 秋季 / 冬季典型日”已改为季节中心日法：在该季完整 24 小时日期中，按逐小时曲线特征选离季节平均曲线最近的真实日期，并在图表标题中标注 MM/DD。
+1. “春季 / 夏季 / 秋季 / 冬季典型日”已改为季节中心日法：在该季完整 24 小时日期中，按逐小时曲线特征选离季节平均曲线最近的真实日期；图表主标题不嵌入日期，选中日期写入说明和导出 meta。
 2. “年度能源流向 Sankey”中的光伏、风电去向分摊按全年光伏/风电发电占比近似拆分，不是逐小时能源来源追踪。
 3. 当前 Streamlit 推荐图表页已优先消费正式 `RecommendationPortfolio`，图表默认围绕推荐组合和用户手动加入方案；只有推荐组合缺失或没有有效 `scenario_id` 时，才回退到图表模块内部的技术代表方案临时逻辑。
+4. 2026-06-10 起，网页端 24H 运行策略图和 HTML/PNG 图表包复用同一套构图和能源色板；图表包补充四季典型日、关键运行日、全年 8760/8784 曲线，季节典型日文件名不再嵌入日期。
 
 ## 2. 图表模块读取的数据
 
@@ -121,7 +122,7 @@ src/green_direct/ui/app.py
 6. 对这些字段做标准化，避免负荷这类大数值字段压倒 SOC、弃电等字段；
 7. 计算每一天与该季平均日向量的距离；
 8. 选择距离最小的真实日期；
-9. 图表标题和说明中显示该日期的 `MM/DD`。
+9. 图表说明和导出 meta 中显示该日期的 `MM/DD`，图表主标题和文件名保持稳定。
 
 如果候选季节没有完整 24 小时日期，会退回到该季节首个可用日期；如果缺少日期字段，则退回前 24 小时作为示例日。退回逻辑只影响展示选日，不会改动技术仿真结果。
 
@@ -161,7 +162,7 @@ src/green_direct/ui/app.py
 - 因为它把光伏、风电正发电直接画出来，同时也画储能放电、下网、充电、上网、弃电；
 - 它没有展示站用电，也没有把“新能源直供负荷”单独作为供给来源。
 
-如果要严格看“负荷由谁供给、富余去了哪里”，库里已有 `build_daily_balance_chart()` 更接近平衡复核口径：第一层画 `direct_self_use_power + bess_discharge_power + grid_import_power` 与负荷，第二层画 `bess_charge_power + grid_export_power + curtail_power`，第三层画 SOC。
+如果要严格看“负荷由谁供给、富余去了哪里”，应直接复核 `hourly_detail` 中的负荷平衡和新能源去向字段。当前导出的 S03 图已改为网页端同款运行策略图：正向柱展示光伏/风电可发、储能放电、下网，负向柱展示储能充电、上网、弃电，下方展示 SOC。
 
 #### 关键运行日怎么选
 
@@ -190,12 +191,9 @@ src/green_direct/ui/app.py
 
 绘制方式：
 
-- 使用原始逐小时点画 `Scattergl` 折线；
-- 不做平滑；
-- 不做抽样；
-- 功率类曲线走左轴；
-- SOC 走右轴；
-- 底部提供范围滑块和 1 周 / 1 月 / 全年缩放按钮。
+- 使用原始逐小时点，不做平滑或抽样；
+- 分三行展示：供需与下网、上网与弃电、储能 SOC；
+- 上网与弃电使用填充面积，SOC 单独使用百分比轴，避免所有指标挤在一个坐标系。
 
 ### 3.4 经济性分析
 
@@ -262,14 +260,15 @@ src/green_direct/ui/app.py
 | ID | 函数 | 图表 | 数据来源 | 逻辑 |
 |---|---|---|---|---|
 | S01 | `build_indicator_cards` | 方案指标卡 | `summary` | 取年度汇总字段做表格展示 |
-| S02 | `build_policy_bar_chart` | 政策指标达标条形图 | `summary` | 自发自用率、绿电占比、上网比例与阈值对比 |
-| S03 | `build_daily_balance_chart` | 典型日源网荷储平衡图 | `hourly_detail` | 按选定日期画负荷来源、富余去向、SOC |
+| S02 | `build_policy_bar_chart` | 政策指标达标对比图 | `summary` | 实际值用柱，政策阈值用每个指标上的水平阈值线 |
+| S03 | `build_daily_balance_chart` | 24H 源网荷储运行策略图 | `hourly_detail` | 按选定日期画网页端同款正负柱运行策略和 SOC |
 | S04 | `build_heatmap_chart` | 年度热力图 | `hourly_detail` | 透视为 `小时 × 年内日序`，默认均值聚合 |
 | S05 | `build_monthly_load_source_chart` | 月度用户用电来源堆叠图 | `hourly_detail` | 按月求和新能源直供、储能放电、下网 |
 | S06 | `build_monthly_renewable_flow_chart` | 月度新能源去向堆叠图 | `hourly_detail` | 按月求和直供、充储、上网、弃电、站用电 |
 | S07 | `build_soc_chart` | SOC 时序图 | `hourly_detail` | 直接画 `soc_end` |
 | S08 | `build_battery_power_chart` | 储能充放电功率图 | `hourly_detail` | 放电为正，充电取负 |
-| S09 | `build_grid_exchange_chart` | 电网交换功率图 | `hourly_detail` | 上网为正，下网为负，净交换 = 上网 - 下网 |
+| S09 | `build_grid_exchange_chart` | 电网交换功率图 | `hourly_detail` | 图中净交换显式按 `grid_export_power - grid_import_power`；原始 `grid_exchange_power` 保留在导出数据中复核 |
+| S10 | `build_full_year_operation_chart` | 全年 8760/8784 小时运行曲线 | `hourly_detail` | 三行分面展示供需与下网、上网与弃电、SOC |
 | S11 | `build_abnormal_day_table` | 异常日排行榜 | `hourly_detail` | 按日汇总后找最大负荷、最大下网、最大上网、最大弃电、SOC 极值日 |
 
 ### 5.2 多方案图表
@@ -279,7 +278,7 @@ src/green_direct/ui/app.py
 | M01 | `build_multi_policy_comparison` | 多方案政策指标对比图 | `summary` | 多方案自发自用率、绿电占比、上网比例分组柱状图 |
 | M02 | `build_multi_capacity_comparison` | 多方案容量配置对比图 | `summary` | 光伏、风电、储能功率、储能容量分组柱状图 |
 | M03 | `build_multi_renewable_flow_comparison` | 多方案新能源去向对比图 | `summary` | 自发自用、上网、弃电、储能损耗柱状图 |
-| M05 | `build_curtailment_vs_self_consumption_scatter` | 弃电率 vs 自发自用率散点图 | `summary` | 横轴自发自用率，纵轴弃电率，颜色绿电占比，点大小储能容量 |
+| M05 | `build_curtailment_vs_self_consumption_scatter` | 弃电率 vs 自发自用率散点图 | `summary` | 横轴自发自用率，纵轴弃电率，颜色绿电占比，点大小储能容量；至少 2 个方案才生成，单方案时跳过 |
 | M06 | `build_multi_battery_cycles_comparison` | 储能等效循环次数对比图 | `summary` | 比较 `annual_equivalent_cycles` |
 
 ### 5.3 导出辅助
@@ -289,7 +288,18 @@ src/green_direct/ui/app.py
 | `chart_to_html_bytes` | 导出交互式 HTML |
 | `chart_to_excel_bytes` | 导出图表数据、元数据和警告 |
 | `chart_to_meta_markdown` | 导出图表口径说明 |
-| `try_chart_to_png_bytes` | 尝试导出 PNG，依赖 kaleido / 浏览器环境 |
+| `chart_to_png_bytes` | 按 A4 纵向 Word 正文宽度导出报告版 PNG；复制 Plotly figure 后调整宽高，不污染网页展示 |
+| `charts_to_png_bytes_batch` | 优先用 Plotly `write_images()` 批量导出多张 PNG，比逐张 `to_image()` 更快；失败时 UI 侧会回退逐张导出 |
+| `try_chart_to_png_bytes` | 尝试导出 PNG，依赖 kaleido 和可用 Chrome / Chromium 环境 |
+
+当前下载页同时提供两类图表包：
+
+- 交互式 HTML ZIP：保留 Plotly 交互能力，适合网页复核、悬停查看数据和审查图表口径；
+- Word 友好 PNG ZIP：使用同一批图表清单，生成适合插入 docx 的静态图片、每图 meta、`chart_manifest.csv` 和 `README.md`。
+
+PNG 包默认面向 A4 纵向 Word 页面，建议在 Word 中按 16 cm 宽度插入。导出画布宽度为 1800px；24H 典型日和关键运行日图高度 1300px，全年 / SOC / 电网交换 / 热力图高度 1000px，月度 / 多方案图高度 900px。若缺少 `plotly>=6.1`、`kaleido>=1.0` 或可用 Chrome / Chromium，PNG 会在 UI 和 `warnings.txt` 中提示失败原因，HTML ZIP 不受影响。
+
+2026-06-10 后，Streamlit 06 页的 PNG ZIP 生成是后台任务。用户点击生成后可以切换到其他页面继续操作，返回下载页时自动轮询并读取结果；下载按钮使用 `on_click="ignore"`，减少下载动作触发额外页面重跑。
 
 ## 6. 忠于原始数据的程度
 
@@ -319,7 +329,7 @@ src/green_direct/ui/app.py
 | 图表 / 逻辑 | 风险 | 建议解读 |
 |---|---|---|
 | 季节典型日 | 是最接近季节平均曲线的真实日，但仍代表不了极端日 | 适合看常规运行形态；极端复核应看关键运行日 |
-| 主界面 24H 运行策略图 | 正负柱展示运行态势，不是严格平衡堆叠 | 看趋势可以，看严格能量平衡应查 hourly_detail 或 S03 |
+| 24H 运行策略图 | 正负柱展示运行态势，不是严格平衡堆叠；网页、HTML ZIP 和 PNG ZIP 共用同一套图形口径 | 看趋势可以，看严格能量平衡应查 hourly_detail |
 | 年度 Sankey 光伏/风电分摊 | 按全年发电占比分摊，不是逐小时溯源 | 只看总量和大方向，不要解读为真实来源追踪 |
 | 年度 Sankey 储能节点 | 没有单独展示年末 SOC 变化 | 年初年末 SOC 不同则不完全守恒 |
 | `chart_ui.py` 缺字段处理 | 部分曲线缺字段时会画 0 | 当前标准 `BatchResult` 字段完整时影响不大；外部数据接入时需注意 |
@@ -338,7 +348,7 @@ src/green_direct/ui/app.py
 4. 按日期分组，只保留 0-23 点完整的日期；
 5. 取参与典型日选择的字段，按列标准化；
 6. 计算每一天与春季平均日向量的均方距离；
-7. 距离最小的日期应等于图表标题中标注的 MM/DD；
+7. 距离最小的日期应等于图表说明和导出 meta 中记录的 MM/DD；
 8. 检查图上 24 个点是否等于该日期的逐小时字段。
 
 ### 7.2 复核 24H 曲线
@@ -407,7 +417,7 @@ self_use_energy
 - 时间字段派生；
 - 净交换功率派生；
 - 最大负荷日选择；
-- 季节中心日法会选中离季节平均曲线最近的真实日期，并返回 MM/DD；
+- 季节中心日法会选中离季节平均曲线最近的真实日期，并返回 MM/DD；导出文件名不嵌入日期；
 - 缺字段时返回 warning 而不是崩溃；
 - 单方案图表 smoke test；
 - 多方案图表 smoke test；

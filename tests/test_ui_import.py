@@ -47,6 +47,42 @@ def test_workflow_pages_split_recommendation_and_charts():
     assert app.WORKFLOW_PAGE_META["图表下载和报告生成"]["index"] == "06"
 
 
+def test_runtime_snapshot_round_trips_session_state(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.economy import read_price_curve
+
+    snapshot_path = tmp_path / "latest_session_snapshot.pkl"
+    monkeypatch.setattr(app, "RUNTIME_STATE_DIR", tmp_path)
+    monkeypatch.setattr(app, "LATEST_SESSION_SNAPSHOT_PATH", snapshot_path)
+
+    class DummyStreamlit:
+        def __init__(self, state):
+            self.session_state = state
+
+    batch_result = SimpleNamespace(summary=pd.DataFrame({"scenario_id": ["S0001"]}), hourly_details={"S0001": pd.DataFrame()})
+    source = DummyStreamlit(
+        {
+            "batch_result": batch_result,
+            "config_snapshot": {"demo": True},
+            "recommendation_v1_inputs": {"power_side_firr_threshold": 0.07},
+            app.PROJECT_PRICE_CURVE_DATA_KEY: read_price_curve("samples/price_curve_template_down_grid.csv"),
+            app.PROJECT_PRICE_CURVE_META_KEY: {"source_name": "price_curve_template_down_grid.csv"},
+        }
+    )
+
+    app._save_runtime_snapshot(source)
+
+    target = DummyStreamlit({})
+    restored = app._restore_runtime_snapshot_if_needed(target)
+
+    assert restored is True
+    assert target.session_state["batch_result"] is not None
+    assert target.session_state["config_snapshot"] == {"demo": True}
+    assert app.PROJECT_PRICE_CURVE_DATA_KEY not in target.session_state
+    assert app.PROJECT_PRICE_CURVE_META_KEY not in target.session_state
+    assert "已从项目本地快照恢复" in target.session_state["_runtime_restore_notice"]
+
+
 def test_curve_display_tooltip_shows_input_curve_metrics():
     from green_direct.ui.app import _curve_display_tooltip
 
@@ -248,12 +284,111 @@ def test_project_price_curve_state_invalidates_economy_results():
     app._remember_project_price_curve(dummy, price_curve, "price_curve_template_down_grid.csv", "sig-1")
 
     assert dummy.session_state[app.PROJECT_PRICE_CURVE_DATA_KEY] is price_curve
+    assert dummy.session_state[app.PROJECT_PRICE_CURVE_SESSION_UPLOAD_KEY] is True
     assert dummy.session_state[app.PROJECT_PRICE_CURVE_META_KEY]["source_name"] == "price_curve_template_down_grid.csv"
     assert dummy.session_state[app.PROJECT_PRICE_CURVE_META_KEY]["row_count"] == 8784
     assert "economy_v1_result" not in dummy.session_state
     assert "single_entity_economy_result" not in dummy.session_state
     assert "recommendation_v1_inputs" not in dummy.session_state
     assert "download_payloads" not in dummy.session_state
+
+
+def test_incompatible_project_price_curve_is_discarded_for_current_hourly_rows():
+    import green_direct.ui.app as app
+    from green_direct.economy import read_price_curve
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                "economy_v1_result": {"summary": pd.DataFrame({"scenario_id": ["old"]})},
+                "single_entity_economy_result": {"summary": pd.DataFrame({"scenario_id": ["old"]})},
+                app.PROJECT_PRICE_CURVE_DATA_KEY: read_price_curve("samples/price_curve_template_down_grid.csv"),
+                app.PROJECT_PRICE_CURVE_META_KEY: {
+                    "source_name": "price_curve_template_down_grid.csv",
+                    "row_count": 8784,
+                    "field_count": 5,
+                    "signature": "old-template",
+                },
+                app.PROJECT_PRICE_CURVE_SESSION_UPLOAD_KEY: True,
+            }
+
+    dummy = DummyStreamlit()
+    hourly_details = {
+        "S0001": pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2025-01-01", periods=8760, freq="h"),
+                "hour_index": range(8760),
+            }
+        )
+    }
+
+    notice = app._discard_incompatible_project_price_curve(dummy, hourly_details)
+
+    assert notice is not None
+    assert "8,784" in notice
+    assert "8,760" in notice
+    assert app.PROJECT_PRICE_CURVE_DATA_KEY not in dummy.session_state
+    assert app.PROJECT_PRICE_CURVE_META_KEY not in dummy.session_state
+    assert "economy_v1_result" not in dummy.session_state
+    assert "single_entity_economy_result" not in dummy.session_state
+
+
+def test_matching_project_price_curve_is_kept_for_current_hourly_rows():
+    import green_direct.ui.app as app
+    from green_direct.economy import read_price_curve
+
+    price_curve = read_price_curve("samples/price_curve_template_down_grid.csv")
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.PROJECT_PRICE_CURVE_DATA_KEY: price_curve,
+                app.PROJECT_PRICE_CURVE_META_KEY: {
+                    "source_name": "price_curve_template_down_grid.csv",
+                    "row_count": 8784,
+                    "field_count": 5,
+                    "signature": "matching-template",
+                },
+                app.PROJECT_PRICE_CURVE_SESSION_UPLOAD_KEY: True,
+            }
+
+    dummy = DummyStreamlit()
+    hourly_details = {
+        "S0001": pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=8784, freq="h"),
+                "hour_index": range(8784),
+            }
+        )
+    }
+
+    notice = app._discard_incompatible_project_price_curve(dummy, hourly_details)
+
+    assert notice is None
+    assert dummy.session_state[app.PROJECT_PRICE_CURVE_DATA_KEY] is price_curve
+    assert dummy.session_state[app.PROJECT_PRICE_CURVE_META_KEY]["row_count"] == 8784
+
+
+def test_unconfirmed_project_price_curve_state_is_cleared():
+    import green_direct.ui.app as app
+    from green_direct.economy import read_price_curve
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                "economy_v1_result": {"summary": pd.DataFrame({"scenario_id": ["old"]})},
+                app.PROJECT_PRICE_CURVE_DATA_KEY: read_price_curve("samples/price_curve_template_down_grid.csv"),
+                app.PROJECT_PRICE_CURVE_META_KEY: {"source_name": "price_curve_template_down_grid.csv"},
+            }
+
+    dummy = DummyStreamlit()
+
+    cleared = app._clear_unconfirmed_project_price_curve(dummy)
+
+    assert cleared is True
+    assert app.PROJECT_PRICE_CURVE_DATA_KEY not in dummy.session_state
+    assert app.PROJECT_PRICE_CURVE_META_KEY not in dummy.session_state
+    assert "economy_v1_result" not in dummy.session_state
 
 
 def test_batch_curve_upload_can_identify_project_price_curve():
@@ -332,6 +467,15 @@ def test_price_curve_upload_is_project_level_not_economy_page_upload():
 
     assert "key=\"simulation_price_curve_upload\"" in app_source
     assert "key=\"economy_price_curve_upload\"" not in app_source
+
+
+def test_simulation_page_removes_developer_facing_explanatory_copy():
+    app_source = Path("src/green_direct/ui/app.py").read_text(encoding="utf-8")
+
+    assert "任务边界" not in app_source
+    assert "本页仍完整保留曲线上传" not in app_source
+    assert "已上传逐时下网电价曲线" not in app_source
+    assert "自动使用" not in app_source
 
 
 def test_economy_result_keeps_price_curve_alignment_diagnostics_visible():
@@ -615,11 +759,135 @@ def test_chart_html_zip_contains_html_and_meta_files():
     assert any(name.endswith(".html") for name in names)
     assert any("typical" in name and name.endswith("_meta.md") for name in names)
     typical_html = [name for name in names if name.startswith("typical_") and name.endswith(".html")]
+    key_day_html = [name for name in names if name.startswith("key_day_") and name.endswith(".html")]
     assert len(typical_html) == 4
     assert any("spring" in name for name in typical_html)
     assert any("winter" in name for name in typical_html)
+    assert not any(any(date_part in name for date_part in ["03_01", "03_02", "03_03"]) for name in typical_html)
+    assert len(key_day_html) == 5
+    assert any(name.startswith("full_year_operation_") and name.endswith(".html") for name in names)
     assert comparison["scenario_id"].tolist() == ["S0002", "S0001"]
     assert "多方案对比范围：2 个方案" in readme
+    assert "文件名不嵌入日期" in readme
+
+
+def test_chart_png_docx_zip_contains_png_manifest_and_matches_html(monkeypatch):
+    import green_direct.ui.app as app
+
+    hours = 72
+    hourly = pd.DataFrame(
+        {
+            "scenario_id": ["S0001"] * hours,
+            "timestamp": pd.date_range("2020-03-01", periods=hours, freq="h"),
+            "load_power": [10.0] * hours,
+            "direct_self_use_power": [4.0] * hours,
+            "bess_discharge_power": [1.0] * hours,
+            "grid_import_power": [5.0] * hours,
+            "bess_charge_power": [0.5] * hours,
+            "grid_export_power": [0.2] * hours,
+            "curtail_power": [0.1] * hours,
+            "renewable_power": [5.0] * hours,
+            "station_use_power": [0.0] * hours,
+            "soc_end": [0.5] * hours,
+        }
+    )
+    summary = pd.DataFrame(
+        {
+            "scenario_id": ["S0001", "S0002"],
+            "pv_capacity": [10.0, 20.0],
+            "wind_capacity": [5.0, 10.0],
+            "bess_power": [2.0, 3.0],
+            "bess_energy": [4.0, 6.0],
+            "self_use_rate": [0.7, 0.8],
+            "green_load_rate": [0.35, 0.4],
+            "export_rate": [0.1, 0.12],
+            "curtail_rate": [0.05, 0.03],
+            "self_use_energy": [100.0, 120.0],
+            "grid_export_energy": [10.0, 12.0],
+            "curtail_energy": [5.0, 4.0],
+            "bess_loss_energy": [1.0, 1.5],
+        }
+    )
+    comparison = app._comparison_summary_from_portfolio(summary, "S0001", pd.DataFrame({"scenario_id": ["S0002"]}))
+
+    def fake_png_bytes(result, profile):
+        return f"png:{result.chart_id}:{profile.width_px}:{profile.height_for(result)}".encode("utf-8")
+
+    def fake_png_bytes_batch(results, profile):
+        return [fake_png_bytes(result, profile) for result in results]
+
+    monkeypatch.setattr(app, "chart_to_png_bytes", fake_png_bytes)
+    monkeypatch.setattr(app, "charts_to_png_bytes_batch", fake_png_bytes_batch)
+
+    html_content = app._build_chart_html_zip(summary, "S0001", hourly, comparison_summary=comparison)
+    progress_events = []
+    png_content, warnings = app._build_chart_png_docx_zip(
+        summary,
+        "S0001",
+        hourly,
+        comparison_summary=comparison,
+        progress_callback=lambda done, total, name: progress_events.append((done, total, name)),
+    )
+
+    html_names = ZipFile(BytesIO(html_content)).namelist()
+    png_archive = ZipFile(BytesIO(png_content))
+    png_names = png_archive.namelist()
+    readme = png_archive.read("README.md").decode("utf-8-sig")
+    manifest = pd.read_csv(BytesIO(png_archive.read("chart_manifest.csv")))
+
+    assert warnings == []
+    assert "README.md" in png_names
+    assert "chart_manifest.csv" in png_names
+    assert any(name.endswith(".png") for name in png_names)
+    assert "16 cm" in readme
+    html_prefixes = {name.removesuffix(".html") for name in html_names if name.endswith(".html")}
+    png_prefixes = {name.removesuffix(".png") for name in png_names if name.endswith(".png")}
+    assert png_prefixes == html_prefixes
+    assert set(manifest["file_name"]) == {f"{prefix}.png" for prefix in png_prefixes}
+    assert any(name.startswith("key_day_") and name.endswith(".png") for name in png_names)
+    assert any(name.startswith("full_year_operation_") and name.endswith(".png") for name in png_names)
+    assert not any(any(date_part in name for date_part in ["03_01", "03_02", "03_03"]) for name in png_names if name.startswith("typical_"))
+    assert manifest["width_px"].eq(1800).all()
+    assert "同一套颜色和显示口径" in readme
+    assert progress_events[0][0] == 0
+    assert progress_events[-1][0] == progress_events[-1][1]
+    assert progress_events[-1][1] == len(png_prefixes)
+
+
+def test_chart_png_docx_background_job_stores_finished_result(monkeypatch):
+    import green_direct.ui.app as app
+
+    class FakeStreamlit:
+        def __init__(self):
+            self.session_state = {}
+
+    def fake_build_zip(summary, selected_scenario_id, hourly, comparison_summary=None, progress_callback=None):
+        if progress_callback:
+            progress_callback(1, 2, "第一张图")
+            progress_callback(2, 2, "完成")
+        return b"fake-zip", []
+
+    signature = "unit-test-background-png"
+    app._CHART_PNG_DOCX_JOBS.pop(app._chart_png_docx_job_key(signature), None)
+    monkeypatch.setattr(app, "_build_chart_png_docx_zip", fake_build_zip)
+    monkeypatch.setattr(app, "_save_runtime_snapshot", lambda st: None)
+
+    job = app._submit_chart_png_docx_job(
+        signature,
+        pd.DataFrame({"scenario_id": ["S0001"]}),
+        "S0001",
+        pd.DataFrame({"timestamp": pd.date_range("2020-01-01", periods=1, freq="h")}),
+        pd.DataFrame({"scenario_id": ["S0001"]}),
+    )
+    job["future"].result(timeout=5)
+    fake_st = FakeStreamlit()
+
+    status = app._poll_chart_png_docx_job(fake_st, signature)
+
+    assert status["status"] == "complete"
+    assert fake_st.session_state["chart_png_docx_export"]["data"] == b"fake-zip"
+    assert fake_st.session_state["chart_png_docx_export"]["signature"] == signature
+    assert job["progress"] == {"completed": 2, "total": 2, "message": "完成"}
 
 
 def test_single_entity_annual_workbook_has_context_and_field_explanations():

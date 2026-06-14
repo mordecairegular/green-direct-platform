@@ -7,10 +7,14 @@ from green_direct.visualization.multi_scenario_charts import (
 )
 from green_direct.visualization.single_scenario_charts import (
     build_daily_balance_chart,
+    build_full_year_operation_chart,
     build_grid_exchange_chart,
+    build_monthly_load_source_chart,
+    build_monthly_renewable_flow_chart,
     build_policy_bar_chart,
     build_soc_chart,
 )
+from green_direct.visualization.style import CHART_COLORS, MONTHLY_LOAD_SOURCE_COLORS, MONTHLY_RENEWABLE_FLOW_COLORS
 from green_direct.visualization.chart_ui import (
     _render_energy_flow,
     _render_policy_radar,
@@ -26,6 +30,8 @@ def _hourly(hours=8760):
             "timestamp": timestamps,
             "hour_index": range(hours),
             "load_power": [10.0] * hours,
+            "pv_generation_power": [2.0] * hours,
+            "wind_generation_power": [3.0] * hours,
             "direct_self_use_power": [4.0] * hours,
             "bess_discharge_power": [1.0] * hours,
             "grid_import_power": [5.0] * hours,
@@ -68,6 +74,7 @@ def test_single_scenario_charts_smoke():
         build_policy_bar_chart(summary_row),
         build_daily_balance_chart(hourly),
         build_heatmap_chart(hourly),
+        build_full_year_operation_chart(hourly),
         build_soc_chart(hourly),
         build_grid_exchange_chart(hourly),
     ]
@@ -90,6 +97,64 @@ def test_multi_scenario_charts_smoke():
     ]
 
     assert all(result.figure is not None for result in results)
+    scatter = results[1]
+    assert scatter.figure.layout.xaxis.range == (0, 1)
+    assert scatter.figure.layout.yaxis.range == (0, 1)
+
+
+def test_curtailment_scatter_skips_single_scenario():
+    result = build_curtailment_vs_self_consumption_scatter(_summary().head(1))
+
+    assert result.figure is None
+    assert result.warnings
+    assert "至少需要 2 个方案" in result.warnings[0]
+    assert result.meta["export_ready"] is False
+
+
+def test_report_charts_use_explicit_readable_colors():
+    hourly = _hourly(72)
+    summary_row = _summary().iloc[0]
+
+    policy = build_policy_bar_chart(summary_row)
+    assert [trace.type for trace in policy.figure.data] == ["bar", "scatter", "scatter"]
+    assert {trace.name for trace in policy.figure.data} == {"实际值", "阈值线", "阈值标注"}
+
+    day = build_daily_balance_chart(hourly)
+    day_colors = {trace.name: trace.marker.color for trace in day.figure.data if trace.type == "bar"}
+    assert day_colors["电网下网"] == CHART_COLORS["grid_import"]
+    assert day_colors["上网"] == CHART_COLORS["grid_export"]
+    assert day_colors["电网下网"] != day_colors["上网"]
+
+    monthly_load = build_monthly_load_source_chart(hourly)
+    load_colors = {trace.name: trace.marker.color for trace in monthly_load.figure.data}
+    assert load_colors == MONTHLY_LOAD_SOURCE_COLORS
+
+    monthly_renewable = build_monthly_renewable_flow_chart(hourly)
+    renewable_colors = {trace.name: trace.marker.color for trace in monthly_renewable.figure.data}
+    assert renewable_colors == MONTHLY_RENEWABLE_FLOW_COLORS
+
+    heatmap = build_heatmap_chart(hourly, "grid_import_power")
+    assert "电网下网功率" in heatmap.figure.layout.title.text
+    assert len({item[1] for item in heatmap.figure.layout.coloraxis.colorscale}) > 2
+
+    full_year = build_full_year_operation_chart(hourly)
+    full_year_colors = {trace.name: trace.line.color for trace in full_year.figure.data}
+    assert full_year_colors["下网"] == CHART_COLORS["grid_import"]
+    assert full_year_colors["上网"] == CHART_COLORS["grid_export"]
+    assert full_year.figure.layout.yaxis3.title.text == "SOC"
+
+
+def test_grid_exchange_chart_uses_export_minus_import_for_display():
+    hourly = _hourly(24)
+    hourly["grid_export_power"] = [1.0] * 24
+    hourly["grid_import_power"] = [3.0] * 24
+    hourly["grid_exchange_power"] = [99.0] * 24
+
+    result = build_grid_exchange_chart(hourly)
+    net_trace = next(trace for trace in result.figure.data if trace.name == "净交换功率")
+
+    assert list(net_trace.y[:3]) == [-2.0, -2.0, -2.0]
+    assert "net_export_power" in result.data.columns
 
 
 def test_overview_comparison_uses_grouped_bar_labels_with_capacity():
@@ -97,7 +162,7 @@ def test_overview_comparison_uses_grouped_bar_labels_with_capacity():
         def __init__(self):
             self.figure = None
 
-        def plotly_chart(self, fig, use_container_width=True):
+        def plotly_chart(self, fig, width="stretch", **kwargs):
             self.figure = fig
 
     st = FakeStreamlit()
@@ -166,7 +231,7 @@ def test_energy_flow_sankey_uses_readable_text_style():
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def plotly_chart(self, fig, use_container_width=True):
+        def plotly_chart(self, fig, width="stretch", **kwargs):
             self.owner.figures.append(fig)
 
         def metric(self, *args, **kwargs):
@@ -185,7 +250,7 @@ def test_energy_flow_sankey_uses_readable_text_style():
         def columns(self, spec):
             return [FakeColumn(self), FakeColumn(self)]
 
-        def plotly_chart(self, fig, use_container_width=True):
+        def plotly_chart(self, fig, width="stretch", **kwargs):
             self.figures.append(fig)
 
         def metric(self, *args, **kwargs):

@@ -60,8 +60,8 @@ class EconomicParams:
     """
 
     operation_years: int = 25
-    wind_capex_per_kw_with_vat: float = 4500.0
-    pv_capex_per_kw_with_vat: float = 2500.0
+    wind_capex_per_kw_with_vat: float = 5000.0
+    pv_capex_per_kw_with_vat: float = 2800.0
     bess_capex_per_kwh_with_vat: float = 900.0
     dedicated_connection_line_investment_with_vat: float = 0.0
     other_fixed_asset_investment_with_vat: float = 0.0

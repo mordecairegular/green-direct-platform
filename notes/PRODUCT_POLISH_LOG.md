@@ -2582,3 +2582,332 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests\test_ui_import.py tests\test_visualization_smoke.py tests\test_chart_data.py tests\test_price_curves.py tests\test_study_runner.py`：54 项通过。
 - `python -m pytest -q`：157 项通过。
 - 本地 Streamlit `http://localhost:8502` 浏览器验收：Demo 技术仿真完成，528 个方案 / 62 达标；03 经济性测算出现新增固定到户价输入并成功渲染“负荷到户电价对比”；04 推荐卡片展示到户价字段；05 图表概览展示方案组到户价卡片，且点击 S0162 方案按钮后详细图表切换正常。
+
+### 2026-06-09 图表交付修正：新增 Word 友好 PNG 图片包
+
+用户反馈网站下载的图表不是所见即所得，也不方便直接放入 docx；网页内图表效果可以接受，但导出图片需要结合 A4 页面比例调整长宽，尽量保持显示效果和信息完整。用户同时提醒 GPT 讨论稿未读取本地文件，必须审慎使用。
+
+本轮判断：
+- 现有 `chart_html_{scenario_id}.zip` 只包含 Plotly HTML 和 meta，适合网页交互复核，不适合作为 Word 插图交付物；
+- Plotly HTML 默认随浏览器容器响应式调整，无法保证插入 docx 后保持网页视觉比例；
+- 图表图片导出应作为交付中心的独立包，与 HTML ZIP 并存：HTML 用于交互复核，PNG 用于 Word / 报告插图；
+- PNG 导出必须复用现有图表清单和 `ChartResult`，只读消费技术、经济和推荐结果，不改变底层调度、经济公式或推荐排序。
+
+本轮实现：
+- `src/green_direct/visualization/export_charts.py` 新增 `ChartImageExportProfile`、`DOCX_A4_PORTRAIT_PROFILE` 和 `chart_to_png_bytes()`，导出前复制 Plotly figure 并应用报告版宽高，避免污染网页展示图；
+- `src/green_direct/ui/app.py` 抽出共享图表清单，HTML ZIP 和 PNG ZIP 使用同一批图表：当前方案政策图、四季典型日、SOC、电网交换、月度流向、热力图和推荐组合多方案对比；
+- 06 下载页新增 `chart_png_docx_{scenario_id}.zip`，包含 PNG、每图 meta、`chart_manifest.csv` 和 `README.md`；
+- PNG 默认面向 A4 纵向 Word 正文，建议 16 cm 宽插入，画布宽度 1800px；典型日图 1300px 高，全年 / 热力图 1000px 高，月度 / 多方案图 900px 高；
+- `requirements.txt` 将 Plotly 下限调整为 `plotly>=6.1`，并新增 `kaleido>=1.0`；如缺少 Kaleido 或可用 Chrome / Chromium，UI 会提示 PNG 失败原因，HTML ZIP 仍可下载；
+- `docs/CHART_MODULE_CURRENT_LOGIC.md` 更新 HTML / PNG 图表包分工和静态图片环境要求。
+
+验证：
+- `python -m py_compile src/green_direct/ui/app.py src/green_direct/visualization/export_charts.py` 通过；
+- `python -m pytest tests/test_ui_import.py tests/test_visualization_smoke.py tests/test_chart_data.py tests/test_chart_contracts.py` 通过。
+
+### 2026-06-09 启动入口修复：避开端口冲突与旧 Streamlit 状态
+
+用户反馈新增 PNG 图表包后网页无法进入，报错为 `ImportError: cannot import name 'DOCX_A4_PORTRAIT_PROFILE'`，并怀疑再次与其他项目网页地址冲突。
+
+本轮判断：
+- 当前源码中 `DOCX_A4_PORTRAIT_PROFILE` 已存在，新的 Python 进程可正常导入 `green_direct.visualization.export_charts` 和 `green_direct.ui.app`；
+- 问题不是该符号在源码中缺失，而是本机仍有旧 Streamlit 进程占用 8501 / 8502：8502 为本项目旧实例，8501 为无法确认归属的裸 `app.py` 实例；
+- 旧 `START_GREEN_DIRECT_APP.bat` 只要发现 8501 有监听就直接打开浏览器并退出，可能把用户带到其他项目、旧实例或错误状态页面；
+- 启动入口应默认从 8503 起选端口，遇到其他项目占用时自动向后查找，并且只停止可确认属于本项目的旧 Streamlit 进程。
+
+本轮实现：
+- 新增 `scripts/start_green_direct_app.ps1` 作为统一开发启动器：启动前做导入自检，检查 `DOCX_A4_PORTRAIT_PROFILE`、`streamlit` 和 `green_direct.ui.app`；优先使用 `.venv\Scripts\python.exe`；只停止命令行中可识别为本项目的旧 Streamlit 进程；默认从 8503 到 8515 自动选择空闲端口；
+- `START_GREEN_DIRECT_APP.bat` 改为薄包装，调用统一 PowerShell 启动器，不再盲目打开 8501；
+- `scripts/run_streamlit_8503.cmd` 去除硬编码绝对路径，改为调用统一启动器；
+- `packaging/portable/启动绿电直连测算工具.bat` 改为从 8503 到 8515 选择空闲端口，不再因为 8501 被占用就直接打开；
+- `packaging/pyinstaller/run_green_direct_app.py` 默认端口改为 8503，并在 8503-8515 范围内自动选择空闲端口。
+
+验证：
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_green_direct_app.ps1 -CheckOnly` 通过，识别到本项目旧进程并选择 `http://localhost:8503`；
+- 新启动器已停止本项目旧 8502 实例，并在 `http://localhost:8503` 启动干净服务；
+- `Invoke-WebRequest http://localhost:8503` 返回 200，页面内容未包含 `ImportError` / `Traceback` 标记；
+- `python -m py_compile src/green_direct/ui/app.py src/green_direct/visualization/export_charts.py packaging/pyinstaller/run_green_direct_app.py` 通过；
+- `python -m pytest tests/test_ui_import.py tests/test_visualization_smoke.py tests/test_chart_data.py tests/test_chart_contracts.py` 通过。
+
+### 2026-06-10 C 盘清理后的 Streamlit HTML/CSS 渲染兼容修复
+
+用户反馈清理 C 盘后，`http://localhost:8503/` 页面把 `<style>` 和 `<div class="...">` 直接当文本显示，侧栏和工作台样式失效。
+本轮判断：
+- 当前监听 `8503` 的进程确认为本项目 `src/green_direct/ui/app.py`，不是其他项目占用；
+- `.venv` 中 Streamlit 为 `1.57.0`，项目原来大量使用 `st.markdown(..., unsafe_allow_html=True)` 注入纯 HTML/CSS；
+- 后端 `streamlit.testing.v1.AppTest` 显示这些元素的 `allow_html=True`，但浏览器端仍可能裸显，说明应按新版官方推荐把纯 HTML/CSS 走 `st.html`；
+- 不改变技术仿真、经济性、推荐排序或图表计算逻辑。
+本轮实现：
+- `src/green_direct/ui/app.py` 新增 `_install_html_render_compat(st)`；
+- 当当前 Streamlit 提供 `st.html` 时，将 `unsafe_allow_html=True` 的纯 HTML/CSS 输出路由到 `st.html`，旧版没有 `st.html` 时保留原 `st.markdown` 行为；
+- 同时兼容 `DeltaGenerator.markdown`，覆盖列容器等局部容器中的 HTML 片段；
+- 已重启统一启动器，当前本项目服务运行在 `http://localhost:8503`；此前检测到的 `8501` 裸 `app.py` 不作为本项目目标入口处理，最终监听状态只保留本项目 `8503`；
+- 后续用户上传文件时出现 `Failed to fetch dynamically imported module .../static/js/axios...js`，经检查该 JS 分块在服务器端可正常返回 `200`，全部 Streamlit JS 分块也均可访问，判断为浏览器旧缓存/动态模块状态问题，优先通过强制刷新或重开入口恢复；
+- `scripts/start_green_direct_app.ps1`、`packaging/portable/启动绿电直连测算工具.bat` 和 `packaging/pyinstaller/run_green_direct_app.py` 均将 `TEMP/TMP/TMPDIR` 指向项目内 `.runtime/tmp`，减少上传、导出和临时文件对 C 盘临时目录的占用。
+- `requirements.txt`、`requirements-runtime.txt` 和 `pyproject.toml` 将 Streamlit 依赖收窄为 `streamlit>=1.57,<1.58`，避免未来重装环境时静默升级到未验证的新前端版本。
+验证：
+- `python -m py_compile src/green_direct/ui/app.py` 通过；
+- `python -m pytest tests/test_ui_import.py -q`：31 项通过；
+- `python -m pytest -q`：160 项通过；
+- AppTest 运行首页无异常，HTML/CSS 片段不再作为 markdown 元素输出；
+- Headless Chrome DOM 检查未再发现裸显的 `&lt;style&gt;` / `&lt;div class=` 标记。
+- `http://localhost:8503/static/js/axios.bXBZHvsg.js` 返回 `200`，全部 156 个 Streamlit JS 分块返回 `200`；
+- 重启后启动日志显示 `Temp: Z:\Projects\20260515_8760\.runtime\tmp`；
+- `python -m py_compile packaging/pyinstaller/run_green_direct_app.py src/green_direct/ui/app.py` 通过；
+- `python -m pytest tests/test_ui_import.py -q`：31 项通过。
+
+### 2026-06-10 Streamlit 前端分块与 PNG 导出环境全面排查
+
+用户继续反馈页面存在多处细节问题：方案仿真、经济和图表页出现 `TypeError: Failed to fetch dynamically imported module` 红框，涉及 `Metric.*.js`、`PlotlyChart.*.js` 等 Streamlit 前端分块；下载页提示部分 PNG 未能导出。
+
+本轮判断：
+- 新开浏览器标签完整跑通首页、Demo 技术仿真、经济性 V1、图表概览和下载页，未复现 `Metric` / `PlotlyChart` 动态模块红框；
+- 正确的前端分块 URL 可返回 `application/javascript`，例如 `PlotlyChart.B6LaAfIh.js`、`Metric.CFtF4sc2.js`、`axios.bXBZHvsg.js`；
+- 若旧标签继续请求旧 hash 或肉眼相近但不存在的分块名，Streamlit 会回落返回 HTML 首页，浏览器动态 import 该 HTML 时就会显示红色模块加载错误；因此旧标签需要强制刷新或重开入口；
+- PNG 失败是真问题：当前 `.venv` 缺少 `kaleido`，即使本机有 Chrome，也无法导出 Plotly 静态 PNG；
+- Streamlit 1.57 已开始提示 `use_container_width` 弃用，应改成 `width="stretch"`，减少后续升级噪音和潜在兼容问题。
+
+本轮实现：
+- `src/green_direct/ui/app.py` 和 `src/green_direct/visualization/chart_ui.py` 全量替换旧 `use_container_width=True` 为 `width="stretch"`；
+- `src/green_direct/visualization/export_charts.py` 在 PNG 导出前自动查找本机 Chrome / Edge，并设置 `BROWSER_PATH` 供 Kaleido 使用；
+- `scripts/start_green_direct_app.ps1`、`packaging/portable/启动绿电直连测算工具.bat` 和 `packaging/pyinstaller/run_green_direct_app.py` 启动时自动设置 `BROWSER_PATH`，并继续将 `TEMP/TMP/TMPDIR` 指向项目内 `.runtime/tmp`；
+- `requirements-runtime.txt` 和 `pyproject.toml` 补齐 `plotly>=6.1` 与 `kaleido>=1.0`，与 PNG 图表包能力保持一致；
+- 当前机器已安装 `kaleido==1.3.0` 到项目 `.venv`，安装缓存放在 `Z:\Projects\20260515_8760\.runtime\pip-cache`，避免继续占用 C 盘 pip 缓存。
+
+验证：
+- `python -m py_compile src/green_direct/ui/app.py src/green_direct/visualization/chart_ui.py src/green_direct/visualization/export_charts.py packaging/pyinstaller/run_green_direct_app.py` 通过；
+- `python -m pytest tests/test_chart_contracts.py tests/test_visualization_smoke.py tests/test_ui_import.py -q`：42 项通过；
+- `python -m pytest -q`：160 项通过；
+- `pip check`：No broken requirements found；
+- 直接调用 `chart_to_png_bytes()` 已生成 PNG 字节，自动设置 `BROWSER_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe`；
+- 统一启动器重启后服务运行于 `http://localhost:8503`，日志显示 `Temp: Z:\Projects\20260515_8760\.runtime\tmp` 和 Chrome 路径；
+- 浏览器完整链路验收：Demo 结果 27 个方案 / 22 达标，经济性测算完成，图表概览 `redBoxCount=0`，下载页生成 `下载 Word 友好 PNG ZIP` 按钮且未出现“部分 PNG 未能导出”。
+
+### 2026-06-10 PNG 图表包生成交互修正：避免复选框长时间转圈
+
+用户反馈 06 下载报告页勾选“准备所选方案 Word 友好 PNG ZIP”后长时间转圈，看起来没有反应。
+
+本轮判断：
+- PNG ZIP 生成不是前端卡死，而是后台逐张调用 Kaleido / headless Chrome 渲染高分辨率 Plotly 图片；
+- 一个图表包会包含当前方案政策图、四季典型日、SOC、电网交换、月度流向、热力图和多方案对比等十余张图，首次渲染本来就可能需要几十秒到数分钟；
+- 旧 UI 用 checkbox 触发重任务不合适：checkbox 保持选中后，Streamlit 页面重跑时容易重复进入生成逻辑，用户只能看到 spinner，缺少进度和完成后的缓存状态。
+
+本轮实现：
+- 06 下载页将“准备所选方案 Word 友好 PNG ZIP”复选框改为“生成 Word 友好 PNG ZIP”按钮；
+- 新增导出签名 `_chart_png_docx_export_signature()`，按当前方案、对比范围、逐小时数据范围和图片版式识别缓存；
+- 生成后的 ZIP、warnings 和文件名存入 `st.session_state["chart_png_docx_export"]`，当前导出范围不变时页面重跑不再重复生成；
+- `_build_chart_png_docx_zip()` 支持 `progress_callback`，UI 中显示进度条和“已完成 N/M：图表名”；
+- 页面增加说明：首次生成会逐张调用 Kaleido/Chrome 渲染高分辨率图片，通常需要几十秒到数分钟；生成后会缓存。
+
+验证：
+- `python -m py_compile src/green_direct/ui/app.py` 通过；
+- `python -m pytest tests/test_ui_import.py tests/test_chart_contracts.py -q`：35 项通过；
+- `python -m pytest -q`：160 项通过；
+- 浏览器验收：Demo 技术仿真后进入 06，图表包区域出现“生成 Word 友好 PNG ZIP”按钮，不再显示旧复选框；页面包含首次生成耗时与缓存说明，未出现动态模块红框。
+
+### 2026-06-10 Streamlit 重启后页面重置与下载失效修正
+
+用户反馈网页“整个都重置了”，Chrome 下载记录中出现 zip “无法从网站上提取文件”。
+
+本轮判断：
+- 直接原因是本轮修复 PNG 生成交互时重启了 Streamlit 服务；
+- 当前软件仍以 Streamlit `session_state` 作为主要会话结果存储，服务重启会清空内存中的 `batch_result`、经济结果、下载按钮 payload 和图表包缓存；
+- Chrome 下载链接依赖当前 Streamlit 会话内存，服务重启或旧会话断开后，正在下载或尚未点击完成的 zip 链接会失效；
+- 长期方向仍应引入正式 `ResultStore`，但当前可先用项目本地运行快照降低重启损失。
+
+本轮实现：
+- 新增项目本地快照文件 `.runtime/latest_session_snapshot.pkl`，保存最近一次关键结果；
+- 快照包含 `study_result`、`batch_result`、`config_snapshot`、经济结果、推荐输入、曲线状态和已生成的 PNG 图表包缓存；
+- 技术仿真完成、经济性 V1 完成、PNG ZIP 生成完成后自动写入快照；
+- App 启动时若当前会话没有 `batch_result`，自动从本地快照恢复，并提示“已从项目本地快照恢复最近一次测算结果”；
+- `.runtime/` 已加入 `.gitignore`，快照和临时文件留在项目盘，不进入版本库。
+
+验证：
+- `python -m py_compile src/green_direct/ui/app.py` 通过；
+- `python -m pytest tests/test_ui_import.py -q`：32 项通过；
+- `python -m pytest -q`：161 项通过；
+- 已用 Demo 数据写出 `Z:\Projects\20260515_8760\.runtime\latest_session_snapshot.pkl`；
+- 重启服务后浏览器验证自动恢复为 27 个方案 / 22 达标，并显示恢复提示，未出现动态模块红框。
+
+### 2026-06-10 图表网页与 ZIP 导出一致性修正
+
+用户反馈网页端和 `chart_png_docx` ZIP 图表存在配色、阈值表达、图名和图表项缺失问题：多色图在 PNG 中变黑，政策阈值用点不直观，季节典型日文件名夹带日期，且需要补充关键运行日和 8760 全年图。
+
+本轮判断：
+- PNG 发黑的主要原因是部分 Plotly Express 图依赖默认主题配色，静态 Kaleido 导出时没有稳定继承网页端色板；
+- 网页端 24H 运行策略图与导出 S03 图不是同一套构图，导致网页看到的效果和 ZIP 图片不一致；
+- 季节典型日仍应记录真实选中日期用于审计，但文件名和图表主标题不应随日期变化。
+
+本轮实现：
+- 新增 `src/green_direct/visualization/style.py`，统一网页和导出的能源色板；上网使用蓝色、下网使用中性灰，避免颜色过近；
+- S02 政策指标图把“阈值”从散点改为并列对照柱；
+- S03 24H 图表改为网页端同款运行策略图：正向柱为光伏/风电可发、储能放电、下网，负向柱为储能充电、上网、弃电，下方为 SOC；
+- 月度来源、月度新能源去向、多方案新能源去向、容量/政策对比、弃电率散点和年度热力图均使用显式颜色或色阶，避免 PNG 静态导出变黑；
+- 图表 ZIP 清单新增五类关键运行日和全年 8760/8784 小时运行曲线；
+- 季节典型日导出文件名改为 `typical_spring` / `typical_summer` 等稳定名称，真实日期只写入 meta；
+- PNG ZIP 缓存签名升级，避免页面恢复后继续下载旧风格缓存包；
+- `docs/CHART_MODULE_CURRENT_LOGIC.md` 更新网页/导出同源、稳定命名和新增图表项口径。
+
+验证：
+- `python -m py_compile src/green_direct/visualization/style.py src/green_direct/visualization/single_scenario_charts.py src/green_direct/visualization/multi_scenario_charts.py src/green_direct/visualization/heatmap_charts.py src/green_direct/visualization/chart_ui.py src/green_direct/visualization/export_charts.py src/green_direct/ui/app.py` 通过；
+- `python -m pytest tests/test_chart_contracts.py tests/test_visualization_smoke.py tests/test_ui_import.py -q`：44 项通过；
+- `python -m pytest -q`：162 项通过。
+
+### 2026-06-10 PNG 后台生成、经济参数紧凑化与图表表达二次修正
+
+用户继续反馈：06 页生成附图时切换页面会打断，PNG ZIP 生成速度仍偏慢；03 页经济性基本参数区域过高，单位造价和运维成本缺少快速微调；S09 电网交换功率图口径看起来不对；S10 全年曲线把 SOC、弃电、上网和其他功率线混在一起过乱；S02 政策阈值用并列柱仍不够直观。
+
+本轮判断：
+- PNG ZIP 属于重型静态图导出，不应由一个前台 Streamlit rerun 长时间占住页面；
+- Plotly 6.7 已支持 `plotly.io.write_images()` 批量图片导出，可优先用于多图 PNG 提速，失败时再逐张回退；
+- S09 展示标题采用“上网为正、下网为负”，因此图中净交换应显式按 `grid_export_power - grid_import_power` 展示；原始 `grid_exchange_power` 保留为导出复核字段，不改变调度台账；
+- S10 更适合按“供需与下网 / 上网与弃电 / SOC”分面展示，避免所有指标挤在同一个坐标轴；
+- S02 政策阈值适合用每个指标上的水平阈值线表达，实际值保留柱状图。
+
+本轮实现：
+- 06 页 PNG ZIP 生成改为后台线程任务，用户可以切换到其他页面继续操作；返回下载页时自动轮询任务状态并读取已完成结果；
+- PNG 下载按钮增加 `on_click="ignore"`，减少点击下载导致的额外页面重跑；
+- PNG ZIP 底层优先使用 `charts_to_png_bytes_batch()` 批量渲染，异常时写入 warnings 并逐张回退；
+- 03 页经济性参数工作台压缩标题、列距和输入框高度，Year 0 投资、成本费用、储能更换更紧凑；
+- 风电单位造价默认值改为 5000 元/kW，光伏单位造价默认值改为 2800 元/kW；常调用的风/光/储单位造价、风/光/储运维成本提供贴近输入框的紧凑 `-` / `+` 微调控件，步长按字段内部定义，不再用大面积数字按钮或额外说明文字占版面；
+- S09 电网交换功率图改为显式净交换 `上网 - 下网`；
+- S10 全年 8760/8784 小时运行曲线改为三行分面；
+- S02 政策指标图改为“实际值柱 + 阈值线 + 阈值标注”。
+
+验证：
+- `python -m py_compile src/green_direct/ui/app.py src/green_direct/visualization/export_charts.py src/green_direct/visualization/single_scenario_charts.py src/green_direct/economy/economic_inputs.py` 通过；
+- `python -m pytest -q`：164 项通过；
+- 使用真实本地快照导出 PNG ZIP：20 张 PNG、0 个 warnings、约 21 秒；
+- 后台任务提交/轮询路径实测完成并写回缓存，约 17 秒；
+- 浏览器验收：03 页默认风电造价 5000、光伏造价 2800，单位造价和运维成本使用紧凑 `-` / `+` 微调控件且不再显示步长说明；06 页显示后台生成说明和重新生成提示，未出现动态模块红框。
+
+### 2026-06-10 交互流畅性与状态去重修正
+
+用户继续反馈：顶部状态条和侧边栏/页面标题重复，06 页点击 PNG 生成后缺少明确进度和结果，03 页经济参数自定义 `-` / `+` 控件仍然不够紧凑且点击反应慢。
+
+本轮判断：
+- 当前页面已有侧栏导航、侧栏流程状态和页面标题，顶部再展示“当前模块 / 流程状态 / 数据时间”属于重复信息，会挤压主要工作区；
+- 经济参数不应使用自定义按钮修改 `session_state` 再强制整页 rerun，常规数字输入优先使用 Streamlit 原生 `number_input`，交互和容量遍历保持一致；
+- PNG ZIP 后台任务需要在同一卡片中展示“运行中 / 完成 / 失败”和耗时，不能只给一次性提示。
+
+本轮实现：
+- 停止渲染顶部状态条，保留侧栏导航、侧栏流程状态和页面主标题；
+- 03 页常调经济参数改为原生 `number_input`：单位造价步长 100，运维成本步长 1，移除自定义贴边按钮；
+- 经济参数输入高度进一步压缩，储能更换收到“高级：储能更换”折叠区，优先让常用投资和成本输入在首屏内完成；
+- 06 页 PNG ZIP 后台任务新增共享进度状态，图表包区域使用局部刷新，每 2 秒刷新任务状态，运行中展示阶段、耗时和完成数，完成后直接出现下载按钮；
+- 不改变技术仿真、经济计算、推荐排序或图表计算口径。
+
+验证：
+- `python -m py_compile src/green_direct/ui/app.py` 通过；
+- `python -m pytest tests/test_ui_import.py::test_chart_png_docx_background_job_stores_finished_result tests/test_ui_import.py::test_chart_png_docx_zip_contains_png_manifest_and_matches_html -q`：2 项通过；
+- `python -m pytest tests/test_ui_import.py tests/test_economy_v1.py -q`：51 项通过。
+
+### 2026-06-10 单方案容量输入去冗与排版修正
+
+用户反馈 02 页“指定单方案”下的容量输入字段反复出现“指定”，且四列排布稀疏、标签换行导致视觉歪斜；03 页经济性参数区仍有输入框撑得过宽、行列留白明显的问题。
+
+本轮判断：
+- “指定单方案”已经由单选入口表达，字段标签不需要再次写“指定”；
+- 单方案配置只有四个核心参数，放成四列会挤压中文标签，改成两行两列更稳定，也更接近参数面板；
+- 03 页基础经济参数应避免三列撑满全屏，Year 0 建设投资的常用字段应尽量在同一行完成，减少空白行；
+- 该修改只影响 UI 文案和布局，不改变候选方案生成、储能时长推导、校验或技术仿真链路。
+
+本轮实现：
+- 候选方案池说明改为“支持容量范围遍历，也支持单方案配置”；
+- 单方案输入字段改为“光伏容量、风电容量、储能功率、储能容量”；
+- 单方案输入从一行四列改为两行两列，避免长标签换行和控件参差；
+- 03 页经济性参数工作台的基本参数行改为四列节奏，Year 0 建设投资六个输入压到同一行，减少大块空白和错位感。
+
+验证：
+- `python -m py_compile src/green_direct/ui/app.py` 通过；
+- `python -m pytest tests/test_ui_import.py -q`：33 项通过；
+- `python -m pytest -q`：164 项通过；
+- 浏览器验收 `http://localhost:8503`：02 页“指定单方案”下四个字段显示为两行两列，页面不再包含“指定光伏容量 / 指定风电容量 / 指定储能功率 / 指定储能容量 / 指定单个风光储配置”；03 页基本参数保持同一行节奏，Year 0 六个建设投资输入已压到同一行。
+
+### 2026-06-10 经济参数工作台拆卡与表单批处理
+
+用户进一步指出：不要过度守旧，原来的结构如果不服务主要目标就应该改；03 页经济参数不应继续作为一个大框堆叠所有字段，常调参数也不应每点一次就触发整页迟滞。
+
+本轮判断：
+- “保留 V0.1 字段口径”不等于“保留旧 UI 结构”。围绕当前产品目标，经济参数页的主任务是快速完成轻量经济测算并把结果交给推荐和导出；
+- 03 页应按任务拆成小工作卡：运行口径、建设投资、运维成本、收入和税金、到户电价展示、高级参数；
+- Streamlit 数字控件如果裸露在页面上，每次变化都会触发 rerun，页面越重越容易出现 0.7s~1s 的迟滞；经济参数应放入提交型表单，用户先在前端完成多项调整，点击“计算经济性 V1”后再统一提交；
+- 高级参数保留但默认收起，不把低频字段挤占首屏；顶部只保留经济测算相关状态，不再重复展示全局模块和数据时间。
+
+本轮实现：
+- 移除 03 页“经济性参数工作台”大 expander，改为多个 bordered 小卡片；
+- 顶部执行状态压缩成一行小状态条，保留“返回方案仿真 / 查看方案推荐”导航；
+- 经济参数放入 `st.form("economy_v1_params_form")`，顶部和底部各提供一个表单提交按钮；
+- 常调造价和运维成本继续使用原生 `number_input` 步进，但因位于表单内，编辑过程不再触发整页 rerun；
+- 电费清单组价、其他经营收入和储能更换仍保留在高级折叠区，字段不丢失，计算口径不变。
+
+验证：
+- `python -m py_compile src/green_direct/ui/app.py` 通过；
+- `python -m pytest tests/test_ui_import.py -q`：33 项通过；
+- `python -m pytest -q`：164 项通过；
+- 浏览器验证 `http://localhost:8503`：03 页旧“经济性参数工作台”大框不再出现；首屏可见运行口径、建设投资、运维成本、收入和税金，且顶部可见“计算经济性 V1”；
+- 浏览器交互测量：风电单位造价从 5000 改为 5100 的前端响应约 82ms，页面保持在当前区域，不再因单次编辑整页跳动；控制台仅有刷新/重连类 `WebSocket onclose` warning，无红框模块错误。
+
+### 2026-06-11 项目级电价曲线旧状态兼容修正
+
+用户反馈：只上传三条 8760 风光负荷曲线、未提供电价曲线时，经济性测算仍提示“价格曲线行数 8784 与逐小时明细行数 8760 不一致”。
+本轮判断：
+- 6 月 4 日接入的下网电价曲线是项目级输入，并会保存到 `.runtime/latest_session_snapshot.pkl`；
+- 如果上一轮或示例模板留下了 8784 行项目级电价曲线，新一轮上传 8760 技术曲线并重新仿真后，旧电价曲线状态仍可能被经济性页自动使用；
+- 这不是风、光、负荷三条曲线自身不一致，而是“旧项目级电价曲线”与“当前逐小时明细”不匹配，提示对用户不够友好。
+
+本轮实现：
+- `src/green_direct/ui/app.py` 新增项目级电价曲线兼容检查；
+- 打开经济性页前，若旧电价曲线行数与当前逐小时明细行数不一致，自动清除旧曲线并切回固定价/网页组价模式；
+- 新技术仿真结果写入会话和本地快照前，也会清除与当前结果不兼容的旧电价曲线；
+- 行数匹配时不误删用户主动上传的项目级电价曲线；
+- 底层 `run_economic_study()` 显式传入不匹配价格曲线时仍保留报错，避免静默吞掉真正的数据问题。
+
+验证：
+- `python -m py_compile src/green_direct/ui/app.py` 通过；
+- `python -m pytest tests/test_ui_import.py::test_incompatible_project_price_curve_is_discarded_for_current_hourly_rows tests/test_ui_import.py::test_matching_project_price_curve_is_kept_for_current_hourly_rows -q`：2 项通过；
+- `python -m pytest tests/test_ui_import.py tests/test_price_curves.py tests/test_study_runner.py -q`：48 项通过。
+
+### 2026-06-11 单方案场景下多方案散点图跳过
+
+用户反馈：指定单方案测算后，“弃电率 vs 自发自用率”图只显示一个孤立点，不清楚图的意义。
+本轮判断：
+- 该图本质是多方案权衡图：横轴自发自用率，纵轴弃电率，颜色表达绿电占比，点大小表达储能容量；
+- 它用于比较多组候选方案的取舍，例如“更高自发自用率是否伴随更高弃电”；
+- 指定单方案时只有一个点，没有横向比较关系，不应作为主要图表展示；同时百分比坐标不应因单点自动缩放到负值或 150%。
+
+本轮实现：
+- `src/green_direct/visualization/multi_scenario_charts.py` 调整 `build_curtailment_vs_self_consumption_scatter()`；
+- 当对比范围少于 2 个方案时，跳过该图并返回明确提示；
+- 多方案时继续生成散点图，并将自发自用率、弃电率坐标轴固定为 0% 到 100%；
+- `docs/CHART_MODULE_CURRENT_LOGIC.md` 补充 M05 单方案跳过规则。
+
+验证：
+- `python -m py_compile src/green_direct/visualization/multi_scenario_charts.py` 通过；
+- `python -m pytest tests/test_visualization_smoke.py::test_multi_scenario_charts_smoke tests/test_visualization_smoke.py::test_curtailment_scatter_skips_single_scenario -q`：2 项通过；
+- `python -m pytest tests/test_visualization_smoke.py tests/test_chart_contracts.py tests/test_ui_import.py -q`：49 项通过。
+
+### 2026-06-12 价格曲线必须来自当前上传
+
+用户反馈：只上传负荷、光伏、风电三条技术曲线时，02 / 03 页仍显示已上传项目级下网电价曲线，并在经济性测算中尝试使用 `price_curve_template_down_grid.csv`。
+
+本轮判断：
+- 根因不是三条技术曲线识别错误，而是运行时快照把旧的 `project_price_curve_data` / `project_price_curve_meta` 恢复到了新会话；
+- 电价曲线属于可选经济性输入，不能像仿真结果一样从历史快照静默恢复；
+- 只要用户本次没有上传电价曲线，经济性就必须回到固定价/网页组价模式；
+- 02 页面向最终用户，不应常驻显示“任务边界”这类实现说明；曲线识别摘要和电价曲线说明应默认收起或放在帮助提示里。
+
+本轮实现：
+- 运行时快照不再保存或恢复项目级电价曲线；
+- 新增当前会话上传标记，`_project_price_curve_data()` 只承认本次明确上传的曲线；
+- 进入主流程时会清除未确认的历史电价曲线状态，并同步清空旧经济性/推荐结果；
+- Demo 或普通技术仿真如果没有同时上传电价曲线，会清除旧项目级电价曲线；
+- 02 页移除“任务边界”主界面提示，三条技术曲线摘要改为默认收起；
+- “下网电价曲线”入口改为可选折叠区，说明放入上传控件帮助提示；
+- 03 页电价状态文案改为“本次使用已上传的曲线”，不再使用“检测到/自动使用”这类容易误解为历史复用的表述。
+
+验证：
+- `python -m py_compile src/green_direct/ui/app.py` 通过；
+- `python -m pytest tests/test_ui_import.py tests/test_price_curves.py tests/test_study_runner.py -q`：50 项通过；
+- `python -m pytest -q`：169 项通过；
+- 浏览器刷新 `http://localhost:8503` 后，02 页旧的 `price_curve_template_down_grid.csv` 状态、逐时电价曲线提示和“任务边界”主界面文案不再出现；03 页显示“当前未上传项目级下网电价曲线”，价格口径为“固定价/网页组价”。

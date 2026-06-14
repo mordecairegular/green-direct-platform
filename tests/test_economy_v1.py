@@ -49,7 +49,7 @@ def test_construction_input_vat_carries_forward_into_operation_years():
     year0 = annual.loc[annual["year"] == 0].iloc[0]
     year1 = annual.loc[annual["year"] == 1].iloc[0]
 
-    assert year0["construction_input_vat"] == pytest.approx(4500.0 - 4500.0 / 1.10)
+    assert year0["construction_input_vat"] == pytest.approx(5000.0 - 5000.0 / 1.10)
     assert year0["vat_credit_end"] == pytest.approx(year0["construction_input_vat"])
     assert year1["vat_credit_begin"] == pytest.approx(year0["vat_credit_end"])
     assert year1["vat_payable"] == 0
@@ -144,8 +144,8 @@ def test_initial_assets_depreciate_for_20_years_then_stop():
     year20 = annual.loc[annual["year"] == 20].iloc[0]
     year21 = annual.loc[annual["year"] == 21].iloc[0]
 
-    assert year1["wind_depreciation"] == pytest.approx((4500.0 / 1.10) / 20)
-    assert year1["pv_depreciation"] == pytest.approx((2500.0 / 1.10) / 20)
+    assert year1["wind_depreciation"] == pytest.approx((5000.0 / 1.10) / 20)
+    assert year1["pv_depreciation"] == pytest.approx((2800.0 / 1.10) / 20)
     assert year1["bess_depreciation"] == pytest.approx((900.0 / 1.10) / 20)
     assert year20["depreciation"] == pytest.approx(year1["depreciation"])
     assert year21["depreciation"] == 0

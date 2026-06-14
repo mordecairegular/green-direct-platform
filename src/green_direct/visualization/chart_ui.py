@@ -16,18 +16,23 @@ from green_direct.visualization.chart_data import (
     select_day as select_operating_day,
     select_typical_season_day,
 )
+from green_direct.visualization.single_scenario_charts import build_operation_day_figure
+from green_direct.visualization.style import CHART_COLORS
 
 
 COLORS = {
-    "pv": "#f4c20d",
-    "wind": "#58c7df",
-    "bess": "#56c596",
+    "pv": CHART_COLORS["pv"],
+    "wind": CHART_COLORS["wind"],
+    "bess": CHART_COLORS["bess"],
     "grid": "#2f3542",
-    "curtail": "#ef7d22",
-    "loss": "#9aa4b2",
-    "line": "#111827",
-    "accent": "#e9b400",
-    "muted": "#6b7280",
+    "grid_import": CHART_COLORS["grid_import"],
+    "grid_export": CHART_COLORS["grid_export"],
+    "curtail": CHART_COLORS["curtail"],
+    "loss": CHART_COLORS["loss"],
+    "line": CHART_COLORS["line"],
+    "accent": CHART_COLORS["accent"],
+    "muted": CHART_COLORS["muted"],
+    "soc": CHART_COLORS["soc"],
 }
 
 
@@ -489,7 +494,7 @@ def _render_policy_radar(st, selected_summary: pd.DataFrame) -> None:
         legend=dict(orientation="h", yanchor="top", y=-0.18, xanchor="left", x=0),
     )
     fig.update_yaxes(range=[0, 1], tickformat=".0%", title_text="比例")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _hourly_energy(hourly: pd.DataFrame, column: str) -> float:
@@ -526,7 +531,7 @@ def _render_energy_flow(st, hourly: pd.DataFrame, active_row: pd.Series) -> None
             ]
         )
         fig.update_layout(title="新能源发电构成", height=390, margin=dict(l=20, r=20, t=60, b=20))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         st.metric("光伏发电", _fmt_energy(pv_gen))
         st.metric("风电发电", _fmt_energy(wind_gen))
 
@@ -592,7 +597,7 @@ def _render_energy_flow(st, hourly: pd.DataFrame, active_row: pd.Series) -> None
             margin=dict(l=10, r=10, t=50, b=10),
             font=dict(family="Arial, sans-serif", size=13, color="#111827"),
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         st.caption("光伏、风电到各去向的分摊按年度发电占比近似展示，核心电量仍来自逐小时台账汇总。")
 
 
@@ -600,29 +605,8 @@ def _render_day_operation_chart(st, day: pd.DataFrame, title: str) -> None:
     if day.empty:
         st.info("当前方案没有可用于运行时序的逐小时数据。")
         return
-    x = day["timestamp"]
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.72, 0.28], vertical_spacing=0.08)
-    fig.add_bar(x=x, y=_series_or_zero(day, "pv_generation_power"), name="光伏可发", marker_color=COLORS["pv"], row=1, col=1)
-    fig.add_bar(x=x, y=_series_or_zero(day, "wind_generation_power"), name="风电可发", marker_color=COLORS["wind"], row=1, col=1)
-    fig.add_bar(x=x, y=_series_or_zero(day, "bess_discharge_power"), name="储能放电", marker_color=COLORS["bess"], row=1, col=1)
-    fig.add_bar(x=x, y=_series_or_zero(day, "grid_import_power"), name="电网下网", marker_color="#8d99ae", row=1, col=1)
-    fig.add_bar(x=x, y=-_series_or_zero(day, "bess_charge_power"), name="储能充电", marker_color="#7bdcb5", row=1, col=1)
-    fig.add_bar(x=x, y=-_series_or_zero(day, "grid_export_power"), name="上网", marker_color="#5c677d", row=1, col=1)
-    fig.add_bar(x=x, y=-_series_or_zero(day, "curtail_power"), name="弃电", marker_color=COLORS["curtail"], row=1, col=1)
-    fig.add_scatter(x=x, y=_series_or_zero(day, "load_power"), name="负荷", mode="lines", line=dict(color=COLORS["line"], width=3), row=1, col=1)
-    fig.add_scatter(
-        x=x,
-        y=_series_or_zero(day, "soc_end"),
-        name="SOC",
-        mode="lines",
-        line=dict(color="#4a9d8f", width=3),
-        row=2,
-        col=1,
-    )
-    fig.update_layout(title=title, barmode="relative", height=620, legend=dict(orientation="h"))
-    fig.update_yaxes(title_text="万kW", tickformat=",.2f", row=1, col=1)
-    fig.update_yaxes(title_text="SOC", tickformat=".1%", row=2, col=1)
-    st.plotly_chart(fig, use_container_width=True)
+    fig = build_operation_day_figure(day, title)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _render_full_year_operation(st, hourly: pd.DataFrame) -> None:
@@ -632,10 +616,10 @@ def _render_full_year_operation(st, hourly: pd.DataFrame) -> None:
     options = {
         "负荷": ("load_power", COLORS["line"], "y"),
         "新能源净可用": ("renewable_power", COLORS["wind"], "y"),
-        "下网": ("grid_import_power", "#8d99ae", "y"),
-        "上网": ("grid_export_power", "#5c677d", "y"),
+        "下网": ("grid_import_power", COLORS["grid_import"], "y"),
+        "上网": ("grid_export_power", COLORS["grid_export"], "y"),
         "弃电": ("curtail_power", COLORS["curtail"], "y"),
-        "SOC": ("soc_end", "#4a9d8f", "y2"),
+        "SOC": ("soc_end", COLORS["soc"], "y2"),
     }
     selected = st.multiselect(
         "显示曲线",
@@ -676,7 +660,7 @@ def _render_full_year_operation(st, hourly: pd.DataFrame) -> None:
         legend=dict(orientation="h"),
         margin=dict(l=10, r=10, t=70, b=10),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.caption("可拖动底部范围条缩放时段；SOC 使用右轴，功率类曲线使用左轴。")
 
 
@@ -702,8 +686,8 @@ def _render_operation(st, hourly: pd.DataFrame) -> None:
             key="insight_typical_day",
         )
         selection = select_typical_season_day(adapted, season)
-        st.caption(f"{season}典型日：{selection.label}。{selection.method}")
-        _render_day_operation_chart(st, selection.day, f"24H 典型日运行策略 · {season} · {selection.label}")
+        st.caption(f"{season}典型日选中日期：{selection.label}。{selection.method}")
+        _render_day_operation_chart(st, selection.day, f"24H 典型日运行策略 · {season}")
     with tabs[1]:
         mode = st.selectbox(
             "关键日类型",
@@ -711,7 +695,8 @@ def _render_operation(st, hourly: pd.DataFrame) -> None:
             key="insight_key_day_mode",
         )
         day, label = select_operating_day(adapted, mode=mode)
-        _render_day_operation_chart(st, day, f"24H 关键运行日 · {mode} · {label}")
+        st.caption(f"{mode}选中日期：{label}。")
+        _render_day_operation_chart(st, day, f"24H 关键运行日 · {mode}")
     with tabs[2]:
         _render_full_year_operation(st, adapted)
 
@@ -757,7 +742,7 @@ def _render_economy(st, selected_summary: pd.DataFrame, active_id: str, economy_
     fig.update_layout(title="多方案经济性对比", height=500, barmode="group", legend=dict(orientation="h"))
     fig.update_yaxes(title_text="万元", tickformat=",.0f", secondary_y=False)
     fig.update_yaxes(title_text="FIRR", tickformat=".1%", secondary_y=True)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def render_chart_analysis(

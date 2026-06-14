@@ -56,6 +56,16 @@
 
 如果本次任务涉及追溯早期 AI 构建提示词、V0.1 验收记录或旧状态快照，请到 `archive/20260522_historical_build_materials/` 查看。该目录是历史归档，不是当前活跃开发入口。
 
+### 2.1 上线前 Claude Code 全面审查提示词
+
+如果目标是近期上线前复核，建议单独开启一轮“review / debug”会话，并直接发送：
+
+```text
+请先不要大改代码。请按上线前质量审查的方式全面 review / debug 本项目：先阅读 AGENTS.md、CLAUDE.md、notes/HANDOFF_FOR_NEW_MACHINE.md、notes/PRODUCT_POLISH_LOG.md、docs/SOFTWARE_OVERVIEW_AND_INTERFACE.md、docs/ECONOMY_RECOMMENDATION_V1_MAP.md、docs/CHART_MODULE_CURRENT_LOGIC.md、docs/WEB_APP_WORKFLOW_AND_UI_RESTRUCTURE.md，以及 notes/architecture_reframe_20260519/ 下的文档。然后执行 git status --short 和 python -m pytest -q，把当前未提交改动视为既有工作，不要回滚。
+
+请重点审查：V0.1 风光储逐小时调度口径是否被破坏；经济性和推荐是否只读取技术结果、不反向改调度；价格曲线是否只来自当前会话上传；Streamlit 六模块工作流、启动器、结果恢复、PNG/HTML 图表导出是否存在上线阻断问题；测试覆盖是否缺少关键路径。发现问题时按严重程度列出文件和行号，并优先修复 P0/P1 或低风险明确 bug。任何会改变计算口径的修复必须先说明原因，并同步更新测试和文档。
+```
+
 ## 3. 当前项目定位
 
 本项目已经从：
@@ -142,14 +152,17 @@
 - 批量测算；
 - 汇总 Excel 和逐小时 CSV / ZIP 导出；
 - 六模块 Streamlit 工程工作台第一版（推荐与图表已拆页）；
-- 图表模块初步实现；
+- 经济性评价 V1、同一主体税前测算和推荐方案 V1；
+- 下网电价曲线 V1，可选 CSV / Excel 上传，且只能使用当前会话明确上传的曲线；
+- 图表模块、HTML 图表包和 Word 友好 PNG 图表包；
+- 启动器、端口自检、结果快照恢复和后台 PNG 生成；
 - pytest 测试基线。
 
-最近一次文档重定向后，已验证：
+最近一次上线前交接检查，已验证：
 
 ```text
-python -m pytest
-60 passed
+python -m pytest -q
+169 passed
 ```
 
 ## 6. 后续开发优先方向
@@ -263,16 +276,22 @@ python -m pytest
 python -m pip install -r requirements.txt
 ```
 
-运行 Streamlit：
+运行 Streamlit 优先使用统一启动器：
 
 ```powershell
-python -m streamlit run src/green_direct/ui/app.py
+.\START_GREEN_DIRECT_APP.bat
 ```
 
-如果旧电脑或新电脑端口占用，换端口运行也可以：
+或使用 PowerShell 启动脚本，它会先做导入自检，并默认从 8503 到 8515 选择空闲端口：
 
 ```powershell
-python -m streamlit run src/green_direct/ui/app.py --server.port=8503
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_green_direct_app.ps1
+```
+
+如果只检查环境：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_green_direct_app.ps1 -CheckOnly
 ```
 
 构建独立方案遍历试用程序：
@@ -327,7 +346,7 @@ git status --short
 
 ## 11. 当前交接摘要
 
-截至 2026-06-04：
+截至 2026-06-12：
 
 - 已完成 V0.1 风光储技术测算基线；
 - 已形成图表模块初步能力；
@@ -362,7 +381,7 @@ git status --short
 - 2026-05-27 已确认负荷侧默认席位改为 `负荷侧可成交收益最优`：新增基础参数 `电源侧最低可接受 FIRR`，默认 7%，字段建议 `min_power_side_acceptable_firr`。本席位先筛政策达标、负荷侧收益为正、电源侧 FIRR 可可靠计算且不低于最低可接受 FIRR，再按负荷侧年度综合用能收益排序。若用户清空最低 FIRR，则不对本席位排序并提示缺少可成交性约束。V1 暂不反算绿电结算价，只在用户给定价格条件下排序；
 - 2026-05-27 已实现推荐方案 V1 试用并补齐四个默认席位：`同一主体 FIRR 最优`、`电源侧 FIRR 最优`、`负荷侧可成交收益最优` 和可切换的 `工程代表方案`。页面经济性区域下方新增 `推荐方案 V1（试用）`；完成经济性评价后应同时构造四个席位，同一方案命中多个席位时合并标签，不应静默漏掉同一主体或电源侧 FIRR 席位。合并标签时必须同时保留各席位贡献的关键指标，不能出现命中负荷侧席位但负荷侧收益字段缺失的推荐表。推荐组合 Excel 包含推荐组合、电源侧经济性汇总、同一主体经济性汇总和负荷侧可成交收益明细；
 - 2026-05-28 已新增经济性评价与推荐 V1 导览文档 `docs/ECONOMY_RECOMMENDATION_V1_MAP.md`，用于给第一次接触项目的人说明参数、含义、代码入口、推荐席位和计算方式；
-- 2026-06-04 已接入价格曲线 V1：`src/green_direct/economy/price_curves.py` 支持 CSV / Excel 读取、中文字段映射、8760 / 8784 校验、时间戳 / hour_index / 行序对齐和逐方案年度金额聚合；`run_economic_study()` 可选接收 `price_curve` 与 `hourly_details`，曲线模式只影响经济性和推荐排序，不改变技术调度。价格曲线 V1 只作为下网购电账单原始组分曲线，推荐模板为 `samples/price_curve_template_down_grid.csv`，文档副本为 `docs/templates/price_curves/price_curve_template_down_grid.csv`，字段包括 `timestamp`、`hour_index`、电度/市场购电价、线损费、系统运行费、输配电价、政府性基金及附加，以及当前不参与计算的 `month`、`peak_valley` 辅助列；绿电结算价、上网电价、度电环境价值、增值税率、负荷侧可减少费用和同一主体税前净节费不放入模板，继续由网页固定参数或内部公式得到。政府性基金及附加按不含税处理，其他下网电价组分按含税处理；计算方法审阅文档见 `docs/PRICE_CURVE_ECONOMY_CALCULATION_METHOD.md`。UI 口径：电价曲线在“方案仿真”页上传为项目级输入，保存到 `project_price_curve_data` / `project_price_curve_meta`；“经济性测算”页自动使用，不再二次上传，且已有曲线时置灰外部购电净成本固定输入、电费清单组价开关和负荷侧单独覆盖。更换曲线或重跑技术仿真会清空旧经济性/推荐结果；测试见 `tests/test_price_curves.py`、`tests/test_study_runner.py` 和 `tests/test_ui_import.py`；
+- 2026-06-04 已接入价格曲线 V1：`src/green_direct/economy/price_curves.py` 支持 CSV / Excel 读取、中文字段映射、8760 / 8784 校验、时间戳 / hour_index / 行序对齐和逐方案年度金额聚合；`run_economic_study()` 可选接收 `price_curve` 与 `hourly_details`，曲线模式只影响经济性和推荐排序，不改变技术调度。价格曲线 V1 只作为下网购电账单原始组分曲线，推荐模板为 `samples/price_curve_template_down_grid.csv`，文档副本为 `docs/templates/price_curves/price_curve_template_down_grid.csv`，字段包括 `timestamp`、`hour_index`、电度/市场购电价、线损费、系统运行费、输配电价、政府性基金及附加，以及当前不参与计算的 `month`、`peak_valley` 辅助列；绿电结算价、上网电价、度电环境价值、增值税率、负荷侧可减少费用和同一主体税前净节费不放入模板，继续由网页固定参数或内部公式得到。政府性基金及附加按不含税处理，其他下网电价组分按含税处理；计算方法审阅文档见 `docs/PRICE_CURVE_ECONOMY_CALCULATION_METHOD.md`。UI 口径：电价曲线在“方案仿真”页作为可选项目级输入上传，只有当前会话明确上传后才保存到 `project_price_curve_data` / `project_price_curve_meta` 并供“经济性测算”页使用；`.runtime/latest_session_snapshot.pkl` 不恢复旧价格曲线，用户只上传负荷、光伏、风电三条技术曲线时不得沿用历史电价。已有当前上传曲线时置灰外部购电净成本固定输入、电费清单组价开关和负荷侧单独覆盖。更换曲线或重跑技术仿真会清空旧经济性/推荐结果；测试见 `tests/test_price_curves.py`、`tests/test_study_runner.py` 和 `tests/test_ui_import.py`；
 - 2026-05-28 已调整推荐默认口径：工程代表方案默认改为 `政策达标最小投资`；同一主体席位保留 FIRR 默认视角，并支持切换为 `同一主体动态回收期最短`；固定价模式默认减少用户输入，由外部购电净成本口径内部派生负荷侧筛选价，需要精确区分时再使用高级覆盖或电费清单组价；
 - 2026-06-01 已在 Streamlit 继续落地工作流：`欢迎页`、`方案仿真`、`经济性测算`、`方案推荐及图表概览`、`图表下载和报告生成`。保留旧页面名到新页面名的兼容映射，避免旧会话状态导致页面进入异常；方案仿真页不再继续渲染经济性和图表；经济性测算页计算成功后保存 `recommendation_v1_inputs`；推荐图表页集中展示推荐组合和图表分析；下载报告页集中导出方案汇总、逐小时明细、图表 HTML ZIP、技术+经济汇总和简版 Markdown 报告；
 - 2026-06-02 已把 Streamlit UI 深度改造成工程软件工作台第一版：左侧深蓝固定导航，顶部轻量项目状态条，主区按模块组织。方案仿真页把曲线数据、候选方案池、政策约束和专业参数放在主工作区；经济性测算页保留完整参数但分层收纳；推荐页先展示代表方案卡片和图表概览；所有下载按钮集中到“图表下载和报告生成”页。按钮跳转继续使用 `_workflow_page_target` pending 状态，仿真和经济计算完成后用 `st.rerun()` 刷新顶部状态条；推荐图表页已优先消费正式 `RecommendationPortfolio`，下载页图表 HTML ZIP 的多方案对比范围收窄为“推荐组合 + 当前报告方案”；Demo 候选范围为 27 个小方案，浏览器验证显示 15 个达标方案，未再出现 `workflow_page` widget key 报错；
@@ -371,5 +390,13 @@ git status --short
 - 2026-06-04 已继续抽出技术研究服务入口：`TechnicalStudyInput`、`TechnicalStudyResult`、`StudyResult` 和 `run_technical_study()` 已落地；Streamlit 方案仿真页的 Demo 和正式测算不再直接调用 `read_curve_set()` / `run_batch()`，而是触发服务层。当前 UI 仍兼容写入 `batch_result`，同时新增 `study_result` 作为后续迁移入口；
 - 2026-06-04 已把 Streamlit 主工作流调整为六模块：`欢迎页`、`方案仿真`、`经济性测算`、`方案推荐`、`图表概览`、`图表下载和报告生成`。旧 `方案推荐及图表概览` 会话状态映射到 `方案推荐`；02 页曲线卡 hover 显示负荷年总用电量、光伏/风电年利用小时；侧栏折叠态保留 48px 深蓝工具轨；Sankey 文字样式仅做展示层修正，不改变能源流向计算；
 - 2026-06-01 已把四季典型日从固定月份中位日改为季节中心日法：按春 3-5 月、夏 6-8 月、秋 9-11 月、冬 12/1/2 月的完整 24 小时日期，使用负荷、风光、储能、电网、弃电、SOC 等逐小时字段标准化后选离季节平均曲线最近的真实日期；图表标题和说明标注 `MM/DD`；
+- 2026-06-09 已在交付中心新增 Word 友好 PNG 图表包：HTML ZIP 继续用于 Plotly 交互复核，PNG ZIP 用于插入 docx。PNG 包复用同一图表清单并输出 `chart_manifest.csv`；默认 A4 纵向 Word 正文 16 cm 插入宽度、1800px 画布宽。静态 PNG 导出需要 `plotly>=6.1`、`kaleido>=1.0` 和可用 Chrome / Chromium；若环境缺失，HTML ZIP 不受影响，PNG 失败原因会写入 UI / warnings；
+- 2026-06-09 已修复 Streamlit 启动入口与端口冲突问题：优先使用 `START_GREEN_DIRECT_APP.bat` 或 `scripts/start_green_direct_app.ps1` 启动；统一启动器会先做导入自检，默认从 8503 到 8515 选择空闲端口，并且只停止可确认属于本项目的旧 Streamlit 进程。不要再使用硬编码 8501 或裸 `streamlit run app.py` 的入口；若需要只检查环境，可运行 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_green_direct_app.ps1 -CheckOnly`；
+- 2026-06-10 已完成清理 C 盘后的 Streamlit 前端兼容排查：当前项目依赖应保持 `streamlit>=1.57,<1.58`、`plotly>=6.1`、`kaleido>=1.0`；启动器和 PyInstaller 入口会把 `TEMP/TMP/TMPDIR` 指向项目 `.runtime/tmp`，并自动设置 `BROWSER_PATH` 到本机 Chrome/Edge。若旧浏览器标签继续出现 `Failed to fetch dynamically imported module`，先强制刷新或重开 `http://localhost:8503`，因为正确的 `Metric`、`PlotlyChart`、`axios` 分块已验证可返回 JavaScript；PNG ZIP 已在当前 `.venv` 安装 `kaleido==1.3.0` 后验证可生成。
+- 2026-06-10 已新增 Streamlit 重启后的本地结果恢复机制：技术仿真、经济性测算和 PNG 图表包生成完成后，会把最近关键结果写入 `.runtime/latest_session_snapshot.pkl`；App 启动时如果 `session_state` 为空，会自动恢复最近一次 `batch_result` 等结果并提示用户。该机制只是临时轻量保护，长期仍应实现正式 `ResultStore`；`.runtime/` 已加入 `.gitignore`。
+- 2026-06-10 已修正图表网页端和 ZIP 导出一致性：新增共享能源色板 `src/green_direct/visualization/style.py`，网页 24H 运行策略图和 HTML/PNG 导出复用同一构图；PNG/HTML 图表包补充五类关键运行日和全年 8760/8784 曲线；季节典型日文件名不再嵌入日期，真实选中日期写入 meta。后续改图表颜色或 24H 运行图时优先改共享色板和 `build_operation_day_figure()`，不要单独给 PNG 另起一套样式。
+- 2026-06-10 PNG ZIP 已改为后台生成：06 页提交后台线程任务，用户可切换页面，返回后自动收割结果；底层优先用 Plotly `write_images()` 批量渲染，失败再逐张回退。经济参数页默认风电造价 5000、光伏造价 2800，常调单位造价和运维单价使用 Streamlit 原生 `number_input` 内置步进微调，步长按字段内部定义（单位造价 100、运维 1），不要再用自定义按钮修改 `session_state` 后强制整页 rerun。顶部重复状态条已停止渲染，保留侧栏导航/状态和页面标题。PNG 图表包区域使用局部刷新显示运行中/完成/失败状态。S09 图中净交换显式按 `grid_export_power - grid_import_power` 展示，S10 全年曲线分为供需/上网弃电/SOC 三行，S02 政策阈值使用水平阈值线。
+- 2026-06-10 02 页“指定单方案”输入已做去冗和排版修正：模式入口保留“指定单方案”，但字段标签只写“光伏容量、风电容量、储能功率、储能容量”；四个输入采用两行两列，不再一行四列挤压中文标签。03 页经济性参数工作台也继续压紧：基本参数行改为四列节奏，Year 0 建设投资六个输入放到同一行，减少大块空白。后续新增参数控件时，优先让入口表达模式、字段表达名词，避免每个控件重复解释当前模式，也不要让少量字段横向撑满全屏。
+- 2026-06-10 已进一步确认 UI 改造不能过度守旧：保留计算口径不等于保留旧页面结构。03 页经济参数已从单一“经济性参数工作台”大框拆为运行口径、建设投资、运维成本、收入和税金、到户电价展示、高级参数六个小工作卡；参数被放入 `st.form("economy_v1_params_form")`，顶部和底部都有“计算经济性 V1”提交按钮。表单内编辑常调参数时不再触发整页 rerun，浏览器测得风电单位造价输入改动前端响应约 82ms。后续 UI 工作应围绕“快速完成方案策划、经济测算、推荐和交付”主目标，不要为了沿用旧大表单而牺牲交互流畅性。
 - 2026-05-25 已新增独立方案遍历试用程序入口：`src/green_direct/services/batch_trial_runner.py`、`src/green_direct/ui/batch_trial_gui.py`、`packaging/pyinstaller/run_batch_trial_tool.py`、`GreenDirectBatchTrial.spec` 和 `scripts/build_batch_trial_exe.ps1`。该入口只包装三条 CSV 读取、风光储容量枚举、逐小时技术仿真、方案概览 Excel 和全部方案逐小时详表 ZIP，不代表长期主产品要回到全量枚举表优先；配套说明见 `docs/BATCH_TRIAL_TOOL_USER_GUIDE.md` 和 `docs/BATCH_TRIAL_DISPATCH_AND_CALCULATION.md`；
 - 下一步建议继续把推荐页、导出页和图表模块从兼容层 `batch_result` 逐步迁移到 `StudyResult` 读取；再补轻量 `ResultStore`，完善 `recommendation/` 模块的数据模型和导出契约，并为典型日选择、图表包和报告输出补充更细的审计数据。
