@@ -10,6 +10,11 @@ from green_direct.services.pilot_auth import (
     PilotSessionRecord,
 )
 from green_direct.services.pilot_registry import LocalPilotRegistry
+from green_direct.services.pilot_study_persistence import (
+    PersistedTechnicalStudy,
+    persist_technical_study_result,
+    technical_input_fingerprint,
+)
 from green_direct.services.result_store import LocalResultStore
 from green_direct.services.study_runner import (
     EconomicStudyResult,
@@ -36,12 +41,15 @@ __all__ = [
     "PilotAdminError",
     "PilotLoginSession",
     "PilotSessionRecord",
+    "PersistedTechnicalStudy",
     "RecommendationInputSnapshot",
     "RecommendationStudyResult",
     "StudyResult",
     "TechnicalStudyInput",
     "TechnicalStudyResult",
     "build_recommendation_study",
+    "persist_technical_study_result",
     "run_economic_study",
     "run_technical_study",
+    "technical_input_fingerprint",
 ]

@@ -214,6 +214,42 @@ def test_cancel_job_allows_owner_or_admin_only(tmp_path):
     )
 
 
+def test_job_lifecycle_updates_require_owner_or_project_admin_and_are_audited(tmp_path):
+    service = _service(tmp_path)
+    _create_project_with_members(service)
+    service.submit_job(actor_user_id="analyst", job=_job("job_1"))
+    service.registry.save_user(User("analyst_2", "analyst2@example.local", "Analyst 2"))
+    service.grant_project_role(
+        actor_user_id="admin",
+        project_id="project_1",
+        user_id="analyst_2",
+        role=ProjectRole.ANALYST,
+    )
+
+    with pytest.raises(PilotAccessError, match="update another user's job"):
+        service.start_job(actor_user_id="analyst_2", project_id="project_1", study_id="study_1", job_id="job_1")
+
+    running = service.start_job(actor_user_id="analyst", project_id="project_1", study_id="study_1", job_id="job_1")
+    progress = service.update_job_progress(
+        actor_user_id="analyst",
+        project_id="project_1",
+        study_id="study_1",
+        job_id="job_1",
+        current=1,
+        total=2,
+        message="running technical study",
+    )
+    succeeded = service.succeed_job(actor_user_id="admin", project_id="project_1", study_id="study_1", job_id="job_1")
+
+    assert running.status == JobStatus.RUNNING
+    assert progress.progress_message == "running technical study"
+    assert succeeded.status == JobStatus.SUCCEEDED
+    assert any(
+        event.action == AuditAction.COMPLETE_JOB and event.metadata.get("status") == "succeeded"
+        for event in service.result_store.read_audit_log("project_1")
+    )
+
+
 def test_artifact_payload_read_requires_project_view_and_is_audited(tmp_path):
     service = _service(tmp_path)
     _create_project_with_members(service)

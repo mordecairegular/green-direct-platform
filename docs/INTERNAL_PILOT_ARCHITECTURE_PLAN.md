@@ -208,3 +208,23 @@ PNG 图表包后台任务也按会话隔离：
 - P0/P1 风险清零或明确记录后，再做 UI 提升；
 - UI 提升必须限制在当前 Streamlit 工程工作台内，不要改调度、经济性和推荐算法；
 - 如果继续推进多人后台，单独使用账户、Job 和 `ResultStore` 架构提示词，不要和 UI 提升混在同一轮。
+
+## 2026-06-15 补充：技术仿真结果持久化第一阶段
+
+已落地第一条项目级结果写入路径：
+- `ArtifactKind.CONFIG_SNAPSHOT` 已加入后台模型；
+- `PilotAccessService` 已支持 `start_job()`、`update_job_progress()`、`succeed_job()` 和 `fail_job()`，任务状态变更要求发起人本人或项目管理员权限，完成/失败写入 `AuditLog.COMPLETE_JOB`；
+- `persist_technical_study_result()` 会把一次 `TechnicalStudyResult` 登记为 `technical_study` 类型同步 `Job`，写入 `technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord(result_id="technical_result")`；
+- Streamlit 02 页 Demo 和正式测算完成后，在启用内部登录且存在当前项目时，会调用该路径，并把结果引用挂到 `StudyResult.result_store_refs`。
+
+仍未落地：
+- 后台 worker / 队列 / 取消闭环；
+- 技术仿真逐小时明细的按需补算与持久化；
+- 经济性 summary、年度现金流、推荐组合、图表包、报告产物写入 `ResultStore`；
+- 项目级任务状态页和历史结果页；
+- SQLite/Postgres 或对象存储适配、并发锁、备份和部署 runbook。
+
+下一阶段建议：
+1. 先把经济性测算和推荐组合沿用同一 `Job` / `ResultStore` 契约接入；
+2. 再做任务状态页和结果历史页，让用户可以在项目内找回已完成测算；
+3. 最后把大批量代表方案按需逐小时明细、图表包和报告导出统一变成项目级 artifacts。

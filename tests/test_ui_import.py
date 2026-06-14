@@ -268,6 +268,60 @@ def test_pilot_project_role_change_to_viewer_clears_work_state_and_blocks_submit
     assert app._current_pilot_project_can_submit_jobs(dummy) is False
 
 
+def test_pilot_technical_result_helper_persists_and_attaches_refs(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.batch.batch_runner import BatchResult
+    from green_direct.models.diagnostics import InputDiagnostics
+    from green_direct.models.pilot_backend import ArtifactKind, Project, User
+    from green_direct.services.study_runner import StudyResult, TechnicalStudyResult
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+
+    access = app._pilot_access_service()
+    access.registry.save_user(User("admin", "admin@example.local", "Admin"))
+    project = access.create_project(
+        actor_user_id="admin",
+        project=Project("project_1", "Internal pilot project"),
+    )
+    technical_result = TechnicalStudyResult(
+        study_id="study_ui",
+        batch_result=BatchResult(
+            summary=pd.DataFrame({"scenario_id": ["S0001"], "green_load_rate": [0.4]}),
+            hourly_details={},
+            errors=pd.DataFrame(),
+            warnings=[],
+            scenario_count=1,
+        ),
+        input_diagnostics=InputDiagnostics(),
+        config_snapshot={"study_id": "study_ui", "scenario_grid": {"pv_capacity": [5]}},
+    )
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.PILOT_USER_ID_KEY: "admin",
+                app.PILOT_ACTIVE_PROJECT_ID_KEY: project.project_id,
+            }
+
+    dummy = DummyStreamlit()
+    persisted = app._persist_pilot_technical_result_if_enabled(dummy, technical_result)
+    study_result = app._study_result_with_pilot_refs(StudyResult.from_technical(technical_result), persisted)
+
+    assert persisted is not None
+    assert study_result.result_store_refs["project_id"] == project.project_id
+    assert study_result.result_store_refs["technical_job_id"] == persisted.job.job_id
+    assert study_result.result_store_refs["technical_summary_artifact_id"] == "technical_summary"
+    assert study_result.result_store_refs["config_snapshot_artifact_id"] == "config_snapshot"
+    assert app.PILOT_RESULT_STORE_NOTICE_KEY in dummy.session_state
+    assert (
+        app._pilot_access_service()
+        .result_store.load_artifact(project.project_id, "study_ui", "config_snapshot")
+        .kind
+        == ArtifactKind.CONFIG_SNAPSHOT
+    )
+
+
 def test_streamlit_app_shows_pilot_login_gate_when_enabled(tmp_path, monkeypatch):
     import green_direct.ui.app as app
     from streamlit.testing.v1 import AppTest

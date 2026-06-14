@@ -1125,3 +1125,29 @@ Get-NetTCPConnection -LocalPort 8503 -State Listen |
 - 输出阅读体验优化。
 
 本文档应随这些模块的落地持续更新，作为整个软件的模块接线图和接口基线。
+
+## 25. 内部 pilot 技术结果持久化接线
+
+当前内部试用后台已不再只是模型骨架。启用 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 且用户已选择项目后，02 页 Demo 测算和正式技术仿真完成时会走一条项目级同步持久化路径：
+
+```text
+TechnicalStudyResult
+-> persist_technical_study_result()
+-> PilotAccessService.submit/start/update/succeed_job()
+-> LocalResultStore.store_artifact()
+-> LocalResultStore.save_result_record()
+-> StudyResult.result_store_refs
+```
+
+当前写入内容：
+- `Job(job_type="technical_study")`：记录项目、研究、发起人、输入配置指纹、进度和完成状态；
+- `technical_summary.csv`：当前技术仿真的方案汇总；
+- `config_snapshot.json`：本次技术仿真的配置快照；
+- `StudyResultRecord(result_id="technical_result")`：指向技术汇总 artifact；
+- `StudyResult.result_store_refs`：在 UI 会话内保存 `project_id`、`technical_job_id`、`technical_result_id`、`technical_summary_artifact_id` 和 `config_snapshot_artifact_id`，供后续经济性、推荐、导出和结果页迁移使用。
+
+边界：
+- 这仍是 Streamlit 进程内同步写入，不是真正后台 worker；
+- 当前不持久化全量逐小时明细、经济性结果、推荐组合、图表包或报告；
+- `technical_input_fingerprint()` 目前基于 `config_snapshot` 生成稳定 sha256，用于追踪输入配置，不等同于对原始上传曲线文件逐字节哈希；
+- 后续后台任务、数据库适配和结果页读取应继续复用 `PilotAccessService`，不要直接绕过权限与审计门面调用底层 store。

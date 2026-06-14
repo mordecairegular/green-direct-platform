@@ -3391,11 +3391,38 @@ exchange_import_shortfall_energy == 0
 
 边界说明：
 - 这仍是内部 pilot 的本地 JSON 版最小边界，不是正式企业 IAM、数据库会话、CSRF 防护、审计后台或多 worker 任务系统；
-- 当前技术仿真、经济性测算和导出结果仍主要保存在当前 Streamlit session_state，尚未写入 `LocalResultStore`；
+- 当前技术仿真已将 summary 和 config snapshot 写入 `LocalResultStore`；经济性测算、推荐和导出结果仍主要保存在当前 Streamlit session_state；
 - 项目成员管理是平台管理员入口，不是完整项目管理员自助后台；
 - 后续优先把技术仿真、经济性测算、推荐和导出提交为项目级 `Job`，并把 summary、推荐组合、逐小时明细和报告产物写入 `ResultStore`。
 
 验证：
 - `python -m pytest tests/test_ui_import.py::test_pilot_project_role_change_to_viewer_clears_work_state_and_blocks_submit tests/test_ui_import.py::test_streamlit_app_allows_login_with_pilot_account tests/test_pilot_access.py tests/test_pilot_admin.py -q` 通过，21 项通过；
-- `python -m pytest -q` 通过，248 项通过；
+- `python -m pytest -q` 通过，252 项通过；
+- `python -m compileall -q src` 通过。
+
+### 2026-06-15 项目级技术仿真 Job/ResultStore 第一条写入路径
+
+本轮继续把内部 10-20 人 pilot 的项目级结果存储从“模型骨架”推进到“第一条真实业务写入路径”。技术仿真完成后，在启用 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 且当前用户已选择项目时，Streamlit 会把本次技术结果登记为项目级 `Job`，并把技术汇总和配置快照写入 `LocalResultStore`。
+
+本轮判断：
+- 先接入技术结果 summary 和 config snapshot，比一次性搬迁经济性、推荐、图表和报告更稳；这条路径可以验证 `PilotAccessService`、`LocalJobStore`、`LocalResultStore` 和 UI 当前项目上下文是否真正闭环；
+- 该写入不改变 V0.1 风光储调度口径，也不改变经济性和推荐算法；
+- 持久化失败不应丢弃已经完成的技术仿真结果，因此 UI 会保留 session 内的 `StudyResult`，并给出项目结果保存失败提示。
+
+本轮实现：
+- `ArtifactKind` 新增 `CONFIG_SNAPSHOT`；
+- `PilotAccessService` 新增 `start_job()`、`update_job_progress()`、`succeed_job()` 和 `fail_job()`，统一校验任务发起人或项目管理员权限，并在完成/失败时写入审计日志；
+- 新增 `src/green_direct/services/pilot_study_persistence.py`，提供 `persist_technical_study_result()` 和 `technical_input_fingerprint()`；
+- 技术结果写入 `technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord(result_id="technical_result")`；
+- Streamlit Demo 测算和正式测算完成后，若试点登录和项目上下文启用，会调用持久化 helper，并把 `project_id`、`technical_job_id`、`technical_result_id`、`technical_summary_artifact_id` 和 `config_snapshot_artifact_id` 挂到 `StudyResult.result_store_refs`。
+
+边界说明：
+- 当前仍是同步写入，不是真正后台 worker；
+- 技术仿真计算本身仍发生在 Streamlit 进程内；
+- 当前只持久化技术汇总和配置快照，经济性结果、推荐组合、逐小时明细、图表包和报告仍待迁移；
+- artifact id 在同一 `study_id` 下固定为 `technical_summary` / `config_snapshot`，依赖 `run_technical_study()` 每次生成唯一 `study_id`。
+
+验证：
+- `python -m pytest tests/test_pilot_access.py::test_job_lifecycle_updates_require_owner_or_project_admin_and_are_audited tests/test_pilot_study_persistence.py tests/test_ui_import.py::test_pilot_technical_result_helper_persists_and_attaches_refs -q` 通过，4 项通过；
+- `python -m pytest -q` 通过，252 项通过；
 - `python -m compileall -q src` 通过。

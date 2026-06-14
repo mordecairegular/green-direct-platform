@@ -276,6 +276,87 @@ class PilotAccessService:
         )
         return canceled
 
+    def _job_mutation_membership(self, *, actor_user_id: str, job: Job) -> ProjectMembership:
+        membership = self.require_project_job_submit(actor_user_id=actor_user_id, project_id=job.project_id)
+        if job.requested_by_user_id != actor_user_id and not membership.can_manage_project():
+            raise PilotAccessError("Only project admins can update another user's job.")
+        return membership
+
+    def start_job(self, *, actor_user_id: str, project_id: str, study_id: str, job_id: str) -> Job:
+        """Start a queued job after checking owner/admin permission."""
+
+        job = self.job_store.load_job(project_id, study_id, job_id)
+        self._job_mutation_membership(actor_user_id=actor_user_id, job=job)
+        return self.job_store.start_job(project_id, study_id, job_id)
+
+    def update_job_progress(
+        self,
+        *,
+        actor_user_id: str,
+        project_id: str,
+        study_id: str,
+        job_id: str,
+        current: int,
+        total: int | None = None,
+        message: str | None = None,
+    ) -> Job:
+        """Persist job progress after checking owner/admin permission."""
+
+        job = self.job_store.load_job(project_id, study_id, job_id)
+        self._job_mutation_membership(actor_user_id=actor_user_id, job=job)
+        return self.job_store.update_job_progress(
+            project_id,
+            study_id,
+            job_id,
+            current=current,
+            total=total,
+            message=message,
+        )
+
+    def succeed_job(self, *, actor_user_id: str, project_id: str, study_id: str, job_id: str) -> Job:
+        """Mark a running job as succeeded and audit completion."""
+
+        job = self.job_store.load_job(project_id, study_id, job_id)
+        self._job_mutation_membership(actor_user_id=actor_user_id, job=job)
+        succeeded = self.job_store.succeed_job(project_id, study_id, job_id)
+        self._audit(
+            actor_user_id=actor_user_id,
+            action=AuditAction.COMPLETE_JOB,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=job_id,
+            target_type="job",
+            target_id=job_id,
+            metadata={"status": succeeded.status.value},
+        )
+        return succeeded
+
+    def fail_job(
+        self,
+        *,
+        actor_user_id: str,
+        project_id: str,
+        study_id: str,
+        job_id: str,
+        error_message: str,
+    ) -> Job:
+        """Mark a running job as failed and audit completion."""
+
+        job = self.job_store.load_job(project_id, study_id, job_id)
+        self._job_mutation_membership(actor_user_id=actor_user_id, job=job)
+        failed = self.job_store.fail_job(project_id, study_id, job_id, error_message)
+        self._audit(
+            actor_user_id=actor_user_id,
+            action=AuditAction.COMPLETE_JOB,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=job_id,
+            target_type="job",
+            target_id=job_id,
+            metadata={"status": failed.status.value, "error_message": failed.error_message},
+        )
+        return failed
+
     def load_artifact(self, *, actor_user_id: str, project_id: str, study_id: str, artifact_id: str) -> JobArtifact:
         """Load an artifact index visible to an active project member."""
 

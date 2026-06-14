@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import replace
 import html
 import hashlib
 from io import BytesIO
@@ -58,6 +59,7 @@ from green_direct.services import (
     StudyResult,
     TechnicalStudyInput,
     build_recommendation_study,
+    persist_technical_study_result,
     run_economic_study,
     run_technical_study,
 )
@@ -140,6 +142,7 @@ PILOT_ACTIVE_PROJECT_ID_KEY = "_pilot_active_project_id"
 PILOT_ACTIVE_PROJECT_NAME_KEY = "_pilot_active_project_name"
 PILOT_ACTIVE_PROJECT_ROLE_KEY = "_pilot_active_project_role"
 PILOT_PROJECT_NOTICE_KEY = "_pilot_project_notice"
+PILOT_RESULT_STORE_NOTICE_KEY = "_pilot_result_store_notice"
 PLATFORM_ADMIN_PAGE = "平台管理"
 CHART_PNG_DOCX_SESSION_ID_KEY = "_chart_png_docx_session_id"
 _CHART_PNG_DOCX_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="green-direct-png")
@@ -172,6 +175,7 @@ PILOT_AUTH_WORK_STATE_KEYS = tuple(
             PROJECT_PRICE_CURVE_META_KEY,
             PROJECT_PRICE_CURVE_NOTICE_KEY,
             PROJECT_PRICE_CURVE_SESSION_UPLOAD_KEY,
+            PILOT_RESULT_STORE_NOTICE_KEY,
             "download_payloads",
             "chart_png_docx_export",
             "chart_png_docx_export_error",
@@ -1959,6 +1963,43 @@ def _current_pilot_project_can_submit_jobs(st) -> bool:
 def _render_pilot_project_submit_permission_block(st) -> None:
     st.markdown("## 当前项目为只读权限")
     st.warning("你的项目角色当前不能发起新的技术仿真或经济性测算。请联系项目管理员或平台管理员调整为 admin / analyst 后再运行计算。")
+
+
+def _study_result_with_pilot_refs(study_result: StudyResult, persisted) -> StudyResult:
+    refs = {
+        **study_result.result_store_refs,
+        "project_id": persisted.job.project_id,
+        "technical_job_id": persisted.job.job_id,
+        "technical_result_id": persisted.result_record.result_id,
+        "technical_summary_artifact_id": persisted.technical_summary_artifact.artifact_id,
+        "config_snapshot_artifact_id": persisted.config_snapshot_artifact.artifact_id,
+    }
+    return replace(study_result, result_store_refs=refs)
+
+
+def _persist_pilot_technical_result_if_enabled(st, technical_result) -> object | None:
+    if not _pilot_auth_enabled():
+        return None
+    actor_user_id = _current_pilot_user_id(st)
+    project_id = _current_pilot_project_id(st)
+    if not actor_user_id or not project_id:
+        return None
+    try:
+        persisted = persist_technical_study_result(
+            access_service=_pilot_access_service(),
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            technical_result=technical_result,
+        )
+    except Exception as exc:  # noqa: BLE001 - persistence failure should not discard the computed study
+        if isinstance(exc, (PilotAccessError, FileExistsError, FileNotFoundError, ValueError, OSError)):
+            st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = f"项目结果保存失败：{exc}"
+            return None
+        raise
+    st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
+        f"已写入项目结果存储：Job {persisted.job.job_id} / Result {persisted.result_record.result_id}"
+    )
+    return persisted
 
 
 def _pilot_project_option_label(option: tuple[Project, ProjectMembership]) -> str:
@@ -6969,7 +7010,10 @@ def _render_simulation_page(st) -> None:
                         },
                     ),
                 )
+            persisted_result = _persist_pilot_technical_result_if_enabled(st, technical_result)
             study_result = StudyResult.from_technical(technical_result)
+            if persisted_result is not None:
+                study_result = _study_result_with_pilot_refs(study_result, persisted_result)
             st.session_state["study_result"] = study_result
             st.session_state["batch_result"] = technical_result.batch_result
             st.session_state["config_snapshot"] = technical_result.config_snapshot
@@ -6984,10 +7028,11 @@ def _render_simulation_page(st) -> None:
             demo_retention_notice = (
                 "" if demo_detail_retention_plan["mode"] == "full" else demo_detail_retention_plan["message"]
             )
+            store_notice = st.session_state.pop(PILOT_RESULT_STORE_NOTICE_KEY, "")
             st.session_state["_simulation_notice"] = (
-                f"Demo 结果已生成，可继续做经济测算、方案推荐和图表概览。{demo_retention_notice}"
+                f"Demo 结果已生成，可继续做经济测算、方案推荐和图表概览。{demo_retention_notice}{store_notice}"
                 if not price_curve_reset_notice
-                else f"Demo 结果已生成，可继续做经济测算、方案推荐和图表概览。{demo_retention_notice}{price_curve_reset_notice}"
+                else f"Demo 结果已生成，可继续做经济测算、方案推荐和图表概览。{demo_retention_notice}{price_curve_reset_notice}{store_notice}"
             )
             _save_runtime_snapshot(st)
             st.rerun()
@@ -7064,7 +7109,10 @@ def _render_simulation_page(st) -> None:
                 f"计算完成：{technical_result.scenario_count}/{technical_result.scenario_count}"
             )
 
+            persisted_result = _persist_pilot_technical_result_if_enabled(st, technical_result)
             study_result = StudyResult.from_technical(technical_result)
+            if persisted_result is not None:
+                study_result = _study_result_with_pilot_refs(study_result, persisted_result)
             st.session_state["study_result"] = study_result
             st.session_state["batch_result"] = technical_result.batch_result
             st.session_state["config_snapshot"] = technical_result.config_snapshot
@@ -7077,10 +7125,11 @@ def _render_simulation_page(st) -> None:
             ) or _discard_incompatible_project_price_curve(st, technical_result.batch_result.hourly_details)
             _clear_economy_outputs(st)
             retention_notice = "" if detail_retention_plan["mode"] == "full" else detail_retention_plan["message"]
+            store_notice = st.session_state.pop(PILOT_RESULT_STORE_NOTICE_KEY, "")
             st.session_state["_simulation_notice"] = (
-                f"测算完成。{retention_notice}"
+                f"测算完成。{retention_notice}{store_notice}"
                 if not price_curve_reset_notice
-                else f"测算完成。{retention_notice}{price_curve_reset_notice}"
+                else f"测算完成。{retention_notice}{price_curve_reset_notice}{store_notice}"
             )
             _save_runtime_snapshot(st)
             st.rerun()
