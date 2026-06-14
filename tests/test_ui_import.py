@@ -1,3 +1,4 @@
+from concurrent.futures import Future
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -52,6 +53,7 @@ def test_runtime_snapshot_round_trips_session_state(tmp_path, monkeypatch):
     from green_direct.economy import read_price_curve
 
     snapshot_path = tmp_path / "latest_session_snapshot.pkl"
+    monkeypatch.setenv(app.RUNTIME_SNAPSHOT_ENV, "1")
     monkeypatch.setattr(app, "RUNTIME_STATE_DIR", tmp_path)
     monkeypatch.setattr(app, "LATEST_SESSION_SNAPSHOT_PATH", snapshot_path)
 
@@ -81,6 +83,34 @@ def test_runtime_snapshot_round_trips_session_state(tmp_path, monkeypatch):
     assert app.PROJECT_PRICE_CURVE_DATA_KEY not in target.session_state
     assert app.PROJECT_PRICE_CURVE_META_KEY not in target.session_state
     assert "已从项目本地快照恢复" in target.session_state["_runtime_restore_notice"]
+
+
+def test_runtime_snapshot_is_disabled_by_default(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+
+    snapshot_path = tmp_path / "latest_session_snapshot.pkl"
+    monkeypatch.delenv(app.RUNTIME_SNAPSHOT_ENV, raising=False)
+    monkeypatch.setattr(app, "RUNTIME_STATE_DIR", tmp_path)
+    monkeypatch.setattr(app, "LATEST_SESSION_SNAPSHOT_PATH", snapshot_path)
+
+    class DummyStreamlit:
+        def __init__(self, state):
+            self.session_state = state
+
+    source = DummyStreamlit(
+        {
+            "batch_result": SimpleNamespace(
+                summary=pd.DataFrame({"scenario_id": ["S0001"]}),
+                hourly_details={"S0001": pd.DataFrame()},
+            )
+        }
+    )
+
+    app._save_runtime_snapshot(source)
+    restored = app._restore_runtime_snapshot_if_needed(DummyStreamlit({}))
+
+    assert restored is False
+    assert not snapshot_path.exists()
 
 
 def test_curve_display_tooltip_shows_input_curve_metrics():
@@ -854,12 +884,40 @@ def test_chart_png_docx_zip_contains_png_manifest_and_matches_html(monkeypatch):
     assert progress_events[-1][1] == len(png_prefixes)
 
 
+def test_chart_png_docx_signature_changes_when_export_data_changes():
+    import green_direct.ui.app as app
+
+    summary = pd.DataFrame(
+        {
+            "scenario_id": ["S0001", "S0002"],
+            "self_use_rate": [0.7, 0.8],
+            "green_load_rate": [0.35, 0.4],
+        }
+    )
+    comparison = summary.copy()
+    hourly = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2020-01-01", periods=2, freq="h"),
+            "load_power": [1.0, 2.0],
+        }
+    )
+    changed_hourly = hourly.copy()
+    changed_hourly.loc[0, "load_power"] = 9.0
+    changed_summary = summary.copy()
+    changed_summary.loc[0, "self_use_rate"] = 0.9
+
+    base_signature = app._chart_png_docx_export_signature("S0001", summary, hourly, comparison)
+
+    assert app._chart_png_docx_export_signature("S0001", summary, changed_hourly, comparison) != base_signature
+    assert app._chart_png_docx_export_signature("S0001", changed_summary, hourly, comparison) != base_signature
+
+
 def test_chart_png_docx_background_job_stores_finished_result(monkeypatch):
     import green_direct.ui.app as app
 
     class FakeStreamlit:
         def __init__(self):
-            self.session_state = {}
+            self.session_state = {app.CHART_PNG_DOCX_SESSION_ID_KEY: "unit-session"}
 
     def fake_build_zip(summary, selected_scenario_id, hourly, comparison_summary=None, progress_callback=None):
         if progress_callback:
@@ -868,7 +926,7 @@ def test_chart_png_docx_background_job_stores_finished_result(monkeypatch):
         return b"fake-zip", []
 
     signature = "unit-test-background-png"
-    app._CHART_PNG_DOCX_JOBS.pop(app._chart_png_docx_job_key(signature), None)
+    app._CHART_PNG_DOCX_JOBS.pop(app._chart_png_docx_job_key(signature, session_id="unit-session"), None)
     monkeypatch.setattr(app, "_build_chart_png_docx_zip", fake_build_zip)
     monkeypatch.setattr(app, "_save_runtime_snapshot", lambda st: None)
 
@@ -878,6 +936,7 @@ def test_chart_png_docx_background_job_stores_finished_result(monkeypatch):
         "S0001",
         pd.DataFrame({"timestamp": pd.date_range("2020-01-01", periods=1, freq="h")}),
         pd.DataFrame({"scenario_id": ["S0001"]}),
+        session_id="unit-session",
     )
     job["future"].result(timeout=5)
     fake_st = FakeStreamlit()
@@ -888,6 +947,30 @@ def test_chart_png_docx_background_job_stores_finished_result(monkeypatch):
     assert fake_st.session_state["chart_png_docx_export"]["data"] == b"fake-zip"
     assert fake_st.session_state["chart_png_docx_export"]["signature"] == signature
     assert job["progress"] == {"completed": 2, "total": 2, "message": "完成"}
+
+
+def test_clear_chart_export_cache_removes_session_job():
+    import green_direct.ui.app as app
+
+    class FakeStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.CHART_PNG_DOCX_SESSION_ID_KEY: "unit-session-clear",
+                "chart_png_docx_active_signature": "sig-clear",
+                "chart_png_docx_export": {"data": b"old"},
+                "chart_png_docx_export_error": "old-error",
+            }
+
+    dummy = FakeStreamlit()
+    job_key = app._chart_png_docx_job_key("sig-clear", session_id="unit-session-clear")
+    app._CHART_PNG_DOCX_JOBS[job_key] = {"future": Future()}
+
+    app._clear_chart_export_cache(dummy)
+
+    assert "chart_png_docx_export" not in dummy.session_state
+    assert "chart_png_docx_export_error" not in dummy.session_state
+    assert "chart_png_docx_active_signature" not in dummy.session_state
+    assert job_key not in app._CHART_PNG_DOCX_JOBS
 
 
 def test_single_entity_annual_workbook_has_context_and_field_explanations():

@@ -56,14 +56,20 @@
 
 如果本次任务涉及追溯早期 AI 构建提示词、V0.1 验收记录或旧状态快照，请到 `archive/20260522_historical_build_materials/` 查看。该目录是历史归档，不是当前活跃开发入口。
 
-### 2.1 上线前 Claude Code 全面审查提示词
+### 2.1 内部试用上线前 Claude Code 提示词
 
-如果目标是近期上线前复核，建议单独开启一轮“review / debug”会话，并直接发送：
+如果目标是 10-20 人内部试用上线，建议把 Claude Code 分成两轮：第一轮做上线安全审查，第二轮做 UI 提升。第一轮直接发送：
 
 ```text
-请先不要大改代码。请按上线前质量审查的方式全面 review / debug 本项目：先阅读 AGENTS.md、CLAUDE.md、notes/HANDOFF_FOR_NEW_MACHINE.md、notes/PRODUCT_POLISH_LOG.md、docs/SOFTWARE_OVERVIEW_AND_INTERFACE.md、docs/ECONOMY_RECOMMENDATION_V1_MAP.md、docs/CHART_MODULE_CURRENT_LOGIC.md、docs/WEB_APP_WORKFLOW_AND_UI_RESTRUCTURE.md，以及 notes/architecture_reframe_20260519/ 下的文档。然后执行 git status --short 和 python -m pytest -q，把当前未提交改动视为既有工作，不要回滚。
+请按“内部 10-20 人试用上线前审查”全面 review/debug 本项目。先阅读 AGENTS.md、CLAUDE.md、notes/HANDOFF_FOR_NEW_MACHINE.md、notes/PRODUCT_POLISH_LOG.md、docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md、docs/SOFTWARE_OVERVIEW_AND_INTERFACE.md、docs/ECONOMY_RECOMMENDATION_V1_MAP.md、docs/CHART_MODULE_CURRENT_LOGIC.md、docs/WEB_APP_WORKFLOW_AND_UI_RESTRUCTURE.md，以及 notes/architecture_reframe_20260519/ 下的文档。然后执行 git status --short 和 python -m pytest -q，把当前改动视为既有工作，不要回滚。
 
-请重点审查：V0.1 风光储逐小时调度口径是否被破坏；经济性和推荐是否只读取技术结果、不反向改调度；价格曲线是否只来自当前会话上传；Streamlit 六模块工作流、启动器、结果恢复、PNG/HTML 图表导出是否存在上线阻断问题；测试覆盖是否缺少关键路径。发现问题时按严重程度列出文件和行号，并优先修复 P0/P1 或低风险明确 bug。任何会改变计算口径的修复必须先说明原因，并同步更新测试和文档。
+请重点审查：多人部署下是否存在跨用户 session_state、全局缓存、运行快照、后台任务、下载文件和价格曲线串数据风险；V0.1 风光储逐小时调度口径是否被破坏；经济性和推荐是否只读取技术结果、不反向改变调度；PNG/HTML 图表导出、启动器和测试覆盖是否存在上线阻断问题。发现问题按 P0/P1/P2 排序列出文件和行号；P0/P1 可直接修复，但任何会改变计算口径的修复必须先说明原因并同步测试和文档。
+```
+
+第二轮 UI 提升建议发送：
+
+```text
+请在不改变核心计算口径的前提下提升 Streamlit UI。目标用户是内部能源项目规划人员，界面应像工程测算/规划辅助决策后台，不要做营销页。优先优化六步工作流的信息层级、输入区密度、推荐卡片可读性、图表页对比体验、导出页状态反馈和错误提示。不要重写为新前端框架；不要大改调度、经济性和推荐算法；不要把 raw scenario enumeration 变成主入口。每个 UI 改动都应说明对应的用户任务、涉及文件和验证方式。完成后运行 python -m pytest -q，并用浏览器打开本地 Streamlit 验证主要页面无异常。
 ```
 
 ## 3. 当前项目定位
@@ -155,7 +161,7 @@
 - 经济性评价 V1、同一主体税前测算和推荐方案 V1；
 - 下网电价曲线 V1，可选 CSV / Excel 上传，且只能使用当前会话明确上传的曲线；
 - 图表模块、HTML 图表包和 Word 友好 PNG 图表包；
-- 启动器、端口自检、结果快照恢复和后台 PNG 生成；
+- 启动器、端口自检、本地单机结果快照恢复和会话隔离的后台 PNG 生成；
 - pytest 测试基线。
 
 最近一次上线前交接检查，已验证：
@@ -393,9 +399,9 @@ git status --short
 - 2026-06-09 已在交付中心新增 Word 友好 PNG 图表包：HTML ZIP 继续用于 Plotly 交互复核，PNG ZIP 用于插入 docx。PNG 包复用同一图表清单并输出 `chart_manifest.csv`；默认 A4 纵向 Word 正文 16 cm 插入宽度、1800px 画布宽。静态 PNG 导出需要 `plotly>=6.1`、`kaleido>=1.0` 和可用 Chrome / Chromium；若环境缺失，HTML ZIP 不受影响，PNG 失败原因会写入 UI / warnings；
 - 2026-06-09 已修复 Streamlit 启动入口与端口冲突问题：优先使用 `START_GREEN_DIRECT_APP.bat` 或 `scripts/start_green_direct_app.ps1` 启动；统一启动器会先做导入自检，默认从 8503 到 8515 选择空闲端口，并且只停止可确认属于本项目的旧 Streamlit 进程。不要再使用硬编码 8501 或裸 `streamlit run app.py` 的入口；若需要只检查环境，可运行 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_green_direct_app.ps1 -CheckOnly`；
 - 2026-06-10 已完成清理 C 盘后的 Streamlit 前端兼容排查：当前项目依赖应保持 `streamlit>=1.57,<1.58`、`plotly>=6.1`、`kaleido>=1.0`；启动器和 PyInstaller 入口会把 `TEMP/TMP/TMPDIR` 指向项目 `.runtime/tmp`，并自动设置 `BROWSER_PATH` 到本机 Chrome/Edge。若旧浏览器标签继续出现 `Failed to fetch dynamically imported module`，先强制刷新或重开 `http://localhost:8503`，因为正确的 `Metric`、`PlotlyChart`、`axios` 分块已验证可返回 JavaScript；PNG ZIP 已在当前 `.venv` 安装 `kaleido==1.3.0` 后验证可生成。
-- 2026-06-10 已新增 Streamlit 重启后的本地结果恢复机制：技术仿真、经济性测算和 PNG 图表包生成完成后，会把最近关键结果写入 `.runtime/latest_session_snapshot.pkl`；App 启动时如果 `session_state` 为空，会自动恢复最近一次 `batch_result` 等结果并提示用户。该机制只是临时轻量保护，长期仍应实现正式 `ResultStore`；`.runtime/` 已加入 `.gitignore`。
+- 2026-06-10 已新增 Streamlit 重启后的本地结果恢复机制；2026-06-15 已按内部多人试用要求加安全边界：默认直接 `streamlit run src/green_direct/ui/app.py` 不保存、不恢复 `.runtime/latest_session_snapshot.pkl`，只有本地启动器 / PyInstaller 入口显式设置 `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=1` 时才启用。多人部署、内网服务器、容器或反向代理环境不得开启该变量；长期仍应实现正式 `ResultStore`；`.runtime/` 已加入 `.gitignore`。
 - 2026-06-10 已修正图表网页端和 ZIP 导出一致性：新增共享能源色板 `src/green_direct/visualization/style.py`，网页 24H 运行策略图和 HTML/PNG 导出复用同一构图；PNG/HTML 图表包补充五类关键运行日和全年 8760/8784 曲线；季节典型日文件名不再嵌入日期，真实选中日期写入 meta。后续改图表颜色或 24H 运行图时优先改共享色板和 `build_operation_day_figure()`，不要单独给 PNG 另起一套样式。
-- 2026-06-10 PNG ZIP 已改为后台生成：06 页提交后台线程任务，用户可切换页面，返回后自动收割结果；底层优先用 Plotly `write_images()` 批量渲染，失败再逐张回退。经济参数页默认风电造价 5000、光伏造价 2800，常调单位造价和运维单价使用 Streamlit 原生 `number_input` 内置步进微调，步长按字段内部定义（单位造价 100、运维 1），不要再用自定义按钮修改 `session_state` 后强制整页 rerun。顶部重复状态条已停止渲染，保留侧栏导航/状态和页面标题。PNG 图表包区域使用局部刷新显示运行中/完成/失败状态。S09 图中净交换显式按 `grid_export_power - grid_import_power` 展示，S10 全年曲线分为供需/上网弃电/SOC 三行，S02 政策阈值使用水平阈值线。
+- 2026-06-10 PNG ZIP 已改为后台生成；2026-06-15 已加多人试用安全修正：后台任务 key 包含 Streamlit 会话 ID，PNG ZIP 签名包含 `summary`、所选方案 `hourly_detail` 和对比方案表的数据指纹，新技术仿真会清空旧 PNG 导出缓存，快照也不再持久化 PNG ZIP 二进制。06 页提交后台线程任务，用户可切换页面，返回后自动收割结果；底层优先用 Plotly `write_images()` 批量渲染，失败再逐张回退。经济参数页默认风电造价 5000、光伏造价 2800，常调单位造价和运维单价使用 Streamlit 原生 `number_input` 内置步进微调，步长按字段内部定义（单位造价 100、运维 1），不要再用自定义按钮修改 `session_state` 后强制整页 rerun。顶部重复状态条已停止渲染，保留侧栏导航/状态和页面标题。PNG 图表包区域使用局部刷新显示运行中/完成/失败状态。S09 图中净交换显式按 `grid_export_power - grid_import_power` 展示，S10 全年曲线分为供需/上网弃电/SOC 三行，S02 政策阈值使用水平阈值线。
 - 2026-06-10 02 页“指定单方案”输入已做去冗和排版修正：模式入口保留“指定单方案”，但字段标签只写“光伏容量、风电容量、储能功率、储能容量”；四个输入采用两行两列，不再一行四列挤压中文标签。03 页经济性参数工作台也继续压紧：基本参数行改为四列节奏，Year 0 建设投资六个输入放到同一行，减少大块空白。后续新增参数控件时，优先让入口表达模式、字段表达名词，避免每个控件重复解释当前模式，也不要让少量字段横向撑满全屏。
 - 2026-06-10 已进一步确认 UI 改造不能过度守旧：保留计算口径不等于保留旧页面结构。03 页经济参数已从单一“经济性参数工作台”大框拆为运行口径、建设投资、运维成本、收入和税金、到户电价展示、高级参数六个小工作卡；参数被放入 `st.form("economy_v1_params_form")`，顶部和底部都有“计算经济性 V1”提交按钮。表单内编辑常调参数时不再触发整页 rerun，浏览器测得风电单位造价输入改动前端响应约 82ms。后续 UI 工作应围绕“快速完成方案策划、经济测算、推荐和交付”主目标，不要为了沿用旧大表单而牺牲交互流畅性。
 - 2026-05-25 已新增独立方案遍历试用程序入口：`src/green_direct/services/batch_trial_runner.py`、`src/green_direct/ui/batch_trial_gui.py`、`packaging/pyinstaller/run_batch_trial_tool.py`、`GreenDirectBatchTrial.spec` 和 `scripts/build_batch_trial_exe.ps1`。该入口只包装三条 CSV 读取、风光储容量枚举、逐小时技术仿真、方案概览 Excel 和全部方案逐小时详表 ZIP，不代表长期主产品要回到全量枚举表优先；配套说明见 `docs/BATCH_TRIAL_TOOL_USER_GUIDE.md` 和 `docs/BATCH_TRIAL_DISPATCH_AND_CALCULATION.md`；

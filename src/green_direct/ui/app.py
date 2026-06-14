@@ -7,12 +7,14 @@ import html
 import hashlib
 from io import BytesIO
 from numbers import Number
+import os
 from pathlib import Path
 import pickle
 import re
 import sys
 import time
 from tempfile import TemporaryDirectory
+import uuid
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import pandas as pd
@@ -112,6 +114,8 @@ PROJECT_PRICE_CURVE_NOTICE_KEY = "_project_price_curve_notice"
 PROJECT_PRICE_CURVE_SESSION_UPLOAD_KEY = "_project_price_curve_uploaded_current_session"
 RUNTIME_STATE_DIR = PROJECT_ROOT / ".runtime"
 LATEST_SESSION_SNAPSHOT_PATH = RUNTIME_STATE_DIR / "latest_session_snapshot.pkl"
+RUNTIME_SNAPSHOT_ENV = "GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT"
+CHART_PNG_DOCX_SESSION_ID_KEY = "_chart_png_docx_session_id"
 _CHART_PNG_DOCX_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="green-direct-png")
 _CHART_PNG_DOCX_JOBS: dict[str, dict[str, object]] = {}
 RUNTIME_SNAPSHOT_KEYS = [
@@ -122,7 +126,6 @@ RUNTIME_SNAPSHOT_KEYS = [
     "single_entity_economy_result",
     "recommendation_v1_inputs",
     "curve_metric_snapshot",
-    "chart_png_docx_export",
 ]
 WORKFLOW_PAGE_ALIASES = {
     "项目启动": "欢迎页",
@@ -1699,6 +1702,41 @@ def _render_curve_overview_cards(
     st.markdown(f'<div class="gd-sim-file-grid">{"".join(cards)}</div>', unsafe_allow_html=True)
 
 
+def _truthy_env(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on", "local"}
+
+
+def _runtime_snapshot_enabled() -> bool:
+    return _truthy_env(os.environ.get(RUNTIME_SNAPSHOT_ENV))
+
+
+def _chart_png_docx_session_id(st) -> str:
+    session_id = st.session_state.get(CHART_PNG_DOCX_SESSION_ID_KEY)
+    if not session_id:
+        session_id = uuid.uuid4().hex
+        st.session_state[CHART_PNG_DOCX_SESSION_ID_KEY] = session_id
+    return str(session_id)
+
+
+def _clear_chart_export_cache(st) -> None:
+    session_id = st.session_state.get(CHART_PNG_DOCX_SESSION_ID_KEY)
+    active_signature = st.session_state.get("chart_png_docx_active_signature")
+    if session_id and active_signature:
+        job = _CHART_PNG_DOCX_JOBS.pop(
+            _chart_png_docx_job_key(str(active_signature), session_id=str(session_id)),
+            None,
+        )
+        future = job.get("future") if isinstance(job, dict) else None
+        if isinstance(future, Future) and not future.done():
+            future.cancel()
+    for key in [
+        "chart_png_docx_export",
+        "chart_png_docx_export_error",
+        "chart_png_docx_active_signature",
+    ]:
+        st.session_state.pop(key, None)
+
+
 def _clear_economy_outputs(st) -> None:
     for key in [
         "economy_v1_result",
@@ -1714,6 +1752,8 @@ def _clear_economy_outputs(st) -> None:
 
 
 def _save_runtime_snapshot(st) -> None:
+    if not _runtime_snapshot_enabled():
+        return
     snapshot = {key: st.session_state[key] for key in RUNTIME_SNAPSHOT_KEYS if key in st.session_state}
     if not snapshot:
         return
@@ -1725,6 +1765,8 @@ def _save_runtime_snapshot(st) -> None:
 
 
 def _load_runtime_snapshot() -> dict:
+    if not _runtime_snapshot_enabled():
+        return {}
     if not LATEST_SESSION_SNAPSHOT_PATH.exists():
         return {}
     try:
@@ -1736,6 +1778,8 @@ def _load_runtime_snapshot() -> dict:
 
 
 def _restore_runtime_snapshot_if_needed(st) -> bool:
+    if not _runtime_snapshot_enabled():
+        return False
     if st.session_state.get("batch_result"):
         return False
     snapshot = _load_runtime_snapshot()
@@ -5074,8 +5118,25 @@ def _build_chart_png_docx_zip(
     return output.getvalue(), warnings
 
 
+def _dataframe_content_signature(frame: pd.DataFrame | None) -> str:
+    if frame is None:
+        return "none"
+    digest = hashlib.sha1()
+    digest.update(f"{len(frame)}|{len(frame.columns)}".encode("utf-8"))
+    digest.update("\x1f".join(str(column) for column in frame.columns).encode("utf-8", errors="replace"))
+    if frame.empty:
+        return digest.hexdigest()[:16]
+    try:
+        row_hash = pd.util.hash_pandas_object(frame, index=True).to_numpy(dtype="uint64", copy=False)
+        digest.update(row_hash.tobytes())
+    except Exception:  # noqa: BLE001 - fall back to stable CSV text for unusual extension dtypes
+        digest.update(frame.to_csv(index=True).encode("utf-8", errors="replace"))
+    return digest.hexdigest()[:16]
+
+
 def _chart_png_docx_export_signature(
     selected_scenario_id: str,
+    summary: pd.DataFrame,
     hourly: pd.DataFrame,
     comparison_summary: pd.DataFrame,
 ) -> str:
@@ -5094,16 +5155,19 @@ def _chart_png_docx_export_signature(
             str(len(hourly)),
             str(len(comparison_summary)),
             time_range,
+            _dataframe_content_signature(summary),
+            _dataframe_content_signature(hourly),
+            _dataframe_content_signature(comparison_summary),
             str(DOCX_A4_PORTRAIT_PROFILE.width_px),
             str(DOCX_A4_PORTRAIT_PROFILE.default_height_px),
-            "chart_export_wysiwyg_v3",
+            "chart_export_wysiwyg_v4",
         ]
     )
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
 
 
-def _chart_png_docx_job_key(signature: str) -> str:
-    return f"chart_png_docx:{signature}"
+def _chart_png_docx_job_key(signature: str, *, session_id: str | None = None) -> str:
+    return f"chart_png_docx:{session_id or 'global'}:{signature}"
 
 
 def _submit_chart_png_docx_job(
@@ -5112,8 +5176,10 @@ def _submit_chart_png_docx_job(
     selected_scenario_id: str,
     hourly: pd.DataFrame,
     comparison_summary: pd.DataFrame,
+    *,
+    session_id: str | None = None,
 ) -> dict[str, object]:
-    job_key = _chart_png_docx_job_key(signature)
+    job_key = _chart_png_docx_job_key(signature, session_id=session_id)
     existing = _CHART_PNG_DOCX_JOBS.get(job_key)
     if existing:
         future = existing.get("future")
@@ -5149,7 +5215,8 @@ def _submit_chart_png_docx_job(
 
 
 def _poll_chart_png_docx_job(st, signature: str) -> dict[str, object] | None:
-    job_key = _chart_png_docx_job_key(signature)
+    session_id = st.session_state.get(CHART_PNG_DOCX_SESSION_ID_KEY)
+    job_key = _chart_png_docx_job_key(signature, session_id=str(session_id) if session_id else None)
     job = _CHART_PNG_DOCX_JOBS.get(job_key)
     if not job:
         return None
@@ -5186,7 +5253,8 @@ def _render_chart_png_docx_export_panel(
     hourly: pd.DataFrame,
     comparison_summary: pd.DataFrame,
 ) -> None:
-    png_signature = _chart_png_docx_export_signature(selected_id, hourly, comparison_summary)
+    png_session_id = _chart_png_docx_session_id(st)
+    png_signature = _chart_png_docx_export_signature(selected_id, summary, hourly, comparison_summary)
 
     def render_status() -> None:
         job_status = _poll_chart_png_docx_job(st, png_signature)
@@ -5220,7 +5288,14 @@ def _render_chart_png_docx_export_panel(
             st.session_state.pop("chart_png_docx_export_error", None)
             job_status = {
                 "status": "running",
-                **_submit_chart_png_docx_job(png_signature, summary, selected_id, hourly, comparison_summary),
+                **_submit_chart_png_docx_job(
+                    png_signature,
+                    summary,
+                    selected_id,
+                    hourly,
+                    comparison_summary,
+                    session_id=png_session_id,
+                ),
             }
             st.session_state["chart_png_docx_active_signature"] = png_signature
             png_running = True
@@ -6089,6 +6164,7 @@ def _render_simulation_page(st) -> None:
             st.session_state["batch_result"] = technical_result.batch_result
             st.session_state["config_snapshot"] = technical_result.config_snapshot
             _clear_project_price_curve(st)
+            _clear_chart_export_cache(st)
             price_curve_reset_notice = _discard_incompatible_project_price_curve(
                 st,
                 technical_result.batch_result.hourly_details,
@@ -6174,6 +6250,7 @@ def _render_simulation_page(st) -> None:
             st.session_state["config_snapshot"] = technical_result.config_snapshot
             if batch_price_curve_file is None and price_curve_upload is None:
                 _clear_project_price_curve(st)
+            _clear_chart_export_cache(st)
             price_curve_reset_notice = _discard_incompatible_project_price_curve(
                 st,
                 technical_result.batch_result.hourly_details,

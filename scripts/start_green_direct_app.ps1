@@ -179,6 +179,9 @@ if ([string]::IsNullOrWhiteSpace($OriginalPythonPath)) {
 $env:TEMP = $RuntimeTemp
 $env:TMP = $RuntimeTemp
 $env:TMPDIR = $RuntimeTemp
+if ([string]::IsNullOrWhiteSpace($env:GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT)) {
+    $env:GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT = "1"
+}
 if ([string]::IsNullOrWhiteSpace($env:BROWSER_PATH)) {
     $BrowserPath = Get-GreenDirectBrowserPath
     if (-not [string]::IsNullOrWhiteSpace($BrowserPath)) {

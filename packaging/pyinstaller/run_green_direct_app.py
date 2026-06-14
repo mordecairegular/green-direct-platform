@@ -65,6 +65,7 @@ def main() -> None:
     os.environ.setdefault("PYTHONPATH", str(src))
     os.environ.setdefault("STREAMLIT_BROWSER_GATHER_USAGE_STATS", "false")
     os.environ.setdefault("STREAMLIT_GLOBAL_DEVELOPMENT_MODE", "false")
+    os.environ.setdefault("GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT", "1")
     os.environ["TEMP"] = str(runtime_temp)
     os.environ["TMP"] = str(runtime_temp)
     os.environ["TMPDIR"] = str(runtime_temp)

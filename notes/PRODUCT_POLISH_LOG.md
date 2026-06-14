@@ -2911,3 +2911,26 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_ui_import.py tests/test_price_curves.py tests/test_study_runner.py -q`：50 项通过；
 - `python -m pytest -q`：169 项通过；
 - 浏览器刷新 `http://localhost:8503` 后，02 页旧的 `price_curve_template_down_grid.csv` 状态、逐时电价曲线提示和“任务边界”主界面文案不再出现；03 页显示“当前未上传项目级下网电价曲线”，价格口径为“固定价/网页组价”。
+
+### 2026-06-15 内部多人试用上线边界与缓存隔离
+
+用户明确：“上线”指内部 10-20 人多人访问，不只是单机前台；同时希望把方案遍历和经济性测算性能优化提上日程，并开始设想后台账户管理。
+
+本轮判断：
+- 2026-06-10 引入的 `.runtime/latest_session_snapshot.pkl` 适合单机防重启丢结果，但不适合多人部署默认开启，否则新会话可能恢复上一位用户结果；
+- PNG ZIP 后台任务表是进程级全局变量，必须按 Streamlit 会话隔离；只按方案 ID、时间范围和行数签名也不足以判断图表缓存是否仍对应当前数据；
+- 内部试用可以先保留 Streamlit 前台，但必须把“运行态隔离、任务队列、ResultStore、账户/项目/角色”作为后续架构主线；
+- 性能优化不应只做前端等待提示，核心方向是“汇总优先、明细按需、技术仿真并行、经济性批量化、后台任务化”。
+
+本轮实现：
+- `src/green_direct/ui/app.py` 新增 `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT` 开关；默认直接 `streamlit run` 不保存、不恢复运行快照；
+- 本地 Windows 启动器、portable 启动器和 PyInstaller 入口显式设置 `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=1`，保留单机体验；
+- 运行快照不再保存 PNG ZIP 二进制缓存；
+- PNG ZIP 后台任务 key 增加会话 ID，避免不同会话复用同一全局任务；
+- PNG ZIP 签名增加 `summary`、所选方案 `hourly_detail` 和对比方案表的数据指纹；
+- 新技术仿真完成后清除旧 PNG 导出缓存；
+- 新增 `docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md`，记录内部试用边界、账户后台模型、任务队列/ResultStore、性能优化路线和 Claude Code 两轮提示词；
+- `notes/TODO.md`、`notes/HANDOFF_FOR_NEW_MACHINE.md` 同步更新多人上线和性能路线。
+
+验证：
+- `python -m pytest tests/test_ui_import.py::test_runtime_snapshot_round_trips_session_state tests/test_ui_import.py::test_runtime_snapshot_is_disabled_by_default tests/test_ui_import.py::test_chart_png_docx_signature_changes_when_export_data_changes tests/test_ui_import.py::test_chart_png_docx_background_job_stores_finished_result tests/test_ui_import.py::test_clear_chart_export_cache_removes_session_job -q`：5 项通过。
