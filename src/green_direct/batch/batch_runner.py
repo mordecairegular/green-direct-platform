@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Iterable
 
 import pandas as pd
 
@@ -35,15 +35,20 @@ def run_batch(
     policy_params: PolicyParams | None = None,
     performance_params: PerformanceParams | None = None,
     dt_hours: float = 1.0,
+    retain_hourly_details: bool = True,
+    hourly_detail_scenario_ids: Iterable[str] | None = None,
     progress_callback: Callable[[int, int, Scenario], None] | None = None,
 ) -> BatchResult:
     scenarios = generate_scenarios(scenario_grid)
     performance = performance_params or PerformanceParams()
+    retained_hourly_ids = {str(scenario_id) for scenario_id in hourly_detail_scenario_ids or []}
     warnings: list[str] = []
     if len(scenarios) > performance.warn_if_scenarios_exceed:
         warnings.append(
             f"本次配置将生成 {len(scenarios)} 个方案，可能计算较慢，建议增大步长或缩小范围。"
         )
+    if not retain_hourly_details and not retained_hourly_ids:
+        warnings.append("本次批量测算仅保留方案汇总，未常驻保存逐小时明细；如需制图或导出，请对代表方案按需生成明细。")
 
     summaries: list[dict] = []
     hourly_details: dict[str, pd.DataFrame] = {}
@@ -59,7 +64,8 @@ def run_batch(
                 dt_hours=dt_hours,
             )
             summaries.append(result.summary)
-            hourly_details[scenario.scenario_id] = result.hourly_detail
+            if retain_hourly_details or scenario.scenario_id in retained_hourly_ids:
+                hourly_details[scenario.scenario_id] = result.hourly_detail
             warnings.extend(result.warnings)
         except Exception as exc:  # noqa: BLE001 - per-scenario failure must be recorded
             errors.append(

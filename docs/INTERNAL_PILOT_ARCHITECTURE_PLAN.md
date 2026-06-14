@@ -78,6 +78,13 @@ PNG 图表包后台任务也按会话隔离：
 - 每个成功方案都保存完整 8760/8784 小时明细，内存和 UI 压力大；
 - 经济性测算对全部方案做年度现金流和 IRR，方案多时也会变慢。
 
+已落地的第一步接口：
+
+- `run_batch(..., retain_hourly_details=False, hourly_detail_scenario_ids=[...])` 可只返回方案汇总，或只保留指定方案逐小时明细；
+- `TechnicalStudyInput(retain_hourly_details=False, hourly_detail_scenario_ids=(...))` 已把该能力接入服务层，并写入 `config_snapshot["detail_retention"]`；
+- `run_economic_study(..., retain_annual_cashflows=False, annual_cashflow_scenario_ids=[...])` 可保留经济性 summary 指标，同时不常驻全部年度现金流表，或只保留报告方案/推荐组合现金流；
+- 这些接口默认保持旧行为，不改变当前 UI 和 V0.1 计算口径。它们主要先降低大批量模式的内存、快照和结果传输压力，真正缩短总计算时间仍需要后续并行技术仿真和经济性批量化。
+
 建议路线：
 
 1. **计算前限流和预估**

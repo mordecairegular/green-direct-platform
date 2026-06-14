@@ -50,6 +50,46 @@ def test_batch_runner_collects_summary_and_hourly_details():
     assert set(result.hourly_details) == set(result.summary["scenario_id"])
 
 
+def test_batch_runner_can_skip_hourly_detail_retention():
+    grid = {
+        "pv_capacity": {"start": 0, "end": 1, "step": 1},
+        "wind_capacity": {"start": 0, "end": 1, "step": 1},
+        "bess_power": {"start": 0, "end": 1, "step": 1},
+        "bess_duration_hours": [0, 2],
+    }
+
+    result = run_batch(
+        _curves(),
+        grid,
+        policy_params=PolicyParams(allow_export=False),
+        retain_hourly_details=False,
+    )
+
+    assert result.scenario_count == 6
+    assert len(result.summary) == 6
+    assert result.hourly_details == {}
+    assert any("仅保留方案汇总" in warning for warning in result.warnings)
+
+
+def test_batch_runner_can_keep_selected_hourly_details_only():
+    grid = {
+        "pv_capacity": {"start": 0, "end": 1, "step": 1},
+        "wind_capacity": {"start": 0, "end": 1, "step": 1},
+        "bess_power": {"start": 0, "end": 1, "step": 1},
+        "bess_duration_hours": [0, 2],
+    }
+
+    result = run_batch(
+        _curves(),
+        grid,
+        policy_params=PolicyParams(allow_export=False),
+        retain_hourly_details=False,
+        hourly_detail_scenario_ids=["S0003"],
+    )
+
+    assert set(result.hourly_details) == {"S0003"}
+
+
 def test_batch_runner_warns_when_scenario_count_exceeds_threshold():
     grid = {
         "pv_capacity": {"start": 0, "end": 1, "step": 1},

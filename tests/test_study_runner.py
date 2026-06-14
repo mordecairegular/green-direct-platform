@@ -83,6 +83,39 @@ def test_technical_study_wraps_curve_reading_batch_run_and_study_result():
     assert study.summary.equals(technical.summary)
 
 
+def test_technical_study_can_skip_hourly_detail_retention():
+    grid = {
+        "pv_capacity": {"start": 0, "end": 1, "step": 1},
+        "wind_capacity": {"start": 0, "end": 1, "step": 1},
+        "bess_power": {"start": 0, "end": 0, "step": 1},
+        "bess_duration_hours": [0],
+    }
+
+    technical = run_technical_study(
+        TechnicalStudyInput(
+            load_source=_curve_csv([10.0, 10.0], "负荷"),
+            pv_source=_curve_csv([1.0, 0.0], "光伏"),
+            wind_source=_curve_csv([0.0, 1.0], "风电"),
+            load_time_col="时间",
+            load_value_col="负荷",
+            pv_time_col="时间",
+            pv_value_col="光伏",
+            wind_time_col="时间",
+            wind_value_col="风电",
+            scenario_grid=grid,
+            policy_params=PolicyParams(allow_export=False),
+            validate_length=False,
+            retain_hourly_details=False,
+        ),
+        study_id="study-summary-only",
+    )
+
+    assert technical.scenario_count == 3
+    assert len(technical.summary) == 3
+    assert technical.hourly_details == {}
+    assert technical.config_snapshot["detail_retention"]["retain_hourly_details"] is False
+
+
 def test_economic_study_preserves_recommendation_input_snapshot():
     result = run_economic_study(
         _summary(),
@@ -98,6 +131,37 @@ def test_economic_study_preserves_recommendation_input_snapshot():
     assert result.single_entity_summary["scenario_id"].tolist() == ["S_SERVICE"]
     assert result.recommendation_inputs.load_side_avoided_charge_price == 0.55
     assert result.recommendation_inputs.to_session_dict()["green_power_settlement_price_with_vat"] == 0.35
+
+
+def test_economic_study_can_skip_annual_cashflow_retention():
+    result = run_economic_study(
+        _summary(),
+        economic_params=EconomicParams(operation_years=2, construction_input_vat_rate=0.0),
+        avoided_grid_params=AvoidedGridPurchaseParams(net_avoided_grid_cost_price=0.5),
+        load_side_avoided_charge_price=0.55,
+        green_power_settlement_price_with_vat=0.35,
+        retain_annual_cashflows=False,
+    )
+
+    assert result.power_summary["scenario_id"].tolist() == ["S_SERVICE"]
+    assert result.single_entity_summary["scenario_id"].tolist() == ["S_SERVICE"]
+    assert result.power_annual_cashflows == {}
+    assert result.single_entity_annual_cashflows == {}
+
+
+def test_economic_study_can_keep_selected_annual_cashflows_only():
+    result = run_economic_study(
+        _summary(),
+        economic_params=EconomicParams(operation_years=2, construction_input_vat_rate=0.0),
+        avoided_grid_params=AvoidedGridPurchaseParams(net_avoided_grid_cost_price=0.5),
+        load_side_avoided_charge_price=0.55,
+        green_power_settlement_price_with_vat=0.35,
+        retain_annual_cashflows=False,
+        annual_cashflow_scenario_ids=["S_SERVICE"],
+    )
+
+    assert set(result.power_annual_cashflows) == {"S_SERVICE"}
+    assert set(result.single_entity_annual_cashflows) == {"S_SERVICE"}
 
 
 def test_economic_study_adds_fixed_landed_price_summary():

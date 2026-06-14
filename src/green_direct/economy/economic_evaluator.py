@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 import math
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
@@ -612,13 +612,18 @@ def evaluate_scenario_economy(
 def evaluate_batch_economy(
     summary: pd.DataFrame,
     params: EconomicParams | None = None,
+    *,
+    retain_annual_cashflows: bool = True,
+    annual_cashflow_scenario_ids: Iterable[str] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     """Evaluate all rows in a technical summary table."""
 
     results: list[dict[str, Any]] = []
     annual_cashflows: dict[str, pd.DataFrame] = {}
+    retained_scenario_ids = {str(scenario_id) for scenario_id in annual_cashflow_scenario_ids or []}
     for _, row in summary.iterrows():
         result = evaluate_scenario_economy(row, params=params)
         results.append(result.metrics)
-        annual_cashflows[result.scenario_id] = result.annual_cashflow
+        if retain_annual_cashflows or result.scenario_id in retained_scenario_ids:
+            annual_cashflows[result.scenario_id] = result.annual_cashflow
     return pd.DataFrame(results), annual_cashflows

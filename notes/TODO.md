@@ -37,6 +37,8 @@
 - 单方案逐小时计算由 `iterrows()` 改为 NumPy 数组预分配。
 - UI 筛选不再重复生成 Excel/ZIP。
 - 汇总表默认限制显示行数。
+- 技术批量入口已支持 `retain_hourly_details=False` 和指定方案明细保留，服务层 `TechnicalStudyInput` 已接入。
+- 经济性入口已支持 `retain_annual_cashflows=False` 和指定方案年度现金流保留。
 
 后续方向：
 

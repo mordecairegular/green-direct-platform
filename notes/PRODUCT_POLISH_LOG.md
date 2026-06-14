@@ -2934,3 +2934,22 @@ exchange_import_shortfall_energy == 0
 
 验证：
 - `python -m pytest tests/test_ui_import.py::test_runtime_snapshot_round_trips_session_state tests/test_ui_import.py::test_runtime_snapshot_is_disabled_by_default tests/test_ui_import.py::test_chart_png_docx_signature_changes_when_export_data_changes tests/test_ui_import.py::test_chart_png_docx_background_job_stores_finished_result tests/test_ui_import.py::test_clear_chart_export_cache_removes_session_job -q`：5 项通过。
+
+### 2026-06-15 大批量性能优化第一步：汇总优先接口
+
+用户强调方案遍历和经济性测算在成千上万方案下会很慢，需要把性能优化提上工程日程。
+
+本轮判断：
+- 真正缩短总计算时间需要并行技术仿真和经济性批量化，但这两项会触及更大的任务调度和结果存储设计；
+- 当前可以先做低风险接口准备：默认旧行为不变，大批量模式可选择只常驻 summary，减少逐小时明细和年度现金流表的内存、快照、下载缓存压力；
+- 这一步不改变任何储能调度、政策筛选或经济性指标计算口径。
+
+本轮实现：
+- `run_batch()` 新增 `retain_hourly_details` 和 `hourly_detail_scenario_ids`；
+- `TechnicalStudyInput` / `run_technical_study()` 接入上述参数，并把明细保留策略写入 `config_snapshot["detail_retention"]`；
+- `evaluate_batch_economy()` 和 `evaluate_batch_single_entity_pre_tax_economy()` 新增 `retain_annual_cashflows` 和 `annual_cashflow_scenario_ids`；
+- `run_economic_study()` 接入年度现金流保留策略；
+- 默认参数保持旧行为：继续保存所有逐小时明细和年度现金流，现有 UI 不受影响。
+
+验证：
+- `python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/test_economy_v1.py -q`：33 项通过。

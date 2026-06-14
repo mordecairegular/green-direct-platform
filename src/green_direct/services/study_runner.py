@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import BinaryIO, Callable, Mapping, Any
+from typing import BinaryIO, Callable, Iterable, Mapping, Any
 from uuid import uuid4
 
 import pandas as pd
@@ -57,6 +57,8 @@ class TechnicalStudyInput:
     time_params: TimeParams = field(default_factory=TimeParams)
     dt_hours: float = 1.0
     validate_length: bool = True
+    retain_hourly_details: bool = True
+    hourly_detail_scenario_ids: tuple[str, ...] = field(default_factory=tuple)
     config_metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -153,6 +155,10 @@ def _build_technical_config_snapshot(
             "supported_hours": inputs.time_params.supported_hours,
             "validate_length": inputs.validate_length,
         },
+        "detail_retention": {
+            "retain_hourly_details": inputs.retain_hourly_details,
+            "hourly_detail_scenario_ids": list(inputs.hourly_detail_scenario_ids),
+        },
         "curve_encodings": curve_encodings,
         "warnings": curve_warnings,
     }
@@ -190,6 +196,8 @@ def run_technical_study(
         policy_params=inputs.policy_params,
         performance_params=inputs.performance_params,
         dt_hours=inputs.dt_hours,
+        retain_hourly_details=inputs.retain_hourly_details,
+        hourly_detail_scenario_ids=inputs.hourly_detail_scenario_ids,
         progress_callback=progress_callback,
     )
     input_diagnostics = curve_set.diagnostics or InputDiagnostics()
@@ -368,6 +376,8 @@ def run_economic_study(
     dt_hours: float = 1.0,
     fixed_down_grid_landed_price_with_vat: float | None = None,
     fixed_green_self_use_extra_fee_with_vat: float | None = None,
+    retain_annual_cashflows: bool = True,
+    annual_cashflow_scenario_ids: Iterable[str] | None = None,
 ) -> EconomicStudyResult:
     """Run all currently implemented economy views for a technical summary."""
 
@@ -403,12 +413,19 @@ def run_economic_study(
             green_power_settlement_price_with_vat=green_power_settlement_price_with_vat,
         )
 
-    power_summary, power_annual_cashflows = evaluate_batch_economy(evaluation_summary, economic_params)
+    power_summary, power_annual_cashflows = evaluate_batch_economy(
+        evaluation_summary,
+        economic_params,
+        retain_annual_cashflows=retain_annual_cashflows,
+        annual_cashflow_scenario_ids=annual_cashflow_scenario_ids,
+    )
     power_summary = _merge_extra_summary(power_summary, landed_price_summary)
     single_entity_summary, single_entity_annual_cashflows = evaluate_batch_single_entity_pre_tax_economy(
         evaluation_summary,
         avoided_grid_params=avoided_grid_params,
         params=economic_params,
+        retain_annual_cashflows=retain_annual_cashflows,
+        annual_cashflow_scenario_ids=annual_cashflow_scenario_ids,
     )
     single_entity_summary = _merge_extra_summary(single_entity_summary, landed_price_summary)
     return EconomicStudyResult(
