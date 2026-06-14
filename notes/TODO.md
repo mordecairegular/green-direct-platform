@@ -43,6 +43,7 @@
 - Claude Code 上线前 review/debug、UI 提升和后台账户/Job/ResultStore 架构提示词已收敛到 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`。
 - 经济性批量评价已做低风险底层提速：去除 `iterrows()`，缓存年度折现因子，NPV 使用等价 Horner 形式，同一主体批量评价减少重复参数校验。
 - 内部试用后台已新增持久化无关模型骨架：`User`、`Project`、`ProjectMembership`、`ProjectStudy`、`Job`、`JobArtifact`、`StudyResultRecord`、`AuditLog`。
+- 服务层已新增 `LocalResultStore`，支持按项目/研究保存产物、结果索引和审计日志，暂未接入 UI 或数据库。
 
 后续方向：
 
@@ -62,7 +63,7 @@
 - 多人部署默认关闭项目级运行快照，避免新会话恢复上一位用户结果；
 - 后台 PNG 任务和下载缓存按 Streamlit 会话隔离；
 - 先用受控内网/VPN/反向代理做内部试用；
-- 下一阶段把 `pilot_backend` 模型接入轻量 SQLite/Postgres、登录入口、管理员页面和 `ResultStore`；
+- 下一阶段把 `pilot_backend` 模型和 `LocalResultStore` 接入轻量 SQLite/Postgres、登录入口、管理员页面和后台任务状态页；
 - 技术仿真、经济性测算和图表导出逐步改为后台任务。
 
 ### 3. 离网型源网荷储模块

@@ -76,6 +76,16 @@ PNG 图表包后台任务也按会话隔离：
 - `JobArtifact` 和 `StudyResultRecord` 保留 `project_id` / `study_id` 边界，用于后续 `ResultStore` 和下载文件隔离；
 - 该骨架暂不包含登录页面、密码、数据库表、任务队列或 Streamlit 接入，不代表账户后台已经完整实现。
 
+已落地的第一步 ResultStore：
+
+- `src/green_direct/services/result_store.py` 提供 `LocalResultStore`；
+- 产物按 `projects/{project_id}/studies/{study_id}/artifacts/{artifact_id}` 隔离保存；
+- 写入产物时自动记录 `JobArtifact`、`storage_uri`、`sha256` 和 `size_bytes`；
+- `StudyResultRecord` 可落盘并回读，用于把技术汇总、经济汇总、推荐组合、逐小时明细和报告产物串起来；
+- 审计事件可按项目或全局写入 JSONL；
+- 路径片段使用白名单校验，防止把用户输入直接拼成越权文件路径；
+- 当前实现是本地文件适配器，不替代后续 SQLite/Postgres、对象存储或正式权限控制。
+
 试用版可以先用 SQLite / Postgres 加密码登录；正式内网版再评估企业微信、OIDC、LDAP 或公司统一身份。
 
 ## 5. 性能优化路线

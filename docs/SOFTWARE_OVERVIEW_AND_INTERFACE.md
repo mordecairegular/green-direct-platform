@@ -971,6 +971,15 @@ python -m pytest
 
 这些模型只定义边界和状态，不包含登录页、密码、数据库、任务队列或 Streamlit 管理后台。后续 `ResultStore`、管理员页面和后台 worker 应基于这些对象逐步接入，而不是继续把多人运行态绑定在全局缓存或 `session_state` 上。
 
+`src/green_direct/services/result_store.py` 已提供第一版 `LocalResultStore`：
+
+- `store_artifact()`：按 `project_id` / `study_id` 写入产物 payload，并返回 `JobArtifact`；
+- `load_artifact()` / `read_artifact_payload()`：读取产物索引和 payload，读取时校验 SHA256；
+- `save_result_record()` / `load_result_record()`：保存和读取 `StudyResultRecord`；
+- `append_audit_log()` / `read_audit_log()`：写入和读取项目级或全局审计事件。
+
+`LocalResultStore` 目前是服务层骨架，不接管现有 Streamlit 工作流。后续接入时，技术仿真、经济测算、推荐组合和导出文件应逐步写入该 store 或其数据库/对象存储替代实现。
+
 ## 23. 本地运行方式
 
 安装依赖：

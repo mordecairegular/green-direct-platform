@@ -1,5 +1,6 @@
 """Application service layer wrappers."""
 
+from green_direct.services.result_store import LocalResultStore
 from green_direct.services.study_runner import (
     EconomicStudyResult,
     RecommendationInputSnapshot,
@@ -14,6 +15,7 @@ from green_direct.services.study_runner import (
 
 __all__ = [
     "EconomicStudyResult",
+    "LocalResultStore",
     "RecommendationInputSnapshot",
     "RecommendationStudyResult",
     "StudyResult",

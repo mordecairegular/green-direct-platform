@@ -3048,3 +3048,25 @@ exchange_import_shortfall_energy == 0
 验证：
 - `python -m pytest tests/test_pilot_backend_models.py tests/test_project_structure.py -q`：8 项通过；
 - `python -m pytest -q`：187 项通过。
+
+### 2026-06-15 本地 ResultStore 第一版
+
+本轮继续推进内部 10-20 人试用所需的后台和结果隔离能力。在已有 `pilot_backend` 模型基础上，新增服务层本地文件版 `ResultStore`，先解决“结果和下载产物应该挂到项目/研究/任务，而不是挂到 Streamlit 会话临时状态”的工程边界。
+
+本轮判断：
+- 当前仍不宜一次性引入完整数据库、对象存储和队列系统；
+- 但可以先提供一个文件系统适配器，验证产物索引、结果索引、审计日志和路径安全规则；
+- 后续即使切换到 SQLite/Postgres 或对象存储，也可以沿用 `JobArtifact`、`StudyResultRecord` 和 `AuditLog` 契约。
+
+本轮实现：
+- 新增 `src/green_direct/services/result_store.py`；
+- `LocalResultStore.store_artifact()` 按 `projects/{project_id}/studies/{study_id}/artifacts/{artifact_id}` 写入 payload，并返回包含 `storage_uri`、`sha256`、`size_bytes` 的 `JobArtifact`；
+- `load_artifact()` 和 `read_artifact_payload()` 支持回读索引和 payload，并校验 SHA256；
+- `save_result_record()` / `load_result_record()` 支持保存和读取 `StudyResultRecord`；
+- `append_audit_log()` / `read_audit_log()` 支持项目级和全局审计 JSONL；
+- 对 project/study/artifact/filename 等路径片段做白名单校验，避免路径穿越；
+- `green_direct.services` 包导出 `LocalResultStore`。
+
+验证：
+- `python -m pytest tests/test_result_store.py tests/test_pilot_backend_models.py -q`：12 项通过；
+- `python -m pytest -q`：192 项通过。
