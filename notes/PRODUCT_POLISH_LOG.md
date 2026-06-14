@@ -3287,3 +3287,20 @@ exchange_import_shortfall_energy == 0
 上线前启动口径补充：
 - 源码树内直接运行 `python -m green_direct.cli ...` 前必须设置 `PYTHONPATH=src`，否则 Python 无法在 src-layout 项目中找到 `green_direct` 包；
 - README、接口总览文档和跨机器 handoff 已同步改为源码树 `PYTHONPATH=src python -m green_direct.cli ...` / 安装后 `green-direct pilot-admin ...` 两种入口，避免试用部署人员复制到失败命令。
+
+### 2026-06-15 上线前质量审查 checkpoint
+
+本轮将上线前质量审查固化到 `notes/PRELAUNCH_QUALITY_REVIEW_20260615.md`。当前判断是：项目可以进入受控内部 10-20 人 pilot，但不应直接对外公网生产发布。
+
+主要依据：
+- 全量测试 236 项通过，`src` 编译检查通过，CLI 源码树启动口径已验证；
+- V0.1 风光储核心调度测试未破坏；
+- 多人试用的关键风险已有第一层缓解：默认直接 Streamlit 不恢复本地 pickle 快照，PNG ZIP 后台任务 key 带会话 ID，价格曲线不会从旧快照静默复用；
+- 后台账号、认证、权限、任务和结果存储已有服务层骨架和测试，但尚未接入 Streamlit 登录/管理员/项目页面。
+
+上线阻塞仍包括：
+- 登录、会话和项目权限未接入主 UI；
+- 没有真正后台 worker、队列、限流、重试和任务取消闭环；
+- 本地 JSON store 没有事务锁、备份和正式数据库适配；
+- 部署仍缺少服务守护、日志、监控、HTTPS、反向代理和 runbook；
+- 大批量汇总优先模式还需要代表方案按需补算，避免推荐方案缺少逐小时明细。

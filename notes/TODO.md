@@ -73,6 +73,7 @@
 - 先用受控内网/VPN/反向代理做内部试用；
 - 下一阶段把 `pilot_backend` 模型、`LocalPilotRegistry`、`LocalPilotAuth`、`LocalPilotAdminService`、`LocalJobStore`、`LocalResultStore` 和 `PilotAccessService` 接入轻量 SQLite/Postgres、登录入口、管理员页面和后台任务状态页；
 - 下一阶段把 `pilot-admin` CLI 的账号管理能力接入 Streamlit 管理员页；
+- 依据 `notes/PRELAUNCH_QUALITY_REVIEW_20260615.md` 推进内部 pilot 上线前闭环：登录页、管理员页、项目隔离、后台任务 worker、结果存储接入、部署 runbook；
 - 管理员页、任务提交入口和未来 worker 不应直接绕过 `PilotAccessService` 调用底层 store；
 - 后台任务接入时以 `LocalJobStore` 的 `Job` 状态契约为临时边界，再替换为 SQLite/Postgres 或正式队列实现；
 - 技术仿真、经济性测算和图表导出逐步改为后台任务。
