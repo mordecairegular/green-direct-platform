@@ -399,6 +399,63 @@ def test_matching_project_price_curve_is_kept_for_current_hourly_rows():
     assert dummy.session_state[app.PROJECT_PRICE_CURVE_META_KEY]["row_count"] == 8784
 
 
+def test_large_run_detail_retention_plan_switches_to_summary_first():
+    import green_direct.ui.app as app
+
+    small = app._technical_detail_retention_plan(
+        100,
+        threshold=5000,
+        large_run_hourly_detail_limit=20,
+    )
+    large = app._technical_detail_retention_plan(
+        6000,
+        threshold=5000,
+        large_run_hourly_detail_limit=3,
+    )
+    summary_only = app._technical_detail_retention_plan(
+        6000,
+        threshold=5000,
+        large_run_hourly_detail_limit=0,
+    )
+
+    assert small["mode"] == "full"
+    assert small["retain_hourly_details"] is True
+    assert small["hourly_detail_scenario_ids"] == ()
+    assert large["mode"] == "summary_first"
+    assert large["retain_hourly_details"] is False
+    assert large["hourly_detail_scenario_ids"] == ("S0001", "S0002", "S0003")
+    assert summary_only["hourly_detail_scenario_ids"] == ()
+
+
+def test_partial_hourly_retention_clears_price_curve():
+    import green_direct.ui.app as app
+    from green_direct.economy import read_price_curve
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                "economy_v1_result": {"summary": pd.DataFrame({"scenario_id": ["old"]})},
+                app.PROJECT_PRICE_CURVE_DATA_KEY: read_price_curve("samples/price_curve_template_down_grid.csv"),
+                app.PROJECT_PRICE_CURVE_META_KEY: {"source_name": "price_curve_template_down_grid.csv"},
+                app.PROJECT_PRICE_CURVE_SESSION_UPLOAD_KEY: True,
+            }
+
+    dummy = DummyStreamlit()
+    notice = app._clear_project_price_curve_for_partial_hourly_retention(
+        dummy,
+        {
+            "retain_hourly_details": False,
+            "hourly_detail_scenario_ids": ("S0001", "S0002"),
+        },
+    )
+
+    assert notice is not None
+    assert "价格曲线经济性需要全部候选方案逐小时明细" in notice
+    assert app.PROJECT_PRICE_CURVE_DATA_KEY not in dummy.session_state
+    assert app.PROJECT_PRICE_CURVE_META_KEY not in dummy.session_state
+    assert "economy_v1_result" not in dummy.session_state
+
+
 def test_unconfirmed_project_price_curve_state_is_cleared():
     import green_direct.ui.app as app
     from green_direct.economy import read_price_curve

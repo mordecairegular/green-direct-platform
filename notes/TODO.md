@@ -40,6 +40,8 @@
 - 技术批量入口已支持 `retain_hourly_details=False` 和指定方案明细保留，服务层 `TechnicalStudyInput` 已接入。
 - 经济性入口已支持 `retain_annual_cashflows=False` 和指定方案年度现金流保留。
 - 技术批量入口已支持 `PerformanceParams.parallel_workers`，02 页高级性能区已可配置并行进程数，默认 1。
+- 02 页已接入第一版大批量汇总优先模式：方案数超过提醒阈值时，只常驻方案汇总和前 N 个方案逐小时明细，N 由“大批量保留明细数”控制。
+- 大批量汇总优先模式会清除当前项目级下网电价曲线，避免缺少全量逐小时明细时误跑价格曲线经济性。
 - Claude Code 上线前 review/debug、UI 提升和后台账户/Job/ResultStore 架构提示词已收敛到 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`。
 - 经济性批量评价已做低风险底层提速：去除 `iterrows()`，缓存年度折现因子，NPV 使用等价 Horner 形式，同一主体批量评价减少重复参数校验。
 - 内部试用后台已新增持久化无关模型骨架：`User`、`Project`、`ProjectMembership`、`ProjectStudy`、`Job`、`JobArtifact`、`StudyResultRecord`、`AuditLog`。
@@ -50,8 +52,8 @@
 
 后续方向：
 
-- 当方案数量超过阈值时，自动切换“大批量模式”，前台显示预计耗时、进度和取消入口。
-- 大批量模式下先只保留方案汇总和推荐所需最小明细，不保存所有方案逐小时明细。
+- 大批量模式继续补前台预计耗时、后台进度、取消入口和任务状态页。
+- 大批量模式下继续补代表方案按需逐小时明细计算，不再要求用户只能缩小范围或指定单方案复核。
 - 用户选择代表方案、图表方案或导出方案后，再按需计算或加载该方案逐小时明细。
 - 技术仿真优先评估 `ProcessPoolExecutor` / 后台任务队列，按方案块并行，保持 `scenario_id`、warning、error 和顺序稳定。
 - 经济性测算优先做 DataFrame/NumPy 批量化，完整年度现金流可先只对报告方案或推荐组合生成。

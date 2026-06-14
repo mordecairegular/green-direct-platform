@@ -3161,3 +3161,33 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_pilot_access.py tests/test_pilot_registry.py tests/test_job_store.py tests/test_result_store.py tests/test_pilot_backend_models.py -q` 通过，34 项通过；
 - `python -m pytest -q` 通过，214 项通过；
 - `python -m compileall -q src` 通过。
+
+### 2026-06-15 02 页大批量汇总优先接入
+
+本轮继续推进“成千上万方案时不能默认保留全部逐小时明细”的性能路线。此前底层 `run_batch()` 和 `TechnicalStudyInput` 已支持跳过或指定保留逐小时明细，但 02 页仍需要把这个策略真正接入用户工作流。
+
+本轮判断：
+- 小规模测算应保持旧体验，默认保留全部逐小时明细，避免影响现有图表、报告和测试；
+- 方案数超过提醒阈值时，应自动进入汇总优先模式，先把内存和快照压力降下来；
+- 当前还没有后台按需补算明细能力，因此大批量模式先保留前 N 个方案逐小时明细，给复核、图表和导出留一个轻量入口；
+- 价格曲线经济性 V1 需要全量方案逐小时明细，不能在只保留部分明细时悄悄用部分数据计算全部方案。
+
+本轮实现：
+- `SIMULATION_WIDGET_STATE_KEYS` 新增 `simulation_large_run_hourly_detail_limit`；
+- 02 页“高级：枚举性能提醒”新增“大批量保留明细数”，默认 20；
+- 新增 `_technical_detail_retention_plan()`：方案数不超过阈值时保留全部逐小时明细；超过阈值时传入 `retain_hourly_details=False` 和前 N 个 `S0001...` 方案 ID；
+- Demo 和正式“开始测算”均接入该保留计划，并把 `ui_detail_retention_mode` / `ui_detail_retention_message` 写入 `config_metadata`；
+- 新增 `_clear_project_price_curve_for_partial_hourly_retention()`：汇总优先模式下清除当前项目级下网电价曲线，避免缺少全量逐小时明细时误跑价格曲线经济性；
+- 02 页结果复核区不再假设一定存在逐小时明细；如果保留数为 0，则展示说明而不渲染空下拉。
+
+边界说明：
+- 本轮只改变 UI 对技术结果的保留策略，不改变任何 V0.1 调度口径、政策筛选或经济性公式；
+- 暂未实现“用户点击任一代表方案后自动补算该方案明细”；
+- 暂未把技术仿真改成后台 `Job`，也没有新增取消按钮或任务状态页；
+- 如果用户需要未保留方案的逐小时图表，当前仍需缩小方案范围或使用“指定单方案”复核。
+
+验证：
+- `python -m pytest tests/test_ui_import.py::test_large_run_detail_retention_plan_switches_to_summary_first tests/test_ui_import.py::test_partial_hourly_retention_clears_price_curve tests/test_ui_import.py::test_simulation_page_exposes_parallel_worker_control -q` 通过，3 项通过；
+- `python -m pytest tests/test_ui_import.py -q` 通过，43 项通过；
+- `python -m pytest tests/test_study_runner.py tests/test_batch_runner.py -q` 通过，16 项通过；
+- `python -m compileall -q src` 通过。

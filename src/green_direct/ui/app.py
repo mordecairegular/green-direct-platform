@@ -196,6 +196,7 @@ SIMULATION_WIDGET_STATE_KEYS = [
     "simulation_exact_bess_energy",
     "simulation_warn_threshold",
     "simulation_parallel_workers",
+    "simulation_large_run_hourly_detail_limit",
     "simulation_allow_export",
     "simulation_enforce_export_cap",
     "simulation_self_use_rate_min",
@@ -217,6 +218,7 @@ SIMULATION_WIDGET_STATE_KEYS = [
     "simulation_wind_time_col",
     "simulation_wind_value_col",
 ]
+DEFAULT_LARGE_RUN_HOURLY_DETAIL_LIMIT = 20
 
 WORKBENCH_CSS = """
 <style>
@@ -1844,7 +1846,7 @@ def _clear_unconfirmed_project_price_curve(st) -> bool:
         return False
     if st.session_state.get(PROJECT_PRICE_CURVE_SESSION_UPLOAD_KEY):
         return False
-    _clear_project_price_curve(st)
+    meta = _clear_project_price_curve(st)
     return True
 
 
@@ -1877,6 +1879,20 @@ def _discard_incompatible_project_price_curve(
         f"已清除旧项目级下网电价曲线：曲线 {price_curve_rows:,} 行，"
         f"与当前逐小时明细 {_format_row_counts(hourly_row_counts)} 行不一致。"
         "本次经济性测算将切回固定价/网页组价模式。"
+    )
+
+
+def _clear_project_price_curve_for_partial_hourly_retention(st, detail_retention_plan: dict) -> str | None:
+    if detail_retention_plan.get("retain_hourly_details", True):
+        return None
+    if _project_price_curve_data(st) is None:
+        return None
+    _clear_project_price_curve(st)
+    retained_ids = detail_retention_plan.get("hourly_detail_scenario_ids") or ()
+    retained_text = f"仅保留 {len(retained_ids)} 个方案逐小时明细" if retained_ids else "未保留逐小时明细"
+    return (
+        f"已清除项目级下网电价曲线：价格曲线经济性需要全部候选方案逐小时明细，"
+        f"本次大批量模式{retained_text}，经济性测算将切回固定价/网页组价模式。"
     )
 
 
@@ -1982,6 +1998,45 @@ def _single_scenario_grid_from_exact(
         },
         [],
     )
+
+
+def _sequential_scenario_ids(limit: int, *, scenario_count: int | None = None) -> tuple[str, ...]:
+    if limit <= 0:
+        return ()
+    capped = min(int(limit), int(scenario_count)) if scenario_count is not None else int(limit)
+    return tuple(f"S{index:04d}" for index in range(1, max(0, capped) + 1))
+
+
+def _technical_detail_retention_plan(
+    scenario_count: int | None,
+    *,
+    threshold: int,
+    large_run_hourly_detail_limit: int,
+) -> dict:
+    """Return the UI retention plan for one technical simulation run."""
+
+    if scenario_count is None or int(scenario_count) <= int(threshold):
+        return {
+            "mode": "full",
+            "retain_hourly_details": True,
+            "hourly_detail_scenario_ids": (),
+            "message": "小规模测算将保留全部方案逐小时明细。",
+        }
+
+    retained_ids = _sequential_scenario_ids(large_run_hourly_detail_limit, scenario_count=scenario_count)
+    if retained_ids:
+        message = (
+            f"大批量模式：本次先保留全部方案汇总，并仅常驻前 {len(retained_ids)} 个方案的逐小时明细；"
+            "如需查看其他方案逐小时曲线，请缩小方案范围或使用指定单方案复核。"
+        )
+    else:
+        message = "大批量模式：本次只常驻方案汇总，不保存逐小时明细；如需图表和报告，请缩小范围或使用指定单方案复核。"
+    return {
+        "mode": "summary_first",
+        "retain_hourly_details": False,
+        "hourly_detail_scenario_ids": retained_ids,
+        "message": message,
+    }
 
 
 def _render_run_state(st, ready: bool, scenario_count: int | None, *, has_result: bool = False) -> None:
@@ -5599,6 +5654,7 @@ def _render_simulation_page(st) -> None:
     scenario_count: int | None = None
     warn_threshold = 5000
     parallel_workers = 1
+    large_run_hourly_detail_limit = DEFAULT_LARGE_RUN_HOURLY_DETAIL_LIMIT
     grid_exchange_power_limit = None
     duration_text = str(_stored_widget_value(st, "simulation_bess_duration_text", "2,4"))
     exact_pv_capacity = None
@@ -5794,7 +5850,7 @@ def _render_simulation_page(st) -> None:
             _store_widget_value(st, "simulation_scenario_pool_mode", scenario_mode)
 
             with st.expander("高级：枚举性能提醒", expanded=False):
-                perf_cols = st.columns(2)
+                perf_cols = st.columns(3)
                 warn_threshold = int(
                     perf_cols[0].number_input(
                         "方案数提醒阈值",
@@ -5819,7 +5875,30 @@ def _render_simulation_page(st) -> None:
                         args=(st, "simulation_parallel_workers"),
                     )
                 )
-                st.caption("指定单方案可绕开大规模遍历；范围遍历较慢时，优先缩小步长/范围。进程数大于 1 时只并行技术仿真，不改变调度口径。")
+                large_run_hourly_detail_limit = int(
+                    perf_cols[2].number_input(
+                        "大批量保留明细数",
+                        value=int(
+                            _stored_widget_value(
+                                st,
+                                "simulation_large_run_hourly_detail_limit",
+                                DEFAULT_LARGE_RUN_HOURLY_DETAIL_LIMIT,
+                            )
+                        ),
+                        min_value=0,
+                        max_value=500,
+                        step=5,
+                        help="方案数超过提醒阈值时，只常驻保存前 N 个方案的逐小时明细，其余方案先只保留汇总。",
+                        key="simulation_large_run_hourly_detail_limit",
+                        on_change=_sync_stored_widget_value,
+                        args=(st, "simulation_large_run_hourly_detail_limit"),
+                    )
+                )
+                st.caption(
+                    "指定单方案可绕开大规模遍历；范围遍历较慢时，优先缩小步长/范围。"
+                    "进程数大于 1 时只并行技术仿真，不改变调度口径。"
+                    "大批量明细保留只影响结果常驻内存，不改变计算本身。"
+                )
 
             if scenario_mode == "指定单方案":
                 exact_row_1 = st.columns(2, gap="small")
@@ -5911,8 +5990,6 @@ def _render_simulation_page(st) -> None:
                     if scenario_count == 0:
                         st.error("当前容量范围没有可用候选方案：至少需要配置光伏或风电容量，纯储能/无绿电来源组合不会进入候选池。")
                         scenario_grid = None
-                    if scenario_count > warn_threshold:
-                        st.warning(f"本次配置将生成 {scenario_count} 个方案，可能计算较慢，建议增大步长或缩小范围。")
                 except Exception as exc:  # noqa: BLE001 - UI should show friendly text
                     st.error(f"方案范围设置有误：{exc}")
                     scenario_grid = None
@@ -6074,6 +6151,7 @@ def _render_simulation_page(st) -> None:
         ("simulation_exact_bess_energy", exact_bess_energy),
         ("simulation_warn_threshold", warn_threshold),
         ("simulation_parallel_workers", parallel_workers),
+        ("simulation_large_run_hourly_detail_limit", large_run_hourly_detail_limit),
         ("simulation_self_use_rate_min", self_use_rate_min),
         ("simulation_green_load_rate_min", green_load_rate_min),
         ("simulation_export_rate_max", export_rate_max),
@@ -6088,6 +6166,16 @@ def _render_simulation_page(st) -> None:
     ]:
         if value is not None:
             _store_widget_value(st, key, value)
+
+    detail_retention_plan = _technical_detail_retention_plan(
+        scenario_count,
+        threshold=int(warn_threshold),
+        large_run_hourly_detail_limit=int(large_run_hourly_detail_limit),
+    )
+    if scenario_count is not None and scenario_grid is not None and detail_retention_plan["mode"] == "summary_first":
+        st.warning(
+            f"本次配置将生成 {scenario_count:,} 个方案，可能计算较慢。{detail_retention_plan['message']}"
+        )
 
     ready = all(
         [
@@ -6153,6 +6241,11 @@ def _render_simulation_page(st) -> None:
                 "bess_power": {"start": 0, "end": 2, "step": 1},
                 "bess_duration_hours": [0, 2],
             }
+            demo_detail_retention_plan = _technical_detail_retention_plan(
+                estimate_scenario_count(demo_grid),
+                threshold=int(warn_threshold),
+                large_run_hourly_detail_limit=int(large_run_hourly_detail_limit),
+            )
             with st.spinner("正在生成 Demo 测算结果..."):
                 technical_result = run_technical_study(
                     TechnicalStudyInput(
@@ -6173,9 +6266,13 @@ def _render_simulation_page(st) -> None:
                             parallel_workers=int(parallel_workers),
                         ),
                         cleaning_params=DataCleaningParams(),
+                        retain_hourly_details=bool(demo_detail_retention_plan["retain_hourly_details"]),
+                        hourly_detail_scenario_ids=tuple(demo_detail_retention_plan["hourly_detail_scenario_ids"]),
                         config_metadata={
                             "bess_calendar_life_years": 15.0,
                             "demo": True,
+                            "ui_detail_retention_mode": demo_detail_retention_plan["mode"],
+                            "ui_detail_retention_message": demo_detail_retention_plan["message"],
                         },
                     ),
                 )
@@ -6185,16 +6282,19 @@ def _render_simulation_page(st) -> None:
             st.session_state["config_snapshot"] = technical_result.config_snapshot
             _clear_project_price_curve(st)
             _clear_chart_export_cache(st)
-            price_curve_reset_notice = _discard_incompatible_project_price_curve(
+            price_curve_reset_notice = _clear_project_price_curve_for_partial_hourly_retention(
                 st,
-                technical_result.batch_result.hourly_details,
-            )
+                demo_detail_retention_plan,
+            ) or _discard_incompatible_project_price_curve(st, technical_result.batch_result.hourly_details)
             _clear_economy_outputs(st)
             st.session_state["_simulation_force_sample_data"] = True
+            demo_retention_notice = (
+                "" if demo_detail_retention_plan["mode"] == "full" else demo_detail_retention_plan["message"]
+            )
             st.session_state["_simulation_notice"] = (
-                "Demo 结果已生成，可继续做经济测算、方案推荐和图表概览。"
+                f"Demo 结果已生成，可继续做经济测算、方案推荐和图表概览。{demo_retention_notice}"
                 if not price_curve_reset_notice
-                else f"Demo 结果已生成，可继续做经济测算、方案推荐和图表概览。{price_curve_reset_notice}"
+                else f"Demo 结果已生成，可继续做经济测算、方案推荐和图表概览。{demo_retention_notice}{price_curve_reset_notice}"
             )
             _save_runtime_snapshot(st)
             st.rerun()
@@ -6257,8 +6357,12 @@ def _render_simulation_page(st) -> None:
                         parallel_workers=int(parallel_workers),
                     ),
                     cleaning_params=DataCleaningParams(),
+                    retain_hourly_details=bool(detail_retention_plan["retain_hourly_details"]),
+                    hourly_detail_scenario_ids=tuple(detail_retention_plan["hourly_detail_scenario_ids"]),
                     config_metadata={
                         "bess_calendar_life_years": bess_calendar_life,
+                        "ui_detail_retention_mode": detail_retention_plan["mode"],
+                        "ui_detail_retention_message": detail_retention_plan["message"],
                     },
                 ),
                 progress_callback=update_progress,
@@ -6274,15 +6378,16 @@ def _render_simulation_page(st) -> None:
             if batch_price_curve_file is None and price_curve_upload is None:
                 _clear_project_price_curve(st)
             _clear_chart_export_cache(st)
-            price_curve_reset_notice = _discard_incompatible_project_price_curve(
+            price_curve_reset_notice = _clear_project_price_curve_for_partial_hourly_retention(
                 st,
-                technical_result.batch_result.hourly_details,
-            )
+                detail_retention_plan,
+            ) or _discard_incompatible_project_price_curve(st, technical_result.batch_result.hourly_details)
             _clear_economy_outputs(st)
+            retention_notice = "" if detail_retention_plan["mode"] == "full" else detail_retention_plan["message"]
             st.session_state["_simulation_notice"] = (
-                "测算完成。"
+                f"测算完成。{retention_notice}"
                 if not price_curve_reset_notice
-                else f"测算完成。{price_curve_reset_notice}"
+                else f"测算完成。{retention_notice}{price_curve_reset_notice}"
             )
             _save_runtime_snapshot(st)
             st.rerun()
@@ -6343,13 +6448,16 @@ def _render_simulation_page(st) -> None:
         _display_mapping_expander(st, list(display.columns), "方案汇总字段对应关系")
 
         scenario_ids = list(batch_result.hourly_details.keys())
-        selected = st.selectbox("选择方案查看逐小时字段", scenario_ids, key="simulation_result_hourly_scenario")
-        if selected:
+        st.caption(f"当前常驻逐小时明细 {len(scenario_ids)} 个方案；大批量模式下可能只保留部分或不保留。")
+        if scenario_ids:
+            selected = st.selectbox("选择方案查看逐小时字段", scenario_ids, key="simulation_result_hourly_scenario")
             _display_mapping_expander(
                 st,
                 list(batch_result.hourly_details[selected].columns),
                 "逐小时明细字段对应关系",
             )
+        else:
+            st.info("当前结果仅常驻方案汇总，未保留逐小时明细；如需图表、逐小时导出或价格曲线经济性，请缩小范围或使用指定单方案复核。")
 
     st.info("方案仿真已完成。下一步请进入“经济性测算”设置经济参数并生成推荐所需的经济结果。")
     if st.button("进入经济性测算", key="technical_go_economy"):
