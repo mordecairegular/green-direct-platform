@@ -46,6 +46,14 @@ def test_membership_permissions_distinguish_admin_analyst_and_viewer():
     assert not disabled.can_manage_project()
 
 
+def test_user_platform_admin_flag_defaults_false():
+    regular = User("user_regular", "regular@example.local", "Regular")
+    admin = User("user_admin", "admin@example.local", "Admin", is_platform_admin=True)
+
+    assert regular.is_platform_admin is False
+    assert admin.is_platform_admin is True
+
+
 def test_job_lifecycle_keeps_project_scope_and_blocks_invalid_transitions():
     job = Job(
         job_id="job_1",

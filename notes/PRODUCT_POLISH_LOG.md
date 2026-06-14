@@ -3222,3 +3222,36 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_pilot_auth.py tests/test_pilot_access.py tests/test_pilot_registry.py tests/test_result_store.py -q` 通过，25 项通过；
 - `python -m pytest -q` 通过，222 项通过；
 - `python -m compileall -q src` 通过。
+
+### 2026-06-15 平台账号管理服务第一版
+
+本轮继续推进内部试用后台账户管理控制能力。在已有本地认证服务之后，补上平台级账号管理边界，避免把项目 `admin` 误当成全站账号管理员。
+
+本轮判断：
+- 项目 `admin` 只应管理某个项目内的成员、任务和产物；
+- 创建/停用用户、重置密码、撤销会话和授予平台管理员属于平台账号管理能力；
+- 如果没有全局平台管理员边界，后续 Streamlit 管理员页会很容易直接调用底层 registry/auth，绕过审计和锁死保护。
+
+本轮实现：
+- `User` 新增 `is_platform_admin: bool = False`；
+- `LocalPilotRegistry` 持久化和回读 `is_platform_admin`；
+- 新增 `src/green_direct/services/pilot_admin.py`；
+- 定义 `LocalPilotAdminService` 和 `PilotAdminError`；
+- `bootstrap_platform_admin()` 仅在系统内没有平台管理员时创建首个活跃平台管理员，并设置本地密码；
+- 平台管理员可 `create_user()`、`set_user_password()`、`set_platform_admin()`、`disable_user()` 和 `list_users()`；
+- `disable_user()` 会撤销该用户仍然有效的本地会话；
+- 创建用户或 bootstrap 首个管理员前会先校验初始密码长度，避免写入无密码半成品账号；
+- 服务阻止停用或降级最后一个活跃平台管理员，避免后台账号体系被锁死；
+- 账号创建、用户更新、密码重置、平台管理员标记变更和停用会写入全局 `AuditLog`；
+- `green_direct.services` 导出 `LocalPilotAdminService` 和 `PilotAdminError`；
+- 新增 `tests/test_pilot_admin.py` 覆盖 bootstrap、重复 bootstrap 拒绝、创建账号、重置密码、非平台管理员拒绝、授予平台管理员、停用撤销会话、最后管理员保护和重复登录名拒绝。
+
+边界说明：
+- 本轮暂未实现 Streamlit 管理员页面；
+- 不替代 SQLite/Postgres、企业 IAM、OIDC/LDAP 或正式审计后台；
+- 后续管理员 UI 应调用 `LocalPilotAdminService`，不要直接绕过底层 `LocalPilotRegistry` 或 `LocalPilotAuth`。
+
+验证：
+- `python -m pytest tests/test_pilot_admin.py tests/test_pilot_auth.py tests/test_pilot_registry.py tests/test_pilot_backend_models.py -q` 通过，30 项通过；
+- `python -m pytest -q` 通过，232 项通过；
+- `python -m compileall -q src` 通过。

@@ -33,6 +33,7 @@ def _user_from_json(data: dict) -> User:
         login_name=data["login_name"],
         display_name=data["display_name"],
         status=data.get("status", UserStatus.ACTIVE.value),
+        is_platform_admin=bool(data.get("is_platform_admin", False)),
         created_at=_parse_datetime(data["created_at"]),
     )
 

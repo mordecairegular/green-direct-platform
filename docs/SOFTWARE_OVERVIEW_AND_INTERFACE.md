@@ -972,6 +972,8 @@ python -m pytest
 - `JobArtifact`、`ArtifactKind`、`StudyResultRecord`；
 - `AuditLog`、`AuditAction`。
 
+其中 `User.is_platform_admin` 表示平台账号管理员，和项目内 `ProjectRole.ADMIN` 分离：前者可用于全站用户管理，后者只用于某个项目内的成员、任务和产物权限。
+
 这些模型只定义边界和状态，不包含登录页、密码、数据库、任务队列或 Streamlit 管理后台。后续 `ResultStore`、管理员页面和后台 worker 应基于这些对象逐步接入，而不是继续把多人运行态绑定在全局缓存或 `session_state` 上。
 
 `src/green_direct/services/result_store.py` 已提供第一版 `LocalResultStore`：
@@ -1000,6 +1002,17 @@ python -m pytest
 - 登录成功和失败可通过 `LocalResultStore` 写入全局 `AuditLog`。
 
 `LocalPilotAuth` 不把密码写入 `User` 模型，不保存明文密码，也不在会话文件中保存明文 token。它仍只是受控内部试用的本地适配器，不替代企业 IAM、OIDC、LDAP、反向代理认证、CSRF 防护、管理员 UI 或正式数据库会话表。
+
+`src/green_direct/services/pilot_admin.py` 已提供第一版 `LocalPilotAdminService`：
+
+- `bootstrap_platform_admin()`：当系统内还没有平台管理员时，创建首个 `is_platform_admin=True` 用户并设置密码；
+- `create_user()`：平台管理员创建用户，可同时设置初始密码；
+- `set_user_password()`：平台管理员重置用户本地密码；
+- `set_platform_admin()`：授予或撤销平台管理员标记；
+- `disable_user()`：停用用户，并撤销其有效本地会话；
+- `list_users()`：平台管理员列出用户。
+
+`LocalPilotAdminService` 会写入 `CREATE_USER` / `UPDATE_USER` 审计事件，并阻止停用或降级最后一个活跃平台管理员。它是后续 Streamlit 管理页和数据库适配器应复用的账号管理语义，不是完整管理员 UI。
 
 `src/green_direct/services/job_store.py` 已提供第一版 `LocalJobStore`：
 

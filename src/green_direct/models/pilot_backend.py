@@ -115,6 +115,7 @@ class User:
     login_name: str
     display_name: str
     status: UserStatus | str = UserStatus.ACTIVE
+    is_platform_admin: bool = False
     created_at: datetime = field(default_factory=_utcnow)
 
     def __post_init__(self) -> None:
@@ -123,6 +124,7 @@ class User:
         _require_text(self.display_name, "display_name")
         _ensure_aware(self.created_at, "created_at")
         object.__setattr__(self, "status", _coerce_enum(self.status, UserStatus, "status"))
+        object.__setattr__(self, "is_platform_admin", bool(self.is_platform_admin))
 
     @property
     def is_active(self) -> bool:

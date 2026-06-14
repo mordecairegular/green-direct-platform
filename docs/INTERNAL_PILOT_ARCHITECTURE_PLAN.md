@@ -72,6 +72,7 @@ PNG 图表包后台任务也按会话隔离：
 
 - `src/green_direct/models/pilot_backend.py` 定义了持久化无关的 `User`、`Project`、`ProjectMembership`、`ProjectStudy`、`Job`、`JobArtifact`、`StudyResultRecord` 和 `AuditLog`；
 - `ProjectMembership` 已区分 `admin`、`analyst`、`viewer` 的查看、提交任务和项目管理权限；
+- `User.is_platform_admin` 已区分平台账号管理员和项目 `admin`，项目 `admin` 只管理项目成员，不能天然创建或停用全站账号；
 - `Job` 已定义排队、运行、成功、失败、取消状态、进度字段及合法状态转换；
 - `JobArtifact` 和 `StudyResultRecord` 保留 `project_id` / `study_id` 边界，用于后续 `ResultStore` 和下载文件隔离；
 - 该骨架暂不包含登录页面、密码、数据库表、任务队列或 Streamlit 接入，不代表账户后台已经完整实现。
@@ -104,6 +105,16 @@ PNG 图表包后台任务也按会话隔离：
 - 登录成功和失败可写入全局 `AuditLog`；
 - 停用用户不能设置密码、登录或继续使用已有会话；
 - 当前认证服务只适合受控内部试用，不替代企业 IAM、OIDC、LDAP、反向代理认证、CSRF 防护或正式数据库会话表。
+
+已落地的第一步平台账号管理服务：
+
+- `src/green_direct/services/pilot_admin.py` 提供 `LocalPilotAdminService` 和 `PilotAdminError`；
+- 支持 bootstrap 首个 `is_platform_admin=True` 的平台管理员，并设置本地密码；
+- 平台管理员可创建用户、设置初始密码、重置密码、授予/撤销平台管理员标记、停用用户和列出用户；
+- 停用用户时会撤销该用户仍然有效的本地会话；
+- 创建用户、更新用户、重置密码、停用和平台管理员标记变更会写入全局 `AuditLog`；
+- 为避免锁死后台，服务不允许停用或降级最后一个活跃平台管理员；
+- 当前服务仍未接入 Streamlit 管理员 UI，也未替代后续 SQLite/Postgres、企业身份系统或正式审计后台。
 
 已落地的第一步 JobStore：
 

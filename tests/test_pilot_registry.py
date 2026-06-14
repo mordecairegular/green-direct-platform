@@ -20,7 +20,13 @@ def _dt(hour: int) -> datetime:
 
 def test_registry_saves_lists_and_disables_users(tmp_path):
     registry = LocalPilotRegistry(tmp_path)
-    analyst = User("user_analyst", "analyst@example.local", "Analyst", created_at=_dt(1))
+    analyst = User(
+        "user_analyst",
+        "analyst@example.local",
+        "Analyst",
+        is_platform_admin=True,
+        created_at=_dt(1),
+    )
     viewer = User("user_viewer", "viewer@example.local", "Viewer", created_at=_dt(2))
 
     registry.save_user(viewer)
@@ -28,6 +34,7 @@ def test_registry_saves_lists_and_disables_users(tmp_path):
 
     assert [user.user_id for user in registry.list_users()] == ["user_analyst", "user_viewer"]
     assert registry.load_user("user_analyst") == analyst
+    assert registry.load_user("user_analyst").is_platform_admin is True
 
     disabled = registry.disable_user("user_analyst")
     assert disabled.status == UserStatus.DISABLED

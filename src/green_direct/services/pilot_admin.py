@@ -1,0 +1,184 @@
+"""Platform-administration service for the internal pilot backend."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from uuid import uuid4
+
+from green_direct.models.pilot_backend import AuditAction, AuditLog, User, UserStatus
+from green_direct.services.pilot_auth import LocalPilotAuth, MIN_PASSWORD_LENGTH
+from green_direct.services.pilot_registry import LocalPilotRegistry
+from green_direct.services.result_store import LocalResultStore
+
+
+class PilotAdminError(PermissionError):
+    """Raised when a user cannot perform platform administration."""
+
+
+class LocalPilotAdminService:
+    """Account-management facade guarded by a platform-admin flag."""
+
+    def __init__(
+        self,
+        *,
+        registry: LocalPilotRegistry,
+        auth: LocalPilotAuth,
+        result_store: LocalResultStore,
+    ) -> None:
+        self.registry = registry
+        self.auth = auth
+        self.result_store = result_store
+
+    def _event_id(self) -> str:
+        return f"audit_{uuid4().hex[:16]}"
+
+    def _audit(
+        self,
+        *,
+        actor_user_id: str,
+        action: AuditAction,
+        target_user_id: str,
+        metadata: dict | None = None,
+    ) -> AuditLog:
+        return self.result_store.append_audit_log(
+            AuditLog(
+                event_id=self._event_id(),
+                actor_user_id=actor_user_id,
+                action=action,
+                target_type="user",
+                target_id=target_user_id,
+                metadata=metadata or {},
+            )
+        )
+
+    def _platform_admin(self, actor_user_id: str) -> User:
+        actor = self.registry.load_user(actor_user_id)
+        if not actor.is_active:
+            raise PilotAdminError(f"User is disabled: {actor_user_id}")
+        if not actor.is_platform_admin:
+            raise PilotAdminError("User cannot manage platform accounts.")
+        return actor
+
+    def _ensure_unique_login_name(self, login_name: str, *, except_user_id: str | None = None) -> None:
+        normalized = str(login_name).strip().casefold()
+        for user in self.registry.list_users():
+            if except_user_id is not None and user.user_id == except_user_id:
+                continue
+            if user.login_name.strip().casefold() == normalized:
+                raise ValueError(f"login_name already exists: {login_name}")
+
+    def _has_other_active_platform_admin(self, user_id: str) -> bool:
+        return any(
+            user.user_id != user_id and user.is_active and user.is_platform_admin
+            for user in self.registry.list_users()
+        )
+
+    def _ensure_not_last_active_platform_admin(self, user: User) -> None:
+        if user.is_active and user.is_platform_admin and not self._has_other_active_platform_admin(user.user_id):
+            raise PilotAdminError("Cannot remove the last active platform admin.")
+
+    def _validate_password_before_write(self, password: str | None) -> None:
+        if password is not None and len(password) < MIN_PASSWORD_LENGTH:
+            raise ValueError(f"password must be at least {MIN_PASSWORD_LENGTH} characters.")
+
+    def bootstrap_platform_admin(self, *, user: User, password: str) -> User:
+        """Create the first platform admin when no platform admin exists."""
+
+        if any(existing.is_platform_admin for existing in self.registry.list_users()):
+            raise PilotAdminError("A platform admin already exists.")
+        self._ensure_unique_login_name(user.login_name)
+        self._validate_password_before_write(password)
+        admin = replace(user, status=UserStatus.ACTIVE, is_platform_admin=True)
+        saved = self.registry.save_user(admin)
+        self.auth.set_password(user_id=saved.user_id, password=password)
+        self._audit(
+            actor_user_id="system",
+            action=AuditAction.CREATE_USER,
+            target_user_id=saved.user_id,
+            metadata={"bootstrap": True, "is_platform_admin": True},
+        )
+        return saved
+
+    def create_user(
+        self,
+        *,
+        actor_user_id: str,
+        user: User,
+        initial_password: str | None = None,
+    ) -> User:
+        """Create a user after checking platform-admin permission."""
+
+        actor = self._platform_admin(actor_user_id)
+        self._ensure_unique_login_name(user.login_name)
+        self._validate_password_before_write(initial_password)
+        saved = self.registry.save_user(user)
+        if initial_password is not None:
+            self.auth.set_password(user_id=saved.user_id, password=initial_password)
+        self._audit(
+            actor_user_id=actor.user_id,
+            action=AuditAction.CREATE_USER,
+            target_user_id=saved.user_id,
+            metadata={
+                "login_name": saved.login_name,
+                "is_platform_admin": saved.is_platform_admin,
+                "initial_password_set": initial_password is not None,
+            },
+        )
+        return saved
+
+    def set_user_password(self, *, actor_user_id: str, user_id: str, password: str) -> None:
+        """Reset a user's local password after checking platform-admin permission."""
+
+        actor = self._platform_admin(actor_user_id)
+        self.auth.set_password(user_id=user_id, password=password)
+        self._audit(
+            actor_user_id=actor.user_id,
+            action=AuditAction.UPDATE_USER,
+            target_user_id=user_id,
+            metadata={"password_reset": True},
+        )
+
+    def set_platform_admin(self, *, actor_user_id: str, user_id: str, is_platform_admin: bool) -> User:
+        """Grant or revoke platform-admin status."""
+
+        actor = self._platform_admin(actor_user_id)
+        target = self.registry.load_user(user_id)
+        if not is_platform_admin:
+            self._ensure_not_last_active_platform_admin(target)
+        updated = replace(target, is_platform_admin=bool(is_platform_admin))
+        saved = self.registry.save_user(updated, overwrite=True)
+        self._audit(
+            actor_user_id=actor.user_id,
+            action=AuditAction.UPDATE_USER,
+            target_user_id=user_id,
+            metadata={"is_platform_admin": saved.is_platform_admin},
+        )
+        return saved
+
+    def disable_user(self, *, actor_user_id: str, user_id: str) -> User:
+        """Disable a user and revoke active local sessions."""
+
+        actor = self._platform_admin(actor_user_id)
+        target = self.registry.load_user(user_id)
+        self._ensure_not_last_active_platform_admin(target)
+        disabled = self.registry.disable_user(user_id)
+        revoked_count = 0
+        for session in self.auth.list_user_sessions(user_id, active_only=True):
+            self.auth.revoke_session(session.session_id)
+            revoked_count += 1
+        self._audit(
+            actor_user_id=actor.user_id,
+            action=AuditAction.UPDATE_USER,
+            target_user_id=user_id,
+            metadata={"status": disabled.status.value, "revoked_sessions": revoked_count},
+        )
+        return disabled
+
+    def list_users(self, *, actor_user_id: str, active_only: bool = False) -> list[User]:
+        """List users after checking platform-admin permission."""
+
+        self._platform_admin(actor_user_id)
+        users = self.registry.list_users()
+        if active_only:
+            return [user for user in users if user.is_active]
+        return users
