@@ -214,6 +214,9 @@ class Job:
     started_at: datetime | None = None
     finished_at: datetime | None = None
     error_message: str | None = None
+    progress_current: int = 0
+    progress_total: int = 0
+    progress_message: str | None = None
 
     def __post_init__(self) -> None:
         _require_text(self.job_id, "job_id")
@@ -223,6 +226,10 @@ class Job:
         _ensure_aware(self.queued_at, "queued_at")
         _ensure_aware(self.started_at, "started_at")
         _ensure_aware(self.finished_at, "finished_at")
+        _require_non_negative(self.progress_current, "progress_current")
+        _require_non_negative(self.progress_total, "progress_total")
+        if self.progress_total and self.progress_current > self.progress_total:
+            raise ValueError("progress_current must not exceed progress_total.")
         object.__setattr__(self, "job_type", _coerce_enum(self.job_type, JobType, "job_type"))
         object.__setattr__(self, "status", _coerce_enum(self.status, JobStatus, "status"))
 
@@ -258,6 +265,27 @@ class Job:
         timestamp = finished_at or _utcnow()
         _ensure_aware(timestamp, "finished_at")
         return replace(self, status=JobStatus.CANCELED, finished_at=timestamp)
+
+    def update_progress(
+        self,
+        *,
+        current: int,
+        total: int | None = None,
+        message: str | None = None,
+    ) -> "Job":
+        if self.is_terminal:
+            raise ValueError("Terminal jobs cannot update progress.")
+        next_total = self.progress_total if total is None else total
+        _require_non_negative(current, "progress_current")
+        _require_non_negative(next_total, "progress_total")
+        if next_total and current > next_total:
+            raise ValueError("progress_current must not exceed progress_total.")
+        return replace(
+            self,
+            progress_current=current,
+            progress_total=next_total,
+            progress_message=message,
+        )
 
 
 @dataclass(frozen=True)

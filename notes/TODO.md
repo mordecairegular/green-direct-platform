@@ -45,6 +45,7 @@
 - 内部试用后台已新增持久化无关模型骨架：`User`、`Project`、`ProjectMembership`、`ProjectStudy`、`Job`、`JobArtifact`、`StudyResultRecord`、`AuditLog`。
 - 服务层已新增 `LocalResultStore`，支持按项目/研究保存产物、结果索引和审计日志，暂未接入 UI 或数据库。
 - 服务层已新增 `LocalPilotRegistry`，支持本地 JSON 用户、项目和项目成员角色管理，不包含密码或登录会话。
+- 服务层已新增 `LocalJobStore`，支持本地 JSON 任务提交、读取、项目/研究列表、状态筛选、进度更新、成功/失败/取消状态持久化，暂未包含 worker 调度、认证、管理员页面或数据库锁。
 
 后续方向：
 
@@ -65,6 +66,7 @@
 - 后台 PNG 任务和下载缓存按 Streamlit 会话隔离；
 - 先用受控内网/VPN/反向代理做内部试用；
 - 下一阶段把 `pilot_backend` 模型、`LocalPilotRegistry` 和 `LocalResultStore` 接入轻量 SQLite/Postgres、登录入口、管理员页面和后台任务状态页；
+- 后台任务接入时以 `LocalJobStore` 的 `Job` 状态契约为临时边界，再替换为 SQLite/Postgres 或正式队列实现；
 - 技术仿真、经济性测算和图表导出逐步改为后台任务。
 
 ### 3. 离网型源网荷储模块

@@ -3097,3 +3097,32 @@ exchange_import_shortfall_energy == 0
 验证：
 - `python -m pytest tests/test_pilot_registry.py tests/test_result_store.py tests/test_pilot_backend_models.py -q`：18 项通过；
 - `python -m pytest -q`：198 项通过。
+
+### 2026-06-15 本地 JobStore 第一版
+
+本轮继续推进内部 10-20 人试用所需的后台任务边界。在已有 `pilot_backend` 模型、`LocalResultStore` 和 `LocalPilotRegistry` 基础上，新增本地文件版任务状态存储，先解决“长计算任务的状态、进度、失败原因和项目/研究边界应落在哪里”的问题。
+
+本轮判断：
+- 当前仍不宜一次性引入完整 worker、消息队列、数据库锁、登录认证和管理员 UI；
+- 但必须先让 `Job` 状态脱离 Streamlit 临时会话，避免后续技术仿真、经济性测算和导出任务继续散落在全局变量或 `session_state` 中；
+- 任务状态存储应和结果产物存储分层：`JobStore` 负责排队/运行/成功/失败/取消/进度，`ResultStore` 负责产物和结果索引；
+- 本轮不改变任何 V0.1 技术调度、经济性、推荐或图表计算口径。
+
+本轮实现：
+- `Job` 模型新增 `progress_current`、`progress_total` 和 `progress_message`，并提供 `update_progress()`；
+- 新增 `src/green_direct/services/job_store.py`；
+- `LocalJobStore` 按 `projects/{project_id}/studies/{study_id}/jobs/{job_id}.json` 保存任务元数据；
+- 支持 `submit_job()`、`load_job()`、`list_project_jobs()`、`list_study_jobs()`、`start_job()`、`update_job_progress()`、`succeed_job()`、`fail_job()` 和 `cancel_job()`；
+- 状态合法性继续由 `Job` 模型控制，路径片段继续使用白名单校验；
+- `green_direct.services` 导出 `LocalJobStore`；
+- 新增 `tests/test_job_store.py`，并补充 `Job` 进度字段测试；
+- 同步更新 `docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md`、`docs/SOFTWARE_OVERVIEW_AND_INTERFACE.md`、`docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`、`notes/TODO.md` 和 `notes/HANDOFF_FOR_NEW_MACHINE.md`。
+
+边界说明：
+- `LocalJobStore` 只保存任务元数据；
+- 不包含 worker 调度、重试、并发锁、认证、权限检查、管理员 UI 或 SQLite/Postgres 迁移；
+- 后续 Streamlit 接入时，应让前台提交 `Job` 并轮询状态，由后台 worker 写入 `LocalResultStore` 或数据库/对象存储替代实现。
+
+验证：
+- `python -m pytest tests/test_job_store.py tests/test_pilot_backend_models.py tests/test_result_store.py tests/test_pilot_registry.py -q` 通过，26 项通过；
+- `python -m pytest -q` 通过，206 项通过。

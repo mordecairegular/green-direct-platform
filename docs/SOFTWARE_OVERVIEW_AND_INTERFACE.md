@@ -988,6 +988,15 @@ python -m pytest
 
 `LocalPilotRegistry` 只管理账户、项目和成员关系元数据，不存储密码、不处理登录会话。后续管理员页面可以先调用该服务完成用户停用、项目归档和角色授权；正式部署时再替换为 SQLite/Postgres 或企业身份系统映射。
 
+`src/green_direct/services/job_store.py` 已提供第一版 `LocalJobStore`：
+
+- `submit_job()` / `load_job()`：保存和读取排队任务；
+- `list_project_jobs()` / `list_study_jobs()`：按项目或研究列出任务，并支持按状态筛选；
+- `start_job()` / `update_job_progress()` / `succeed_job()` / `fail_job()` / `cancel_job()`：持久化任务状态、进度、失败原因和完成时间；
+- 任务文件按 `projects/{project_id}/studies/{study_id}/jobs/{job_id}.json` 隔离，路径片段使用白名单校验。
+
+`LocalJobStore` 目前只保存任务元数据，不启动 worker、不做重试、不实现认证或管理员页面。后续接入 Streamlit 或数据库时，应让前台提交 `Job`、轮询 `JobStatus`，由后台 worker 写入 `LocalResultStore` 或其替代存储。
+
 ## 23. 本地运行方式
 
 安装依赖：

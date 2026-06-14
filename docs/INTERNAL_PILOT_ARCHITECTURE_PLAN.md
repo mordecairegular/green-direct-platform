@@ -72,7 +72,7 @@ PNG 图表包后台任务也按会话隔离：
 
 - `src/green_direct/models/pilot_backend.py` 定义了持久化无关的 `User`、`Project`、`ProjectMembership`、`ProjectStudy`、`Job`、`JobArtifact`、`StudyResultRecord` 和 `AuditLog`；
 - `ProjectMembership` 已区分 `admin`、`analyst`、`viewer` 的查看、提交任务和项目管理权限；
-- `Job` 已定义排队、运行、成功、失败、取消状态及合法状态转换；
+- `Job` 已定义排队、运行、成功、失败、取消状态、进度字段及合法状态转换；
 - `JobArtifact` 和 `StudyResultRecord` 保留 `project_id` / `study_id` 边界，用于后续 `ResultStore` 和下载文件隔离；
 - 该骨架暂不包含登录页面、密码、数据库表、任务队列或 Streamlit 接入，不代表账户后台已经完整实现。
 
@@ -94,6 +94,15 @@ PNG 图表包后台任务也按会话隔离：
 - 支持为项目授予/更新/停用用户角色，角色沿用 `admin`、`analyst`、`viewer`；
 - 写入成员关系时会检查用户和项目已存在，避免孤立 membership；
 - 当前注册表不存储密码、不处理登录会话、不替代正式认证；后续登录页或企业身份集成只应把认证主体映射到这些 `User` / `ProjectMembership` 记录。
+
+已落地的第一步 JobStore：
+
+- `src/green_direct/services/job_store.py` 提供 `LocalJobStore`；
+- 任务元数据按 `projects/{project_id}/studies/{study_id}/jobs/{job_id}.json` 隔离保存；
+- 支持提交、读取、按项目/研究列出任务，并可按 `queued`、`running`、`succeeded`、`failed`、`canceled` 状态筛选；
+- 支持 `start_job()`、`update_job_progress()`、`succeed_job()`、`fail_job()` 和 `cancel_job()`，状态合法性沿用 `Job` 模型；
+- 路径片段使用白名单校验，防止 `project_id`、`study_id`、`job_id` 被拼接成越权路径；
+- 当前实现只持久化任务状态，不包含 worker 调度、重试策略、并发锁、鉴权或管理员 UI；后续任务队列或数据库实现应沿用同一 `Job` 契约。
 
 试用版可以先用 SQLite / Postgres 加密码登录；正式内网版再评估企业微信、OIDC、LDAP 或公司统一身份。
 

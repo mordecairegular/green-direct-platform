@@ -92,6 +92,27 @@ def test_failed_job_requires_error_message():
         running.fail("")
 
 
+def test_job_progress_requires_non_negative_counts_and_blocks_terminal_updates():
+    job = Job(
+        job_id="job_progress",
+        project_id="project_1",
+        study_id="study_1",
+        requested_by_user_id="user_1",
+        job_type=JobType.TECHNICAL_STUDY,
+    )
+
+    progressed = job.update_progress(current=2, total=5, message="batch simulation")
+    assert progressed.progress_current == 2
+    assert progressed.progress_total == 5
+    assert progressed.progress_message == "batch simulation"
+
+    with pytest.raises(ValueError, match="progress_current must not exceed progress_total"):
+        job.update_progress(current=6, total=5)
+
+    with pytest.raises(ValueError, match="Terminal jobs cannot update progress"):
+        job.cancel(finished_at=_dt(6)).update_progress(current=1, total=5)
+
+
 def test_project_study_artifact_and_result_record_preserve_project_boundary():
     user = User("user_1", "analyst@example.local", "Analyst")
     project = Project("project_1", "Internal pilot project", created_by_user_id=user.user_id)
