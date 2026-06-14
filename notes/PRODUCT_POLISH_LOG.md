@@ -3026,3 +3026,25 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_economy_v1.py tests/test_single_entity_economy.py tests/test_study_runner.py -q`：33 项通过；
 - `python -m pytest tests/test_economy_v1.py tests/test_single_entity_economy.py tests/test_study_runner.py tests/test_recommendation_v1.py -q`：43 项通过；
 - `python -m pytest -q`：180 项通过。
+
+### 2026-06-15 内部试用后台模型骨架
+
+用户明确内部试用上线不仅是前台访问，还需要后台账户管理控制能力。本轮不一次性实现完整账户后台，而是先把最小可测试模型边界落地。
+
+本轮判断：
+- 账户、项目、任务和结果存储边界应先独立于 Streamlit UI 定义，避免继续把多人状态绑死在 `session_state`；
+- 第一阶段不应引入密码登录、数据库迁移、队列 worker 或管理员页面，以免在计算和 UI 仍快速演进时过度重构；
+- 但必须尽早明确 `project_id`、`study_id`、`job_id` 和 artifact 边界，后续下载文件和缓存才不会继续按会话临时状态扩张。
+
+本轮实现：
+- 新增 `src/green_direct/models/pilot_backend.py`；
+- 定义 `User`、`Project`、`ProjectMembership`、`ProjectStudy`、`Job`、`JobArtifact`、`StudyResultRecord` 和 `AuditLog`；
+- 定义 `admin`、`analyst`、`viewer` 三类项目角色及查看、提交任务、项目管理权限；
+- 定义技术仿真、经济测算、推荐、图表导出、报告导出五类后台 `JobType`；
+- 定义 `queued`、`running`、`succeeded`、`failed`、`canceled` 状态及合法状态转换；
+- `JobArtifact` 和 `StudyResultRecord` 显式保留 `project_id` / `study_id`，为后续 `ResultStore` 和下载隔离做准备；
+- `green_direct.models` 包导出上述模型。
+
+验证：
+- `python -m pytest tests/test_pilot_backend_models.py tests/test_project_structure.py -q`：8 项通过；
+- `python -m pytest -q`：187 项通过。

@@ -958,7 +958,20 @@ python -m pytest
 - 图表模块选择 1 到 5 个方案时的数据来源一致性；
 - 经济性模块通过 `scenario_id` 正确关联技术结果。
 
-## 22. 本地运行方式
+## 22. 内部试用后台模型骨架
+
+`src/green_direct/models/pilot_backend.py` 已提供第一版持久化无关模型，用于后续内部 10-20 人试用的账户、项目、任务和结果存储改造。
+
+当前模型包括：
+
+- `User`、`Project`、`ProjectMembership`、`ProjectStudy`；
+- `Job`、`JobType`、`JobStatus`；
+- `JobArtifact`、`ArtifactKind`、`StudyResultRecord`；
+- `AuditLog`、`AuditAction`。
+
+这些模型只定义边界和状态，不包含登录页、密码、数据库、任务队列或 Streamlit 管理后台。后续 `ResultStore`、管理员页面和后台 worker 应基于这些对象逐步接入，而不是继续把多人运行态绑定在全局缓存或 `session_state` 上。
+
+## 23. 本地运行方式
 
 安装依赖：
 
@@ -986,7 +999,7 @@ Get-NetTCPConnection -LocalPort 8503 -State Listen |
     ForEach-Object { Stop-Process -Id $_ -Force }
 ```
 
-## 23. 当前已知扩展方向
+## 24. 当前已知扩展方向
 
 后续待设计内容记录在 `notes/TODO.md`，当前主要包括：
 

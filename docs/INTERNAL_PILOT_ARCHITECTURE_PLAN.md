@@ -68,6 +68,14 @@ PNG 图表包后台任务也按会话隔离：
 - `StudyResult`：技术结果、经济结果、推荐结果和导出文件索引；
 - `AuditLog`：登录、上传、运行、下载、删除等审计记录。
 
+已落地的第一步模型骨架：
+
+- `src/green_direct/models/pilot_backend.py` 定义了持久化无关的 `User`、`Project`、`ProjectMembership`、`ProjectStudy`、`Job`、`JobArtifact`、`StudyResultRecord` 和 `AuditLog`；
+- `ProjectMembership` 已区分 `admin`、`analyst`、`viewer` 的查看、提交任务和项目管理权限；
+- `Job` 已定义排队、运行、成功、失败、取消状态及合法状态转换；
+- `JobArtifact` 和 `StudyResultRecord` 保留 `project_id` / `study_id` 边界，用于后续 `ResultStore` 和下载文件隔离；
+- 该骨架暂不包含登录页面、密码、数据库表、任务队列或 Streamlit 接入，不代表账户后台已经完整实现。
+
 试用版可以先用 SQLite / Postgres 加密码登录；正式内网版再评估企业微信、OIDC、LDAP 或公司统一身份。
 
 ## 5. 性能优化路线
