@@ -3742,3 +3742,28 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_study_runner.py tests/test_ui_import.py -q` 通过，71 项通过；
 - `python -m compileall src/green_direct/services/study_runner.py src/green_direct/ui/app.py` 通过；
 - `python -m pytest -q` 通过，275 项通过。
+
+### 2026-06-16 上线目标澄清与性能专项入列
+
+用户进一步澄清：“上线”不是本地单机演示，而是公网或多人访问，近期目标是内部 10-20 人试用。除了前台体验，还需要后台账户管理控制能力；方案遍历和经济性测算在成千上万方案下的等待时间必须提上日程；给 Claude Code 的提示词除了 review/debug，也要能推动 UI 提升。
+
+本轮判断：
+- 10-20 人内部试用已经超过“本地 Streamlit 页面”的边界，必须按受控公网内测 Route A 的工程口径推进；
+- Claude Code 提示词的方向是对的，但需要把“性能专项”从 review 风险项中拆出来，形成独立任务包；
+- UI 提升应该排在上线审查和性能基准之后，不能让视觉优化掩盖权限、留存、导出和长任务问题；
+- 后台账户、Job、ResultStore 仍应分阶段演进，不应为了公网内测一次性重写整个系统；
+- 性能优化必须可量化，不能只说“感觉快了”，每次优化都应记录 benchmark 命令、方案数、小时数、耗时和内存。
+
+本轮实现：
+- 新增 `docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md`，把受控公网内测准备方案映射为当前仓库 P0 审计矩阵，明确哪些已满足、部分满足或未满足；
+- 新增 `docs/PERFORMANCE_OPTIMIZATION_PLAN.md`，记录方案遍历、summary-first、并行、经济性批量化、结果缓存和后台 Job 的性能路线；
+- 新增 `scripts/benchmark_internal_pilot_performance.py`，用合成曲线对技术仿真完整明细保留、summary-first 和经济性 summary-only 做可重复 benchmark；
+- 新增 `tests/test_performance_benchmark_script.py`，验证 benchmark 脚本在小样本 JSON 模式下可运行；
+- 更新 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`，把使用顺序调整为：上下文读取 -> 上线前 review/debug -> 性能专项 -> UI 提升 -> 后台账户/Job/ResultStore 架构；
+- 更新 `docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md` 和 `notes/HANDOFF_FOR_NEW_MACHINE.md`，把新增审计、性能文档和 benchmark 脚本纳入后续 AI 协作入口。
+
+边界说明：
+- 本轮新增的是基准和执行路线，不是完整后台 worker；
+- benchmark 脚本不是 CI 性能门槛，不同机器结果不可简单横比；
+- 性能路线不允许改变 V0.1 调度口径、经济性 V1 现金流口径或推荐 V1 排序口径；
+- 公网内测仍缺 Docker/compose、正式部署文档、安全说明、项目级完整 artifact 留存、后台 Job、数据库/并发存储和跨会话明细补算。

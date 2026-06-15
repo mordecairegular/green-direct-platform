@@ -187,6 +187,8 @@ PNG 图表包后台任务也按会话隔离：
 
 ## 5. 性能优化路线
 
+详版路线、benchmark 命令和可复制给 Claude Code 的性能专项提示词见 `docs/PERFORMANCE_OPTIMIZATION_PLAN.md`。当前仓库已新增 `scripts/benchmark_internal_pilot_performance.py`，用于记录技术仿真完整明细保留、summary-first 和经济性 summary-only 的耗时与 Python 堆峰值。该脚本是优化决策辅助，不是固定性能门槛。
+
 当前瓶颈来自两个方向：
 
 - 方案遍历逐方案运行，成千上万方案时等待时间长；
@@ -241,6 +243,7 @@ PNG 图表包后台任务也按会话隔离：
 
 使用建议：
 - 先让 Claude Code 做上下文读取和上线前 review/debug；
+- review 没有发现会阻断试用的计算口径或权限问题后，单独做一次性能专项，避免大方案池等待问题被 UI 打磨淹没；
 - P0/P1 风险清零或明确记录后，再做 UI 提升；
 - UI 提升必须限制在当前 Streamlit 工程工作台内，不要改调度、经济性和推荐算法；
 - 如果继续推进多人后台，单独使用账户、Job 和 `ResultStore` 架构提示词，不要和 UI 提升混在同一轮。

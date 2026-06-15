@@ -32,6 +32,8 @@
 
 状态：内部试用上线前的核心工程路线，详见 `docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md`。
 
+专项文档：`docs/PERFORMANCE_OPTIMIZATION_PLAN.md`；可重复基准脚本：`scripts/benchmark_internal_pilot_performance.py`。
+
 已完成：
 
 - 单方案逐小时计算由 `iterrows()` 改为 NumPy 数组预分配。
@@ -60,6 +62,8 @@
 - 上传入口已新增第一版文件门禁：技术曲线只允许 CSV，下网电价曲线允许 CSV/XLSX/XLSM，默认单文件上限 20MB，可通过 `GREEN_DIRECT_MAX_UPLOAD_MB` 调整；合法上传文件的文件名、后缀、大小和 SHA256 会写入技术仿真配置快照。
 - Artifact 留存清理已新增第一版：`JobArtifact` 包含 `retention_policy`、`expires_at`、`purged_at`；`LocalResultStore.purge_expired_artifacts()` 会删除到期 payload 并保留元数据；`pilot-admin purge-expired-artifacts` 由平台管理员执行并写入 `DELETE_ARTIFACT` 审计。
 - 内部试用部署材料已新增第一版：`.env.example`、`docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md`、`scripts/backup_pilot_store.ps1` 和 `scripts/restore_pilot_store.ps1`，覆盖环境变量、账号 bootstrap、启动、备份、恢复、过期清理、冒烟检查和回滚边界。
+- 受控公网内测审计矩阵已新增第一版：`docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md`，用于逐项跟踪 Route A 要求中已满足、部分满足和未满足的 P0 项。
+- 性能基准脚本已新增第一版：`scripts/benchmark_internal_pilot_performance.py`，可对完整明细保留、summary-first 和经济性 summary-only 进行可重复耗时/内存记录。
 - 服务层已新增 `LocalJobStore`，支持本地 JSON 任务提交、读取、项目/研究列表、状态筛选、进度更新、成功/失败/取消状态持久化，暂未包含 worker 调度、认证、管理员页面或数据库锁。
 - 服务层已新增 `PilotAccessService`，把项目角色权限、可见项目列表、任务提交/取消、产物读取和审计日志统一成可测试服务门面，暂未包含 worker 调度、数据库事务或并发锁。
 - 技术仿真完成后已能在启用内部试用登录和当前项目时登记项目级同步 `Job`，并把 `technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord` 写入 `LocalResultStore`；经济性 summary 和推荐 portfolio 也已接入第一阶段项目级写入；年度现金流、逐小时明细和导出产物仍待迁移。

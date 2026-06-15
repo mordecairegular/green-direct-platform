@@ -1,13 +1,16 @@
 # Claude Code 内部试用上线提示词
 
-本文用于把当前项目交给 Claude Code 做两类工作：
+本文用于把当前项目交给 Claude Code 做五类工作：
 
 1. 内部 10-20 人试用上线前 review/debug；
-2. 在不改变计算口径的前提下提升 Streamlit UI。
+2. 方案遍历与经济性测算性能专项；
+3. 在不改变计算口径的前提下提升 Streamlit UI；
+4. 后台账户、Job 和 `ResultStore` 架构设计；
+5. 受控公网内测 Route A 的部署与安全缺口跟踪。
 
 ## 1. 对现有 GPT 提示词的判断
 
-现有提示词方向是对的：应该把 Claude Code 分成“上线审查”和“UI 提升”两轮，而不是让它一次性同时做安全、性能、架构和视觉改造。
+现有提示词方向是对的：应该把 Claude Code 分成“上线审查”“性能专项”“UI 提升”和“后台架构”几轮，而不是让它一次性同时做安全、性能、架构和视觉改造。
 
 但原提示词还需要补强四点：
 
@@ -22,15 +25,16 @@
 
 1. 先发送“上下文读取提示词”；
 2. 再发送“上线前 review/debug 提示词”；
-3. 如果 P0/P1 清零，再发送“UI 提升提示词”；
-4. 如果要继续推进多人后台，再发送“后台账户、Job 和 ResultStore 架构提示词”。
+3. 如果 review 没有发现会阻断试用的计算口径或权限问题，再发送“性能专项提示词”；
+4. 如果 P0/P1 清零或已有明确修复计划，再发送“UI 提升提示词”；
+5. 如果要继续推进多人后台，再发送“后台账户、Job 和 ResultStore 架构提示词”。
 
-不要把第 2 步和第 3 步合并。审查阶段要保守，UI 阶段要有设计判断，两者混在一起容易漏掉真正的上线风险。
+不要把第 2 步、第 3 步和第 4 步合并。审查阶段要保守，性能阶段要可量化，UI 阶段要有设计判断，混在一起容易漏掉真正的上线风险或把视觉优化误当成上线能力。
 
 ## 3. 上下文读取提示词
 
 ```text
-请先不要改代码。请阅读 AGENTS.md、CLAUDE.md、notes/HANDOFF_FOR_NEW_MACHINE.md、notes/PRODUCT_POLISH_LOG.md、docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md、docs/SOFTWARE_OVERVIEW_AND_INTERFACE.md、docs/ECONOMY_RECOMMENDATION_V1_MAP.md、docs/CHART_MODULE_CURRENT_LOGIC.md、docs/WEB_APP_WORKFLOW_AND_UI_RESTRUCTURE.md，以及 notes/architecture_reframe_20260519/ 下的文档。
+请先不要改代码。请阅读 AGENTS.md、CLAUDE.md、notes/HANDOFF_FOR_NEW_MACHINE.md、notes/PRODUCT_POLISH_LOG.md、docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md、docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md、docs/PERFORMANCE_OPTIMIZATION_PLAN.md、docs/SOFTWARE_OVERVIEW_AND_INTERFACE.md、docs/ECONOMY_RECOMMENDATION_V1_MAP.md、docs/CHART_MODULE_CURRENT_LOGIC.md、docs/WEB_APP_WORKFLOW_AND_UI_RESTRUCTURE.md，以及 notes/architecture_reframe_20260519/ 下的文档。
 
 读完后请用中文简要说明：
 1. 当前项目定位；
@@ -151,7 +155,52 @@ python -m pytest -q
 5. 如果发现 UI 问题但本轮不修，请列为 P2/P3 后续项。
 ```
 
-## 6. 后台账户、Job 和 ResultStore 架构提示词
+## 6. 性能专项提示词
+
+```text
+请做一次“方案遍历与经济性测算性能专项”，目标是支持内部 10-20 人试用中的大方案池测算。
+
+边界：
+1. 不改变 V0.1 技术调度口径；
+2. 不改变经济性 V1 现金流口径；
+3. 不改变推荐 V1 排序口径；
+4. 不把性能优化做成一次性重写计算引擎。
+
+请先阅读：
+- docs/PERFORMANCE_OPTIMIZATION_PLAN.md
+- src/green_direct/batch/batch_runner.py
+- src/green_direct/core/single_scenario_simulator.py
+- src/green_direct/services/study_runner.py
+- src/green_direct/economy/economic_evaluator.py
+- src/green_direct/economy/single_entity_evaluator.py
+- tests/test_batch_runner.py
+- tests/test_study_runner.py
+- tests/test_economy_v1.py
+- tests/test_single_entity_economy.py
+
+先运行：
+python scripts/benchmark_internal_pilot_performance.py --hours 168 --pv-count 4 --wind-count 4 --bess-power-count 2 --durations 0,2 --skip-full-retention --json
+python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/test_economy_v1.py tests/test_single_entity_economy.py -q
+
+重点审查并优先处理：
+1. 大方案池是否默认走 summary-first；
+2. 按需逐小时明细是否与全量保留结果一致；
+3. 并行仿真是否保持 scenario_id、warning、error、进度和结果顺序稳定；
+4. 经济性测算是否仍为每个方案常驻年度现金流；
+5. UI 是否需要方案数上限、预计耗时、取消/后台 Job 的下一步切片；
+6. benchmark 是否能复现优化前后差异。
+
+允许直接修改不改变计算口径的性能与内存问题；任何可能改变技术 dispatch、经济性现金流或推荐排序的改动必须先说明，并同步测试和文档。
+
+完成后请给出：
+1. 优化前后 benchmark 命令和结果；
+2. 修改文件清单；
+3. 已运行测试；
+4. 未解决瓶颈；
+5. 下一步后台 Job / worker 建议。
+```
+
+## 7. 后台账户、Job 和 ResultStore 架构提示词
 
 ```text
 请先做架构设计，不要一次性实现完整后台。

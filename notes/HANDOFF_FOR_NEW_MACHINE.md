@@ -60,15 +60,22 @@
 
 如果目标是 10-20 人内部试用上线，或从内网 pilot 升级到邀请制受控公网内测 Route A，请优先使用 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`。
 
-该文档把 Claude Code 任务拆成四类可复制提示词：
+该文档把 Claude Code 任务拆成五类可复制提示词：
 - 上下文读取；
 - 上线前 review/debug；
+- 方案遍历与经济性测算性能专项；
 - Streamlit UI 提升；
 - 后台账户、Job 和 `ResultStore` 架构设计。
 
-不要把 review/debug 和 UI 提升合并到同一轮。前者用于清 P0/P1 风险，后者用于提升六步工作流体验；两者的判断标准不同，混在一起容易漏掉上线风险。
+不要把 review/debug、性能专项和 UI 提升合并到同一轮。前者用于清 P0/P1 风险，性能专项用于量化并推进大方案池等待时间问题，UI 提升用于改善六步工作流体验；三者的判断标准不同，混在一起容易漏掉上线风险。
 
 受控公网内测 Route A 不是正式公网 SaaS：应关闭开放注册，用户由管理员创建或邀请；软件不得接入 EMS、SCADA、调度自动化、真实电力设备或生产控制网络；公网访问前必须补独立导出权限、上传文件安全、项目/Run/Artifact 留存、审计日志、HTTPS/反向代理、备份恢复和回滚说明。
+
+对应审计和性能文档：
+
+- `docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md`：把受控公网内测准备方案映射为当前仓库的 P0 审计矩阵；
+- `docs/PERFORMANCE_OPTIMIZATION_PLAN.md`：记录方案遍历、summary-first、并行、经济性批量化和后台 Job 的性能路线；
+- `scripts/benchmark_internal_pilot_performance.py`：用于记录技术仿真和经济性测算的可重复 benchmark。
 
 ## 3. 当前项目定位
 

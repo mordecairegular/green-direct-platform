@@ -1,0 +1,159 @@
+# 性能优化路线：方案遍历与经济性测算
+
+日期：2026-06-16
+
+本文面向内部 10-20 人试用和后续受控公网内测 Route A。目标是在不改变 V0.1 风光储逐小时调度口径、不改变经济性 V1 现金流口径的前提下，降低大方案池等待时间、内存占用和导出压力。
+
+## 1. 当前结论
+
+当前性能问题不是单点 bug，而是产品形态从“少量方案本地测算”走向“多人、多项目、大方案池”后的系统性压力。
+
+主要瓶颈：
+
+- 技术仿真仍需逐小时滚动 dispatch/SOC，方案数上千后总耗时线性增长；
+- 如果每个方案都构造并常驻 8760/8784 行逐小时明细，内存、序列化、快照和 UI 都会变重；
+- 经济性 V1 对每个方案生成年度现金流并求 FIRR，方案数大时也会变慢；
+- Streamlit 进程内同步计算不适合多人同时运行大任务。
+
+已落地的第一步：
+
+- `run_single_scenario(..., retain_hourly_detail=False)` 已支持 summary-only，不再为未保留方案构造完整 `hourly_detail`；
+- `run_batch(..., retain_hourly_details=False, hourly_detail_scenario_ids=...)` 已支持汇总优先和指定方案明细保留；
+- `PerformanceParams.parallel_workers` 已支持 `ProcessPoolExecutor` 并行技术仿真；
+- 02 页已暴露并行进程数和大批量保留明细数；
+- 推荐页、图表页和导出页已支持当前会话内对单方案按需补算逐小时明细；
+- `run_economic_study(..., retain_annual_cashflows=False, annual_cashflow_scenario_ids=...)` 已支持只常驻经济性 summary 或指定方案年度现金流；
+- 经济性批量评价已减少 `iterrows()`、重复校验和部分 IRR 求解开销。
+
+## 2. 新增基准脚本
+
+新增脚本：
+
+```powershell
+python scripts\benchmark_internal_pilot_performance.py
+```
+
+默认会用合成 8760 小时曲线和中等方案池运行：
+
+- 技术仿真完整逐小时明细保留；
+- 技术仿真 summary-first；
+- 经济性 summary-only、无年度现金流常驻。
+
+可用于快速小样本检查：
+
+```powershell
+python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 4 --wind-count 4 --bess-power-count 2 --durations 0,2 --skip-full-retention
+```
+
+可用于机器可读输出：
+
+```powershell
+python scripts\benchmark_internal_pilot_performance.py --json
+```
+
+注意：该脚本是决策辅助，不是固定性能门槛测试。不同电脑、Python 版本、进程数和后台负载都会影响结果。后续做性能优化时，应把优化前后的命令、参数、耗时和峰值内存记录到 `notes/PRODUCT_POLISH_LOG.md`。
+
+## 3. 优化路线
+
+### Phase P1：基准与限流
+
+目标：让用户在点击“开始测算”前知道任务规模，避免无提示地跑成千上万个方案。
+
+要做：
+
+- 在 UI 中继续保留方案数预估；
+- 增加大任务确认和预计耗时提示；
+- 增加单次方案数上限的环境变量或后台配置；
+- 记录 benchmark 样本：方案数、小时数、是否保留明细、并行 worker、耗时、内存。
+
+验收：
+
+- 小规模行为不变；
+- 超阈值任务给出清晰提示；
+- 仍能通过现有 `pytest` 回归。
+
+### Phase P2：汇总优先成为默认大任务路径
+
+目标：大方案池只为推荐、图表、报告所需方案生成逐小时明细。
+
+要做：
+
+- 大方案池默认 `retain_hourly_details=False`；
+- 推荐组合确定后，为代表方案生成或加载逐小时明细；
+- 把按需补算得到的逐小时明细写入项目级 artifact，而不只存在当前 session；
+- 价格曲线经济性在缺少全量明细时继续禁止或明确降级。
+
+验收：
+
+- 未保留明细的方案仍有完整技术 summary；
+- 选中方案补算明细与全量保留模式结果一致；
+- 历史 summary-only 结果在有受控输入 artifact 时可跨会话补算。
+
+### Phase P3：后台 Job 与进度/取消
+
+目标：多人试用时，长任务不阻塞前台会话。
+
+要做：
+
+- 技术仿真、经济性测算、图表/报告导出统一登记为 `Job`；
+- 前台提交任务、轮询状态、显示进度、支持取消；
+- worker 从 `ResultStore`/输入 artifact 读取数据，写回 summary、明细和导出文件；
+- 失败状态写入脱敏错误和审计日志。
+
+验收：
+
+- 页面刷新后仍能看到任务状态；
+- 用户只能看到有权限项目的任务；
+- 取消任务不会留下可误用的半成品结果。
+
+### Phase P4：经济性批量化
+
+目标：经济性 V1 在大方案池下不成为第二个主要瓶颈。
+
+要做：
+
+- 继续把固定年限、折现因子、投资、运维、折旧等计算批量化；
+- 保留 FIRR 精确口径，但对常规单符号变化现金流使用快速路径；
+- 推荐排序只依赖经济性 summary；
+- 只为报告方案、推荐方案或用户指定方案保留完整年度现金流。
+
+验收：
+
+- `tests/test_economy_v1.py`、`tests/test_single_entity_economy.py` 保持通过；
+- 同一组输入下经济性 summary 与优化前一致；
+- 年度现金流保留策略不影响推荐排序。
+
+## 4. 不做的事
+
+当前阶段不要为了性能：
+
+- 改 V0.1 储能调度口径；
+- 用近似模型替代逐小时 dispatch；
+- 让储能从电网充电或放电上网；
+- 把价格曲线经济性套到缺少逐小时明细的方案上；
+- 一次性重写为新的计算引擎或微服务。
+
+## 5. 给 Claude Code 的性能专项提示词
+
+```text
+请做一次“方案遍历与经济性测算性能专项”。
+
+目标是支持内部 10-20 人试用中的大方案池测算，不改变 V0.1 技术调度口径、经济性 V1 现金流口径或推荐 V1 排序口径。
+
+请先阅读 docs/PERFORMANCE_OPTIMIZATION_PLAN.md、src/green_direct/batch/batch_runner.py、src/green_direct/core/single_scenario_simulator.py、src/green_direct/services/study_runner.py、src/green_direct/economy/economic_evaluator.py、src/green_direct/economy/single_entity_evaluator.py，以及相关测试。
+
+先运行：
+python scripts/benchmark_internal_pilot_performance.py --hours 168 --pv-count 4 --wind-count 4 --bess-power-count 2 --durations 0,2 --skip-full-retention --json
+python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/test_economy_v1.py tests/test_single_entity_economy.py -q
+
+然后审查并优先处理：
+1. 大方案池是否默认走 summary-first；
+2. 按需逐小时明细是否与全量保留结果一致；
+3. 并行仿真是否保持 scenario_id、warning、error、进度和结果顺序稳定；
+4. 经济性测算是否仍为每个方案常驻年度现金流；
+5. 是否需要为 UI 增加方案数上限、耗时提示、取消/后台 Job 的下一步切片。
+
+允许直接修改不改变口径的性能与内存问题；任何可能改变技术 dispatch、经济性现金流或推荐排序的改动必须先说明，并同步测试和文档。
+
+完成后请给出优化前后 benchmark 命令和结果、修改文件、测试命令、未解决瓶颈和下一步建议。
+```
