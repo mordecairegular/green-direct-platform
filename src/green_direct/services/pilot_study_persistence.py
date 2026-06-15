@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import hashlib
 import json
 from uuid import uuid4
@@ -16,7 +16,11 @@ from green_direct.models.pilot_backend import (
 )
 from green_direct.services.local_store_utils import json_value
 from green_direct.services.pilot_access import PilotAccessService
-from green_direct.services.study_runner import TechnicalStudyResult
+from green_direct.services.study_runner import (
+    EconomicStudyResult,
+    RecommendationStudyResult,
+    TechnicalStudyResult,
+)
 
 
 @dataclass(frozen=True)
@@ -30,16 +34,77 @@ class PersistedTechnicalStudy:
     input_fingerprint: str
 
 
-def technical_input_fingerprint(technical_result: TechnicalStudyResult) -> str:
-    """Build a stable fingerprint from the technical study config snapshot."""
+@dataclass(frozen=True)
+class PersistedEconomicStudy:
+    """Project-scoped persistence refs for one completed economy study."""
 
-    payload = json.dumps(
-        json_value(technical_result.config_snapshot),
+    job: Job
+    power_summary_artifact: JobArtifact
+    single_entity_summary_artifact: JobArtifact
+    result_record: StudyResultRecord
+    input_fingerprint: str
+
+
+@dataclass(frozen=True)
+class PersistedRecommendationStudy:
+    """Project-scoped persistence refs for one completed recommendation build."""
+
+    job: Job
+    portfolio_artifact: JobArtifact
+    load_side_detail_artifact: JobArtifact
+    result_record: StudyResultRecord
+    input_fingerprint: str
+
+
+def _stable_hash(payload: object) -> str:
+    data = json.dumps(
+        json_value(payload),
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
     )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+
+def _frame_records(frame) -> list[dict]:
+    return frame.astype(object).where(frame.notna(), None).to_dict(orient="records")
+
+
+def technical_input_fingerprint(technical_result: TechnicalStudyResult) -> str:
+    """Build a stable fingerprint from the technical study config snapshot."""
+
+    return _stable_hash(technical_result.config_snapshot)
+
+
+def economic_input_fingerprint(economic_result: EconomicStudyResult) -> str:
+    """Build a stable fingerprint from economy parameters and output shape."""
+
+    inputs = economic_result.recommendation_inputs
+    return _stable_hash(
+        {
+            "economic_params": asdict(inputs.economic_params),
+            "load_side_avoided_charge_price": inputs.load_side_avoided_charge_price,
+            "green_power_settlement_price_with_vat": inputs.green_power_settlement_price_with_vat,
+            "environmental_value_per_kwh": inputs.environmental_value_per_kwh,
+            "min_power_side_acceptable_firr": inputs.min_power_side_acceptable_firr,
+            "price_mode": economic_result.price_mode,
+            "power_summary_columns": list(economic_result.power_summary.columns),
+            "single_entity_summary_columns": list(economic_result.single_entity_summary.columns),
+            "power_summary_rows": len(economic_result.power_summary),
+            "single_entity_summary_rows": len(economic_result.single_entity_summary),
+        }
+    )
+
+
+def recommendation_result_fingerprint(recommendation_result: RecommendationStudyResult) -> str:
+    """Build a stable fingerprint from recommendation tables."""
+
+    return _stable_hash(
+        {
+            "portfolio": _frame_records(recommendation_result.portfolio),
+            "load_side_detail": _frame_records(recommendation_result.load_side_detail),
+        }
+    )
 
 
 def _technical_summary_csv(technical_result: TechnicalStudyResult) -> str:
@@ -53,6 +118,10 @@ def _config_snapshot_json(technical_result: TechnicalStudyResult) -> str:
         indent=2,
         sort_keys=True,
     )
+
+
+def _frame_csv(frame) -> str:
+    return frame.to_csv(index=False)
 
 
 def persist_technical_study_result(
@@ -145,6 +214,215 @@ def persist_technical_study_result(
         job=succeeded,
         technical_summary_artifact=summary_artifact,
         config_snapshot_artifact=config_artifact,
+        result_record=record,
+        input_fingerprint=input_fingerprint,
+    )
+
+
+def persist_economic_study_result(
+    *,
+    access_service: PilotAccessService,
+    actor_user_id: str,
+    project_id: str,
+    study_id: str,
+    economic_result: EconomicStudyResult,
+) -> PersistedEconomicStudy:
+    """Persist one economy study summary under a project-scoped Job."""
+
+    input_fingerprint = economic_input_fingerprint(economic_result)
+    job = Job(
+        job_id=f"job_{uuid4().hex[:16]}",
+        project_id=project_id,
+        study_id=study_id,
+        requested_by_user_id=actor_user_id,
+        job_type=JobType.ECONOMIC_STUDY,
+        input_fingerprint=input_fingerprint,
+        progress_current=0,
+        progress_total=2,
+        progress_message="economic study queued",
+    )
+    submitted = access_service.submit_job(actor_user_id=actor_user_id, job=job)
+    running = access_service.start_job(
+        actor_user_id=actor_user_id,
+        project_id=project_id,
+        study_id=study_id,
+        job_id=submitted.job_id,
+    )
+    power_artifact_id = f"economy_summary_{running.job_id}"
+    single_entity_artifact_id = f"single_entity_summary_{running.job_id}"
+    result_id = f"economy_result_{running.job_id}"
+    try:
+        access_service.update_job_progress(
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=running.job_id,
+            current=1,
+            total=2,
+            message="power-side economy summary ready",
+        )
+        power_artifact = access_service.result_store.store_artifact(
+            artifact_id=power_artifact_id,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=running.job_id,
+            kind=ArtifactKind.ECONOMY_SUMMARY,
+            payload=_frame_csv(economic_result.power_summary),
+            filename="power_economy_summary.csv",
+            content_type="text/csv",
+        )
+        single_entity_artifact = access_service.result_store.store_artifact(
+            artifact_id=single_entity_artifact_id,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=running.job_id,
+            kind=ArtifactKind.ECONOMY_SUMMARY,
+            payload=_frame_csv(economic_result.single_entity_summary),
+            filename="single_entity_summary.csv",
+            content_type="text/csv",
+        )
+        access_service.update_job_progress(
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=running.job_id,
+            current=2,
+            total=2,
+            message="economic study result ready",
+        )
+        record = access_service.result_store.save_result_record(
+            StudyResultRecord(
+                result_id=result_id,
+                project_id=project_id,
+                study_id=study_id,
+                created_by_job_id=running.job_id,
+                economy_summary_artifact_id=power_artifact.artifact_id,
+                single_entity_summary_artifact_id=single_entity_artifact.artifact_id,
+            )
+        )
+        succeeded = access_service.succeed_job(
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=running.job_id,
+        )
+    except Exception as exc:
+        try:
+            access_service.fail_job(
+                actor_user_id=actor_user_id,
+                project_id=project_id,
+                study_id=study_id,
+                job_id=running.job_id,
+                error_message=str(exc),
+            )
+        except Exception:
+            pass
+        raise
+
+    return PersistedEconomicStudy(
+        job=succeeded,
+        power_summary_artifact=power_artifact,
+        single_entity_summary_artifact=single_entity_artifact,
+        result_record=record,
+        input_fingerprint=input_fingerprint,
+    )
+
+
+def persist_recommendation_study_result(
+    *,
+    access_service: PilotAccessService,
+    actor_user_id: str,
+    project_id: str,
+    study_id: str,
+    recommendation_result: RecommendationStudyResult,
+) -> PersistedRecommendationStudy:
+    """Persist one recommendation portfolio under a project-scoped Job."""
+
+    input_fingerprint = recommendation_result_fingerprint(recommendation_result)
+    job = Job(
+        job_id=f"job_{uuid4().hex[:16]}",
+        project_id=project_id,
+        study_id=study_id,
+        requested_by_user_id=actor_user_id,
+        job_type=JobType.RECOMMENDATION,
+        input_fingerprint=input_fingerprint,
+        progress_current=0,
+        progress_total=2,
+        progress_message="recommendation build queued",
+    )
+    submitted = access_service.submit_job(actor_user_id=actor_user_id, job=job)
+    running = access_service.start_job(
+        actor_user_id=actor_user_id,
+        project_id=project_id,
+        study_id=study_id,
+        job_id=submitted.job_id,
+    )
+    portfolio_artifact_id = f"recommendation_portfolio_{running.job_id}"
+    detail_artifact_id = f"recommendation_load_side_detail_{running.job_id}"
+    result_id = f"recommendation_result_{running.job_id}"
+    try:
+        portfolio_artifact = access_service.result_store.store_artifact(
+            artifact_id=portfolio_artifact_id,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=running.job_id,
+            kind=ArtifactKind.RECOMMENDATION_PORTFOLIO,
+            payload=_frame_csv(recommendation_result.portfolio),
+            filename="recommendation_portfolio.csv",
+            content_type="text/csv",
+        )
+        detail_artifact = access_service.result_store.store_artifact(
+            artifact_id=detail_artifact_id,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=running.job_id,
+            kind=ArtifactKind.RECOMMENDATION_PORTFOLIO,
+            payload=_frame_csv(recommendation_result.load_side_detail),
+            filename="recommendation_load_side_detail.csv",
+            content_type="text/csv",
+        )
+        access_service.update_job_progress(
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=running.job_id,
+            current=2,
+            total=2,
+            message="recommendation result ready",
+        )
+        record = access_service.result_store.save_result_record(
+            StudyResultRecord(
+                result_id=result_id,
+                project_id=project_id,
+                study_id=study_id,
+                created_by_job_id=running.job_id,
+                recommendation_artifact_id=portfolio_artifact.artifact_id,
+                report_artifact_ids={"load_side_detail": detail_artifact.artifact_id},
+            )
+        )
+        succeeded = access_service.succeed_job(
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=running.job_id,
+        )
+    except Exception as exc:
+        try:
+            access_service.fail_job(
+                actor_user_id=actor_user_id,
+                project_id=project_id,
+                study_id=study_id,
+                job_id=running.job_id,
+                error_message=str(exc),
+            )
+        except Exception:
+            pass
+        raise
+
+    return PersistedRecommendationStudy(
+        job=succeeded,
+        portfolio_artifact=portfolio_artifact,
+        load_side_detail_artifact=detail_artifact,
         result_record=record,
         input_fingerprint=input_fingerprint,
     )

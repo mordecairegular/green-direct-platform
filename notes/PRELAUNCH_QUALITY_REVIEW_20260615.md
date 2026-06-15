@@ -14,11 +14,11 @@
 - UI 大改造、方案图谱、经济性参数工作台与导出体验；
 - 大批量汇总优先策略与可选并行技术仿真；
 - 经济性批量评价性能优化；
-- 内部试用后台模型、结果存储、账号注册表、认证、可选 Streamlit 登录门禁、项目工作区门禁、最小平台账号/项目成员管理页、管理员服务、任务状态存储、权限审计门面和技术仿真结果持久化第一阶段；
+- 内部试用后台模型、结果存储、账号注册表、认证、可选 Streamlit 登录门禁、项目工作区门禁、最小平台账号/项目成员管理页、管理员服务、任务状态存储、权限审计门面，以及技术/经济 summary/推荐 portfolio 持久化第一阶段；
 - `pilot-admin` 命令行账号管理入口；
 - 面向 Claude Code 的内部试用审查 / 后台架构 prompt 和跨机器 handoff 文档。
 
-近期 checkpoint 已覆盖 CLI、认证、平台管理、项目工作区、大批量汇总优先模式，以及技术仿真 summary / config snapshot 写入项目级 `ResultStore`；具体提交以 `git log --oneline` 为准。
+近期 checkpoint 已覆盖 CLI、认证、平台管理、项目工作区、大批量汇总优先模式，以及技术仿真 summary/config、经济性 summary、推荐 portfolio 写入项目级 `ResultStore`；具体提交以 `git log --oneline` 为准。
 
 ## 验证结果
 
@@ -32,7 +32,7 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 
 结果：
 
-- 全量测试通过：252 项通过；
+- 全量测试通过：255 项通过；
 - `src` 编译检查通过；
 - 源码树下 CLI 启动口径验证通过；
 - `git diff --check` 没有实际空白错误，仅有 Windows 换行转换提示；
@@ -55,10 +55,10 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 ### P0：公网生产阻塞
 
 1. Streamlit 主 UI 已有可选登录门禁、最小项目工作区门禁和平台账号/项目成员管理页，但还不是正式权限系统。
-   设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，未登录用户不能进入六步工作流；登录用户必须先创建或选择有效项目；切换项目会清理当前测算结果和下载缓存；平台管理员可在“平台管理”中创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并维护项目成员角色。技术仿真 summary 和 config snapshot 已能写入项目级 `ResultStore`，但正式上线前仍必须接入更正式的会话/数据库适配、CSRF/反向代理安全边界，并继续迁移经济性、推荐、逐小时明细和导出产物持久化。
+   设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，未登录用户不能进入六步工作流；登录用户必须先创建或选择有效项目；切换项目会清理当前测算结果和下载缓存；平台管理员可在“平台管理”中创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并维护项目成员角色。技术仿真 summary/config snapshot、经济性 summary 和推荐 portfolio 已能写入项目级 `ResultStore`，但正式上线前仍必须接入更正式的会话/数据库适配、CSRF/反向代理安全边界，并继续迁移年度现金流、逐小时明细和导出产物持久化。
 
 2. 没有正式后台任务队列和 worker。
-   当前重计算仍发生在 Streamlit 进程内，PNG ZIP 使用进程内后台线程，技术仿真 Job 也是计算完成后的同步状态登记。`LocalJobStore` 只是任务状态契约，不会真正调度 worker。多人同时大算例时缺少排队、取消、限流、重试和失败恢复。
+   当前重计算仍发生在 Streamlit 进程内，PNG ZIP 使用进程内后台线程，技术/经济/推荐 Job 也是计算完成后的同步状态登记。`LocalJobStore` 只是任务状态契约，不会真正调度 worker。多人同时大算例时缺少排队、取消、限流、重试和失败恢复。
 
 3. 本地 JSON 文件 store 没有事务、锁和备份策略。
    账号、会话、任务和结果服务适合作为 pilot 语义骨架，但不是正式数据库。并发写入、磁盘损坏、机器迁移和权限隔离都需要 SQLite/Postgres 或对象存储适配器解决。

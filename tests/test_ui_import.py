@@ -322,6 +322,72 @@ def test_pilot_technical_result_helper_persists_and_attaches_refs(tmp_path, monk
     )
 
 
+def test_pilot_economy_and_recommendation_helpers_persist_refs_and_dedupe(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.economy import EconomicParams
+    from green_direct.models.pilot_backend import JobType, Project, User
+    from green_direct.services.study_runner import (
+        EconomicStudyResult,
+        RecommendationInputSnapshot,
+        RecommendationStudyResult,
+        StudyResult,
+    )
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+
+    access = app._pilot_access_service()
+    access.registry.save_user(User("admin", "admin@example.local", "Admin"))
+    project = access.create_project(
+        actor_user_id="admin",
+        project=Project("project_1", "Internal pilot project"),
+    )
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.PILOT_USER_ID_KEY: "admin",
+                app.PILOT_ACTIVE_PROJECT_ID_KEY: project.project_id,
+                "study_result": StudyResult(study_id="study_ui"),
+            }
+
+    dummy = DummyStreamlit()
+    economy = EconomicStudyResult(
+        power_summary=pd.DataFrame({"scenario_id": ["S0001"], "firr": [0.08]}),
+        power_annual_cashflows={},
+        single_entity_summary=pd.DataFrame({"scenario_id": ["S0001"], "single_entity_firr_pre_tax": [0.11]}),
+        single_entity_annual_cashflows={},
+        recommendation_inputs=RecommendationInputSnapshot(
+            economic_params=EconomicParams(),
+            load_side_avoided_charge_price=0.50,
+            green_power_settlement_price_with_vat=0.40,
+        ),
+    )
+    recommendation = RecommendationStudyResult(
+        portfolio=pd.DataFrame({"scenario_id": ["S0001"], "seat_labels": ["same_entity_firr_best"]}),
+        load_side_detail=pd.DataFrame({"scenario_id": ["S0001"], "load_side_tradable_benefit": [10.0]}),
+    )
+
+    persisted_economy = app._persist_pilot_economic_result_if_enabled(dummy, economy)
+    study_result = app._study_result_with_pilot_economy_refs(
+        dummy.session_state["study_result"],
+        persisted_economy,
+    )
+    dummy.session_state["study_result"] = study_result
+    persisted_recommendation = app._persist_pilot_recommendation_result_if_enabled(dummy, recommendation)
+    duplicate_recommendation = app._persist_pilot_recommendation_result_if_enabled(dummy, recommendation)
+    study_result = app._study_result_with_pilot_recommendation_refs(study_result, persisted_recommendation)
+
+    assert persisted_economy is not None
+    assert persisted_recommendation is not None
+    assert duplicate_recommendation is None
+    assert study_result.result_store_refs["economy_job_id"] == persisted_economy.job.job_id
+    assert study_result.result_store_refs["recommendation_job_id"] == persisted_recommendation.job.job_id
+    jobs = app._pilot_access_service().job_store.list_project_jobs(project.project_id)
+    assert len(jobs) == 2
+    assert {job.job_type for job in jobs} == {JobType.ECONOMIC_STUDY, JobType.RECOMMENDATION}
+
+
 def test_streamlit_app_shows_pilot_login_gate_when_enabled(tmp_path, monkeypatch):
     import green_direct.ui.app as app
     from streamlit.testing.v1 import AppTest

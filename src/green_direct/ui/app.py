@@ -59,7 +59,10 @@ from green_direct.services import (
     StudyResult,
     TechnicalStudyInput,
     build_recommendation_study,
+    persist_economic_study_result,
+    persist_recommendation_study_result,
     persist_technical_study_result,
+    recommendation_result_fingerprint,
     run_economic_study,
     run_technical_study,
 )
@@ -143,6 +146,7 @@ PILOT_ACTIVE_PROJECT_NAME_KEY = "_pilot_active_project_name"
 PILOT_ACTIVE_PROJECT_ROLE_KEY = "_pilot_active_project_role"
 PILOT_PROJECT_NOTICE_KEY = "_pilot_project_notice"
 PILOT_RESULT_STORE_NOTICE_KEY = "_pilot_result_store_notice"
+PILOT_RECOMMENDATION_STORE_SIGNATURE_KEY = "_pilot_recommendation_store_signature"
 PLATFORM_ADMIN_PAGE = "平台管理"
 CHART_PNG_DOCX_SESSION_ID_KEY = "_chart_png_docx_session_id"
 _CHART_PNG_DOCX_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="green-direct-png")
@@ -176,6 +180,7 @@ PILOT_AUTH_WORK_STATE_KEYS = tuple(
             PROJECT_PRICE_CURVE_NOTICE_KEY,
             PROJECT_PRICE_CURVE_SESSION_UPLOAD_KEY,
             PILOT_RESULT_STORE_NOTICE_KEY,
+            PILOT_RECOMMENDATION_STORE_SIGNATURE_KEY,
             "download_payloads",
             "chart_png_docx_export",
             "chart_png_docx_export_error",
@@ -1977,6 +1982,42 @@ def _study_result_with_pilot_refs(study_result: StudyResult, persisted) -> Study
     return replace(study_result, result_store_refs=refs)
 
 
+def _study_result_with_pilot_economy_refs(study_result: StudyResult, persisted) -> StudyResult:
+    refs = {
+        **study_result.result_store_refs,
+        "project_id": persisted.job.project_id,
+        "economy_job_id": persisted.job.job_id,
+        "economy_result_id": persisted.result_record.result_id,
+        "power_economy_summary_artifact_id": persisted.power_summary_artifact.artifact_id,
+        "single_entity_summary_artifact_id": persisted.single_entity_summary_artifact.artifact_id,
+        "economy_input_fingerprint": persisted.input_fingerprint,
+    }
+    return replace(study_result, result_store_refs=refs)
+
+
+def _study_result_with_pilot_recommendation_refs(study_result: StudyResult, persisted) -> StudyResult:
+    refs = {
+        **study_result.result_store_refs,
+        "project_id": persisted.job.project_id,
+        "recommendation_job_id": persisted.job.job_id,
+        "recommendation_result_id": persisted.result_record.result_id,
+        "recommendation_portfolio_artifact_id": persisted.portfolio_artifact.artifact_id,
+        "recommendation_load_side_detail_artifact_id": persisted.load_side_detail_artifact.artifact_id,
+        "recommendation_input_fingerprint": persisted.input_fingerprint,
+    }
+    return replace(study_result, result_store_refs=refs)
+
+
+def _current_pilot_study_id(st) -> str | None:
+    study_result = st.session_state.get("study_result")
+    if isinstance(study_result, StudyResult):
+        return study_result.study_id
+    snapshot = st.session_state.get("config_snapshot")
+    if isinstance(snapshot, dict) and snapshot.get("study_id"):
+        return str(snapshot["study_id"])
+    return None
+
+
 def _persist_pilot_technical_result_if_enabled(st, technical_result) -> object | None:
     if not _pilot_auth_enabled():
         return None
@@ -1998,6 +2039,64 @@ def _persist_pilot_technical_result_if_enabled(st, technical_result) -> object |
         raise
     st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
         f"已写入项目结果存储：Job {persisted.job.job_id} / Result {persisted.result_record.result_id}"
+    )
+    return persisted
+
+
+def _persist_pilot_economic_result_if_enabled(st, economic_result) -> object | None:
+    if not _pilot_auth_enabled():
+        return None
+    actor_user_id = _current_pilot_user_id(st)
+    project_id = _current_pilot_project_id(st)
+    study_id = _current_pilot_study_id(st)
+    if not actor_user_id or not project_id or not study_id:
+        return None
+    try:
+        persisted = persist_economic_study_result(
+            access_service=_pilot_access_service(),
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_id,
+            economic_result=economic_result,
+        )
+    except Exception as exc:  # noqa: BLE001 - persistence failure should not discard the computed study
+        if isinstance(exc, (PilotAccessError, FileExistsError, FileNotFoundError, ValueError, OSError)):
+            st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = f"项目经济结果保存失败：{exc}"
+            return None
+        raise
+    st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
+        f"已写入项目经济结果存储：Job {persisted.job.job_id} / Result {persisted.result_record.result_id}"
+    )
+    return persisted
+
+
+def _persist_pilot_recommendation_result_if_enabled(st, recommendation_result) -> object | None:
+    if not _pilot_auth_enabled():
+        return None
+    signature = recommendation_result_fingerprint(recommendation_result)
+    if st.session_state.get(PILOT_RECOMMENDATION_STORE_SIGNATURE_KEY) == signature:
+        return None
+    actor_user_id = _current_pilot_user_id(st)
+    project_id = _current_pilot_project_id(st)
+    study_id = _current_pilot_study_id(st)
+    if not actor_user_id or not project_id or not study_id:
+        return None
+    try:
+        persisted = persist_recommendation_study_result(
+            access_service=_pilot_access_service(),
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_id,
+            recommendation_result=recommendation_result,
+        )
+    except Exception as exc:  # noqa: BLE001 - persistence failure should not discard the computed study
+        if isinstance(exc, (PilotAccessError, FileExistsError, FileNotFoundError, ValueError, OSError)):
+            st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = f"项目推荐结果保存失败：{exc}"
+            return None
+        raise
+    st.session_state[PILOT_RECOMMENDATION_STORE_SIGNATURE_KEY] = signature
+    st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
+        f"已写入项目推荐结果存储：Job {persisted.job.job_id} / Result {persisted.result_record.result_id}"
     )
     return persisted
 
@@ -3823,9 +3922,19 @@ def _render_recommendation_v1(
         single_entity_view=single_entity_view,
         engineering_view=engineering_view,
     )
+    persisted_recommendation_result = _persist_pilot_recommendation_result_if_enabled(st, recommendation_result)
     study_result = st.session_state.get("study_result")
     if isinstance(study_result, StudyResult):
-        st.session_state["study_result"] = study_result.with_recommendation_result(recommendation_result)
+        next_study_result = study_result.with_recommendation_result(recommendation_result)
+        if persisted_recommendation_result is not None:
+            next_study_result = _study_result_with_pilot_recommendation_refs(
+                next_study_result,
+                persisted_recommendation_result,
+            )
+        st.session_state["study_result"] = next_study_result
+    store_notice = st.session_state.pop(PILOT_RESULT_STORE_NOTICE_KEY, "")
+    if store_notice:
+        st.info(store_notice)
     portfolio = recommendation_result.portfolio
 
     if portfolio.empty:
@@ -4310,6 +4419,7 @@ def _render_economy_v1(
                     fixed_down_grid_landed_price_with_vat=fixed_down_grid_landed_price,
                     fixed_green_self_use_extra_fee_with_vat=fixed_green_self_use_extra_fee,
                 )
+            persisted_economy_result = _persist_pilot_economic_result_if_enabled(st, economic_study_result)
             st.session_state["economy_v1_result"] = {
                 "summary": economic_study_result.power_summary,
                 "annual_cashflows": economic_study_result.power_annual_cashflows,
@@ -4325,9 +4435,13 @@ def _render_economy_v1(
             st.session_state["recommendation_v1_inputs"] = economic_study_result.recommendation_inputs.to_session_dict()
             study_result = st.session_state.get("study_result")
             if isinstance(study_result, StudyResult):
-                st.session_state["study_result"] = study_result.with_economic_result(economic_study_result)
+                next_study_result = study_result.with_economic_result(economic_study_result)
+                if persisted_economy_result is not None:
+                    next_study_result = _study_result_with_pilot_economy_refs(next_study_result, persisted_economy_result)
+                st.session_state["study_result"] = next_study_result
             st.session_state.pop("download_payloads", None)
-            st.session_state["_economy_notice"] = "经济性 V1 已计算，推荐页和导出页已可读取经济性结果。"
+            store_notice = st.session_state.pop(PILOT_RESULT_STORE_NOTICE_KEY, "")
+            st.session_state["_economy_notice"] = f"经济性 V1 已计算，推荐页和导出页已可读取经济性结果。{store_notice}"
             _save_runtime_snapshot(st)
             st.rerun()
         except ValueError as exc:

@@ -3391,7 +3391,7 @@ exchange_import_shortfall_energy == 0
 
 边界说明：
 - 这仍是内部 pilot 的本地 JSON 版最小边界，不是正式企业 IAM、数据库会话、CSRF 防护、审计后台或多 worker 任务系统；
-- 当前技术仿真已将 summary 和 config snapshot 写入 `LocalResultStore`；经济性测算、推荐和导出结果仍主要保存在当前 Streamlit session_state；
+- 当前技术仿真 summary/config snapshot、经济性 summary 和推荐 portfolio 已有第一阶段 `LocalResultStore` 写入；年度现金流、逐小时明细、图表包和报告仍主要保存在当前 Streamlit session_state；
 - 项目成员管理是平台管理员入口，不是完整项目管理员自助后台；
 - 后续优先把技术仿真、经济性测算、推荐和导出提交为项目级 `Job`，并把 summary、推荐组合、逐小时明细和报告产物写入 `ResultStore`。
 
@@ -3419,10 +3419,37 @@ exchange_import_shortfall_energy == 0
 边界说明：
 - 当前仍是同步写入，不是真正后台 worker；
 - 技术仿真计算本身仍发生在 Streamlit 进程内；
-- 当前只持久化技术汇总和配置快照，经济性结果、推荐组合、逐小时明细、图表包和报告仍待迁移；
+- 本轮只持久化技术汇总和配置快照；随后已补经济性 summary 和推荐 portfolio 第一阶段写入，年度现金流、逐小时明细、图表包和报告仍待迁移；
 - artifact id 在同一 `study_id` 下固定为 `technical_summary` / `config_snapshot`，依赖 `run_technical_study()` 每次生成唯一 `study_id`。
 
 验证：
 - `python -m pytest tests/test_pilot_access.py::test_job_lifecycle_updates_require_owner_or_project_admin_and_are_audited tests/test_pilot_study_persistence.py tests/test_ui_import.py::test_pilot_technical_result_helper_persists_and_attaches_refs -q` 通过，4 项通过；
 - `python -m pytest -q` 通过，252 项通过；
+- `python -m compileall -q src` 通过。
+
+### 2026-06-15 经济性与推荐结果 ResultStore 第一阶段
+
+本轮继续沿用项目级 `Job` / `ResultStore` 契约，把 03 页经济性测算和推荐组合从纯 session_state 推进到可审计的项目产物。技术结果持久化已经验证了项目上下文、权限和本地 store 之间的闭环；这次补上经济 summary 和推荐 portfolio，让内部 pilot 用户的关键筛选结果不再完全悬挂在当前浏览器会话里。
+
+本轮判断：
+- 经济性测算可能在同一个技术 `study_id` 下反复调整参数并重跑，因此 artifact id 和 result id 必须带 job 后缀，不能像技术结果那样固定为 `technical_summary`；
+- 推荐页是渲染时构建，不能每次刷新都写一个新 Job，因此 UI 用推荐结果 fingerprint 去重；只有推荐组合内容变化时才新写入；
+- 年度现金流、逐小时明细、图表包和报告体量更大，先不和 summary/portfolio 一起迁移，避免把历史结果页、按需明细和导出生命周期一次性混进来。
+
+本轮实现：
+- `persist_economic_study_result()`：登记 `economic_study` Job，写入 `power_economy_summary.csv` 和 `single_entity_summary.csv`，并保存 `StudyResultRecord(result_id="economy_result_<job_id>")`；
+- `persist_recommendation_study_result()`：登记 `recommendation` Job，写入 `recommendation_portfolio.csv` 和 `recommendation_load_side_detail.csv`，并保存 `StudyResultRecord(result_id="recommendation_result_<job_id>")`；
+- 新增 `economic_input_fingerprint()` 和 `recommendation_result_fingerprint()`，用于去重、追踪和后续缓存设计；
+- Streamlit 经济测算按钮成功后会写入经济结果，并把 `economy_job_id`、`economy_result_id`、summary artifact id 和 fingerprint 挂到 `StudyResult.result_store_refs`；
+- Streamlit 推荐页生成推荐组合后会按 fingerprint 去重写入推荐结果，并把 `recommendation_job_id`、`recommendation_result_id`、portfolio/detail artifact id 和 fingerprint 挂到 `StudyResult.result_store_refs`。
+
+边界说明：
+- 当前仍是同步写入，不是真正后台 worker；
+- 当前不持久化年度现金流、逐小时明细、图表 ZIP/PNG、Markdown/Word 报告；
+- 推荐结果在 UI 渲染时构建，去重签名保存在当前 Streamlit session；跨会话重复写入仍需后续历史结果/缓存层解决；
+- `LocalResultStore` 仍是本地 JSON/文件 store，没有事务、锁、备份或数据库适配。
+
+验证：
+- `python -m pytest tests/test_pilot_study_persistence.py tests/test_ui_import.py::test_pilot_economy_and_recommendation_helpers_persist_refs_and_dedupe -q` 通过，5 项通过；
+- `python -m pytest -q` 通过，255 项通过；
 - `python -m compileall -q src` 通过。
