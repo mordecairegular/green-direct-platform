@@ -3632,3 +3632,31 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_upload_policy.py tests/test_ui_import.py -q` 通过，61 项通过；
 - `python -m compileall -q src` 通过；
 - `python -m pytest -q` 通过，266 项通过。
+
+### 2026-06-15 Artifact 留存清理第一版
+
+本轮继续补受控公网内测 Route A 的数据留存缺口。上传门禁已经解决“什么文件允许进入程序”，但项目级 artifact 仍需要能区分长期保留和到期清理，避免逐小时明细、导出包等大文件长期无限积累。
+
+本轮判断：
+- Artifact 清理不应直接删除整个 artifact 目录和元数据，否则历史结果索引、审计线索和用户看到的“曾经生成过什么”都会丢失；
+- 第一版先在 `JobArtifact` 上表达 `keep` / `expire` 策略、到期时间和清理时间，底层 store 只删除 payload 文件；
+- payload 已清理后，历史索引仍可展示，但下载时必须给出明确错误；
+- 清理命令应由平台管理员执行，并写入项目级 `DELETE_ARTIFACT` 审计，方便之后排查“文件丢了”究竟是过期清理、权限拒绝还是存储损坏。
+
+本轮实现：
+- `JobArtifact` 新增 `retention_policy`、`expires_at`、`purged_at`，并要求相关时间为 timezone-aware；
+- `LocalResultStore.store_artifact()` 可写入留存策略，`load_artifact()` 兼容老 metadata 默认 `keep`；
+- `LocalResultStore.purge_expired_artifacts(now=...)` 遍历项目 artifact metadata，删除到期 payload，重写 `purged_at`，保留 `artifact.json`；
+- `read_artifact_payload()` 遇到已清理 payload 会抛出清晰的 `FileNotFoundError`；
+- `pilot-admin purge-expired-artifacts` 会先校验执行者为平台管理员，再执行清理，并为每个清理的 payload 写入 `DELETE_ARTIFACT` 审计。
+
+边界说明：
+- 当前不是定时任务，不会自动后台清理；需要管理员或未来调度器显式调用；
+- 当前不保存也不清理原始上传文件；
+- 当前本地 JSON/file store 仍不替代对象存储生命周期策略、数据库事务或备份恢复；
+- 逐小时明细、图表包、报告和现金流产物后续写入 ResultStore 时，应按数据敏感性设置合理默认留存策略。
+
+验证：
+- `python -m pytest tests/test_result_store.py tests/test_pilot_backend_models.py tests/test_cli.py -q` 通过，23 项通过；
+- `python -m compileall -q src` 通过；
+- `python -m pytest -q` 通过，269 项通过。

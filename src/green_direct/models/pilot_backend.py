@@ -89,6 +89,11 @@ class ArtifactKind(str, Enum):
     REPORT = "report"
 
 
+class ArtifactRetentionPolicy(str, Enum):
+    KEEP = "keep"
+    EXPIRE = "expire"
+
+
 class AuditAction(str, Enum):
     LOGIN = "login"
     CREATE_USER = "create_user"
@@ -311,6 +316,9 @@ class JobArtifact:
     content_type: str = "application/octet-stream"
     sha256: str | None = None
     size_bytes: int = 0
+    retention_policy: ArtifactRetentionPolicy | str = ArtifactRetentionPolicy.KEEP
+    expires_at: datetime | None = None
+    purged_at: datetime | None = None
     created_at: datetime = field(default_factory=_utcnow)
 
     def __post_init__(self) -> None:
@@ -321,8 +329,27 @@ class JobArtifact:
         _require_text(self.storage_uri, "storage_uri")
         _require_text(self.content_type, "content_type")
         _require_non_negative(self.size_bytes, "size_bytes")
+        _ensure_aware(self.expires_at, "expires_at")
+        _ensure_aware(self.purged_at, "purged_at")
         _ensure_aware(self.created_at, "created_at")
         object.__setattr__(self, "kind", _coerce_enum(self.kind, ArtifactKind, "kind"))
+        object.__setattr__(
+            self,
+            "retention_policy",
+            _coerce_enum(self.retention_policy, ArtifactRetentionPolicy, "retention_policy"),
+        )
+
+    @property
+    def is_payload_available(self) -> bool:
+        return self.purged_at is None
+
+    def is_expired(self, now: datetime) -> bool:
+        _ensure_aware(now, "now")
+        return (
+            self.retention_policy == ArtifactRetentionPolicy.EXPIRE
+            and self.expires_at is not None
+            and self.expires_at <= now
+        )
 
 
 @dataclass(frozen=True)

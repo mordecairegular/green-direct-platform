@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 
 from green_direct.models.pilot_backend import (
+    ArtifactRetentionPolicy,
     ArtifactKind,
     AuditLog,
     JobArtifact,
@@ -25,6 +26,10 @@ from green_direct.services.local_store_utils import (
     validate_path_segment,
     write_json,
 )
+
+
+def _parse_optional_datetime(value: str | None) -> datetime | None:
+    return datetime.fromisoformat(value) if value else None
 
 
 class LocalResultStore:
@@ -64,6 +69,8 @@ class LocalResultStore:
         payload: bytes | str,
         filename: str,
         content_type: str = "application/octet-stream",
+        retention_policy: ArtifactRetentionPolicy | str = ArtifactRetentionPolicy.KEEP,
+        expires_at: datetime | None = None,
         overwrite: bool = False,
     ) -> JobArtifact:
         """Write an artifact payload and return its immutable index record."""
@@ -94,6 +101,9 @@ class LocalResultStore:
             content_type=content_type,
             sha256=digest,
             size_bytes=len(data),
+            retention_policy=retention_policy,
+            expires_at=expires_at,
+            purged_at=None,
         )
         write_json(metadata_path, asdict(artifact))
         return artifact
@@ -113,18 +123,59 @@ class LocalResultStore:
             content_type=data["content_type"],
             sha256=data.get("sha256"),
             size_bytes=int(data.get("size_bytes", 0)),
+            retention_policy=data.get("retention_policy", ArtifactRetentionPolicy.KEEP.value),
+            expires_at=_parse_optional_datetime(data.get("expires_at")),
+            purged_at=_parse_optional_datetime(data.get("purged_at")),
             created_at=datetime.fromisoformat(data["created_at"]),
         )
 
     def read_artifact_payload(self, artifact: JobArtifact) -> bytes:
         """Read payload bytes for a previously stored artifact record."""
 
+        if not artifact.is_payload_available:
+            raise FileNotFoundError(f"Artifact payload has been purged: {artifact.artifact_id}")
         artifact_dir = self._artifact_dir(artifact.project_id, artifact.study_id, artifact.artifact_id)
         filename = artifact.storage_uri.rsplit("/", 1)[-1]
         payload = (artifact_dir / validate_path_segment(filename, "filename")).read_bytes()
         if artifact.sha256 and hashlib.sha256(payload).hexdigest() != artifact.sha256:
             raise ValueError("Artifact checksum mismatch.")
         return payload
+
+    def purge_expired_artifacts(self, *, now: datetime) -> list[JobArtifact]:
+        """Delete expired artifact payloads while keeping artifact metadata."""
+
+        purged: list[JobArtifact] = []
+        projects_dir = self.root / "projects"
+        if not projects_dir.exists():
+            return []
+        for metadata_path in sorted(projects_dir.glob("*/studies/*/artifacts/*/artifact.json")):
+            data = read_json(metadata_path)
+            artifact = self.load_artifact(data["project_id"], data["study_id"], data["artifact_id"])
+            if not artifact.is_payload_available or not artifact.is_expired(now):
+                continue
+            artifact_dir = self._artifact_dir(artifact.project_id, artifact.study_id, artifact.artifact_id)
+            filename = validate_path_segment(artifact.storage_uri.rsplit("/", 1)[-1], "filename")
+            payload_path = artifact_dir / filename
+            if payload_path.exists():
+                payload_path.unlink()
+            purged_artifact = JobArtifact(
+                artifact_id=artifact.artifact_id,
+                project_id=artifact.project_id,
+                study_id=artifact.study_id,
+                job_id=artifact.job_id,
+                kind=artifact.kind,
+                storage_uri=artifact.storage_uri,
+                content_type=artifact.content_type,
+                sha256=artifact.sha256,
+                size_bytes=artifact.size_bytes,
+                retention_policy=artifact.retention_policy,
+                expires_at=artifact.expires_at,
+                purged_at=now,
+                created_at=artifact.created_at,
+            )
+            write_json(metadata_path, asdict(purged_artifact))
+            purged.append(purged_artifact)
+        return purged
 
     def save_result_record(self, record: StudyResultRecord, *, overwrite: bool = False) -> StudyResultRecord:
         """Persist a study result index."""

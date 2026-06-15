@@ -4,6 +4,7 @@ import pytest
 
 from green_direct.models.pilot_backend import (
     ArtifactKind,
+    ArtifactRetentionPolicy,
     AuditAction,
     AuditLog,
     Job,
@@ -187,6 +188,33 @@ def test_artifact_rejects_negative_size_and_empty_storage_uri():
 
     with pytest.raises(ValueError, match="storage_uri must not be empty"):
         JobArtifact("artifact_bad", "project_1", "study_1", "job_1", ArtifactKind.REPORT, "")
+
+
+def test_artifact_retention_policy_controls_expiration():
+    expiring = JobArtifact(
+        "artifact_expiring",
+        "project_1",
+        "study_1",
+        "job_1",
+        ArtifactKind.HOURLY_DETAIL,
+        "store://hourly.csv",
+        retention_policy=ArtifactRetentionPolicy.EXPIRE,
+        expires_at=_dt(3),
+    )
+    keep = JobArtifact(
+        "artifact_keep",
+        "project_1",
+        "study_1",
+        "job_1",
+        ArtifactKind.TECHNICAL_SUMMARY,
+        "store://summary.csv",
+        retention_policy=ArtifactRetentionPolicy.KEEP,
+        expires_at=_dt(1),
+    )
+
+    assert not expiring.is_expired(_dt(2))
+    assert expiring.is_expired(_dt(3))
+    assert not keep.is_expired(_dt(6))
 
 
 def test_audit_log_is_append_only_event_shape_with_metadata_copy():

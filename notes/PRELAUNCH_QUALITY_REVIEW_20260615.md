@@ -16,10 +16,11 @@
 - 经济性批量评价性能优化；
 - 内部试用后台模型、结果存储、账号注册表、认证、可选 Streamlit 登录门禁、项目工作区门禁、最小平台账号/项目成员管理页、管理员服务、任务状态存储、权限审计门面，技术/经济 summary/推荐 portfolio 持久化第一阶段，以及欢迎页任务/结果索引、已落盘 artifact 下载和技术 summary-only 恢复面板；
 - `pilot-admin` 命令行账号管理入口；
+- Artifact payload 留存清理第一版；
 - 面向 Claude Code 的内部试用审查 / 后台架构 prompt 和跨机器 handoff 文档；
 - 已吸收用户补充的受控公网内测讨论稿方向：不接真实电力控制系统、不开放社会化注册、保留项目/Run/Artifact/AuditLog、后端控制导出权限、补文件安全和部署恢复边界。
 
-近期 checkpoint 已覆盖 CLI、认证、平台管理、项目工作区、大批量汇总优先模式，技术仿真 summary/config、经济性 summary、推荐 portfolio 写入项目级 `ResultStore`，以及项目内最近任务/结果索引、已落盘 artifact 下载和技术 summary-only 恢复；具体提交以 `git log --oneline` 为准。
+近期 checkpoint 已覆盖 CLI、认证、平台管理、项目工作区、大批量汇总优先模式，技术仿真 summary/config、经济性 summary、推荐 portfolio 写入项目级 `ResultStore`，项目内最近任务/结果索引、已落盘 artifact 下载和技术 summary-only 恢复，以及到期 artifact payload 清理；具体提交以 `git log --oneline` 为准。
 
 ## 验证结果
 
@@ -33,11 +34,11 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 
 结果：
 
-- 全量测试通过：266 项通过；
+- 全量测试通过：269 项通过；
 - `src` 编译检查通过；
 - 源码树下 CLI 启动口径验证通过；
 - `git diff --check` 没有实际空白错误，仅有 Windows 换行转换提示；
-- 本轮任务/结果索引 checkpoint 提交前，工作区为有意修改状态；提交后应重新确认干净。
+- 本轮 artifact 留存清理 checkpoint 提交前，工作区为有意修改状态；提交后应重新确认干净。
 
 ## 结论
 
@@ -69,8 +70,8 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 4. 本地 JSON 文件 store 没有事务、锁和备份策略。
    账号、会话、任务和结果服务适合作为 pilot 语义骨架，但不是正式数据库。并发写入、磁盘损坏、机器迁移和权限隔离都需要 SQLite/Postgres 或对象存储适配器解决。
 
-5. 上传文件已有第一层类型/大小门禁，但产物留存和清理仍缺少公网内测级闭环。
-   Streamlit 上传入口已限制允许后缀和默认 20MB 单文件大小，技术仿真配置快照会记录上传文件名、大小和 SHA256；但仍需要按用户/项目/Run 保存或选择性清理原始上传文件、逐小时明细和导出文件，避免普通日志记录原始曲线或服务器内部路径，并实现关键 Run 保留机制。
+5. 上传文件已有第一层类型/大小门禁，artifact payload 已有过期清理第一版，但数据留存仍未达到公网内测级闭环。
+   Streamlit 上传入口已限制允许后缀和默认 20MB 单文件大小，技术仿真配置快照会记录上传文件名、大小和 SHA256；`JobArtifact` 已能记录 `retention_policy`、`expires_at`、`purged_at`，`pilot-admin purge-expired-artifacts` 可由平台管理员清理到期 payload 并写入 `DELETE_ARTIFACT` 审计。但仍需要按用户/项目/Run 保存或选择性清理原始上传文件、逐小时明细、图表包和报告文件，避免普通日志记录原始曲线或服务器内部路径，并实现关键 Run 保留机制和定时调度。
 
 6. 部署策略仍是本地/桌面优先。
    当前启动脚本更适合 Windows 本机或演示机，缺少服务守护、日志、监控、HTTPS、反向代理、CI/CD、健康检查和恢复手册。
@@ -86,8 +87,8 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 3. 图表模块仍是原型型展示层。
    目前可用于 pilot 交流和核查，但不应作为长期架构锚点。后续应围绕推荐方案和按需明细重做图表/报告。
 
-4. `pilot-admin` CLI 仍是 bootstrap 和应急运维入口。
-   最小 Streamlit 平台管理页已经可维护账号和项目成员，但首个管理员创建、密码应急重置和服务器端排障仍需要 CLI 或后续独立后台。
+4. `pilot-admin` CLI 仍是 bootstrap、应急运维和过期 artifact 清理入口。
+   最小 Streamlit 平台管理页已经可维护账号和项目成员，但首个管理员创建、密码应急重置、过期 payload 清理和服务器端排障仍需要 CLI 或后续独立后台。
 
 5. 欢迎页“项目任务与结果”仍不是完整历史结果页。
    它可以帮助内部试用用户确认当前项目已有任务和结果记录，下载已落盘的 summary / portfolio artifact，并 summary-only 恢复技术汇总；但不能恢复完整历史 `StudyResult`、逐小时明细、经济结果、推荐结果，不能删除结果、标记报告版本或跨项目搜索。

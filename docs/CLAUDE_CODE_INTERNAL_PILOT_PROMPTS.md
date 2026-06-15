@@ -95,6 +95,7 @@ python -m pytest -q
    - 项目角色是否被误当作完整公网内测角色体系，尤其是否缺少可导出/不可导出用户授权；
    - BETA_USER_NO_EXPORT 是否能通过直接 URL、缓存、artifact 读取或未来 API 绕过导出限制；
    - 上传文件是否限制类型、大小和 schema，文件路径是否按用户/项目/Run 隔离且不落入 Git 仓库；
+   - `JobArtifact.retention_policy` / `expires_at` / `purged_at` 和 `pilot-admin purge-expired-artifacts` 是否只删除到期 payload、保留元数据并写入审计；原始上传文件、图表包、报告和关键 Run 是否仍缺留存策略；
    - 日志和错误提示是否可能包含原始曲线、明文 token、服务器绝对路径或敏感项目名；
    - 是否已有 `.env.example`、部署说明、HTTPS/反向代理、数据卷、备份、恢复和回滚说明。
 
@@ -163,7 +164,8 @@ python -m pytest -q
 5. 技术仿真、经济性测算、推荐组合、PNG/HTML/Excel/Markdown 导出的后台任务化；
 6. 输入文件、结果文件和下载文件的隔离策略；
 7. 可导出/不可导出用户的后端授权策略；
-8. 与现有 `run_technical_study()`、`run_economic_study()`、`build_recommendation_study()` 的衔接方式。
+8. Artifact 留存策略、过期清理、关键 Run 保留和清理审计；
+9. 与现有 `run_technical_study()`、`run_economic_study()`、`build_recommendation_study()` 的衔接方式。
 
 请输出：
 1. 最小数据模型；

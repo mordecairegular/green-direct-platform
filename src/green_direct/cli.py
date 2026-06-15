@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import getpass
 import os
 from pathlib import Path
 import sys
 from typing import Sequence
+from uuid import uuid4
 
-from green_direct.models.pilot_backend import User
+from green_direct.models.pilot_backend import AuditAction, AuditLog, User
 from green_direct.services import (
     LocalPilotAdminService,
     LocalPilotAuth,
@@ -155,6 +157,36 @@ def _cmd_list_sessions(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_purge_expired_artifacts(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    services.admin.list_users(actor_user_id=args.actor_user_id)
+    now = datetime.now(timezone.utc)
+    purged = services.result_store.purge_expired_artifacts(now=now)
+    for artifact in purged:
+        services.result_store.append_audit_log(
+            AuditLog(
+                event_id=f"artifact-purge-{uuid4().hex}",
+                actor_user_id=args.actor_user_id,
+                action=AuditAction.DELETE_ARTIFACT,
+                project_id=artifact.project_id,
+                study_id=artifact.study_id,
+                job_id=artifact.job_id,
+                target_type="artifact_payload",
+                target_id=artifact.artifact_id,
+                metadata={
+                    "retention_policy": artifact.retention_policy.value,
+                    "expires_at": artifact.expires_at.isoformat() if artifact.expires_at else None,
+                    "purged_at": artifact.purged_at.isoformat() if artifact.purged_at else None,
+                },
+                created_at=now,
+            )
+        )
+    print(f"Purged expired artifact payloads: {len(purged)}")
+    for artifact in purged:
+        print(f"{artifact.project_id}\t{artifact.study_id}\t{artifact.artifact_id}\t{artifact.purged_at.isoformat()}")
+    return 0
+
+
 def _add_common_store_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--store-dir",
@@ -234,6 +266,14 @@ def build_parser() -> argparse.ArgumentParser:
     list_sessions.add_argument("--user-id", required=True)
     list_sessions.add_argument("--active-only", action="store_true")
     list_sessions.set_defaults(func=_cmd_list_sessions)
+
+    purge_artifacts = pilot_admin_sub.add_parser(
+        "purge-expired-artifacts",
+        help="Purge expired artifact payloads while keeping metadata.",
+    )
+    _add_common_store_arg(purge_artifacts)
+    _add_actor_arg(purge_artifacts)
+    purge_artifacts.set_defaults(func=_cmd_purge_expired_artifacts)
 
     return parser
 

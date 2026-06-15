@@ -4,6 +4,7 @@ import pytest
 
 from green_direct.models.pilot_backend import (
     ArtifactKind,
+    ArtifactRetentionPolicy,
     AuditAction,
     AuditLog,
     JobType,
@@ -86,6 +87,45 @@ def test_result_store_prevents_accidental_artifact_overwrite(tmp_path):
     overwritten = store.store_artifact(**{**kwargs, "payload": b"second", "overwrite": True})
     assert first.sha256 != overwritten.sha256
     assert store.read_artifact_payload(overwritten) == b"second"
+
+
+def test_result_store_purges_expired_payload_but_keeps_artifact_metadata(tmp_path):
+    store = LocalResultStore(tmp_path)
+    expired = store.store_artifact(
+        artifact_id="hourly_detail_s0001",
+        project_id="project_1",
+        study_id="study_1",
+        job_id="job_1",
+        kind=ArtifactKind.HOURLY_DETAIL,
+        payload=b"hourly-detail",
+        filename="hourly_s0001.csv",
+        retention_policy=ArtifactRetentionPolicy.EXPIRE,
+        expires_at=_dt(2),
+    )
+    keep = store.store_artifact(
+        artifact_id="technical_summary",
+        project_id="project_1",
+        study_id="study_1",
+        job_id="job_1",
+        kind=ArtifactKind.TECHNICAL_SUMMARY,
+        payload=b"summary",
+        filename="summary.csv",
+        retention_policy=ArtifactRetentionPolicy.KEEP,
+        expires_at=_dt(1),
+    )
+
+    purged = store.purge_expired_artifacts(now=_dt(3))
+
+    assert [artifact.artifact_id for artifact in purged] == ["hourly_detail_s0001"]
+    loaded_expired = store.load_artifact("project_1", "study_1", expired.artifact_id)
+    loaded_keep = store.load_artifact("project_1", "study_1", keep.artifact_id)
+    assert loaded_expired.purged_at == _dt(3)
+    assert not loaded_expired.is_payload_available
+    assert loaded_keep.is_payload_available
+    assert store.read_artifact_payload(loaded_keep) == b"summary"
+    with pytest.raises(FileNotFoundError, match="payload has been purged"):
+        store.read_artifact_payload(loaded_expired)
+    assert store.purge_expired_artifacts(now=_dt(4)) == []
 
 
 def test_result_store_round_trips_result_record(tmp_path):

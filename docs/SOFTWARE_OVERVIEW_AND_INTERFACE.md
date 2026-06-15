@@ -3,7 +3,7 @@
 本文档面向后续模块开发者和 AI 协作上下文，说明当前软件的模块边界、核心计算口径、数据结构和接口契约。后续图表制作、经济性评价、报告生成等模块应优先参考本文档接入当前 V0.1 技术测算模块。
 
 状态：V0.1 技术测算基线 + 经济性 / 推荐 V1 试用接口说明 + 服务层 StudyResult 雏形
-最近更新：2026-06-04
+最近更新：2026-06-15
 适用范围：当前代码位于 `src/green_direct/`
 
 ## 1. 软件定位
@@ -969,7 +969,7 @@ python -m pytest
 
 - `User`、`Project`、`ProjectMembership`、`ProjectStudy`；
 - `Job`、`JobType`、`JobStatus`；
-- `JobArtifact`、`ArtifactKind`、`StudyResultRecord`；
+- `JobArtifact`、`ArtifactKind`、`ArtifactRetentionPolicy`、`StudyResultRecord`；
 - `AuditLog`、`AuditAction`。
 
 其中 `User.is_platform_admin` 表示平台账号管理员，和项目内 `ProjectRole.ADMIN` 分离：前者可用于全站用户管理，后者只用于某个项目内的成员、任务和产物权限。
@@ -982,11 +982,14 @@ python -m pytest
 
 - `store_artifact()`：按 `project_id` / `study_id` 写入产物 payload，并返回 `JobArtifact`；
 - `load_artifact()` / `read_artifact_payload()`：读取产物索引和 payload，读取时校验 SHA256；
+- `purge_expired_artifacts()`：删除已过期 artifact 的 payload，并保留 `artifact.json` 元数据；
 - `save_result_record()` / `load_result_record()`：保存和读取 `StudyResultRecord`；
 - `list_project_result_records()` / `list_study_result_records()`：按项目或研究列出结果索引，默认创建时间倒序；
 - `append_audit_log()` / `read_audit_log()`：写入和读取项目级或全局审计事件。
 
-`LocalResultStore` 目前已接入技术仿真 summary/config、经济性 summary、推荐 portfolio 的第一阶段写入和最小结果索引读取，但仍不是正式数据库或对象存储。后续接入时，年度现金流、逐小时明细、图表包、报告和历史结果恢复应逐步写入该 store 或其数据库/对象存储替代实现。
+`JobArtifact` 已包含 `retention_policy`、`expires_at` 和 `purged_at`。过期清理只删除 payload 文件，保留 `artifact.json`、`storage_uri`、`sha256`、`size_bytes`、过期时间和清理时间，便于继续展示历史索引和审计线索；`read_artifact_payload()` 遇到已清理产物会返回明确错误。
+
+`LocalResultStore` 目前已接入技术仿真 summary/config、经济性 summary、推荐 portfolio 的第一阶段写入和最小结果索引读取，并支持 artifact payload 留存清理第一版；但仍不是正式数据库或对象存储。后续接入时，年度现金流、逐小时明细、图表包、报告和历史结果恢复应逐步写入该 store 或其数据库/对象存储替代实现。
 
 `src/green_direct/services/upload_policy.py` 已提供第一版上传安全门禁：
 
@@ -995,7 +998,7 @@ python -m pytest
 - `inspect_upload()` 会返回安全 trace metadata：文件名、后缀、大小和 SHA256；
 - `filter_uploads()` 会过滤非法文件并返回用户可读的拒绝原因。
 
-Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，但技术曲线仍只纳入 CSV；单独覆盖的负荷/光伏/风电曲线只允许 CSV；下网电价曲线允许 CSV/XLSX/XLSM。非法文件不会进入预览、曲线读取或电价曲线解析。正式受控公网内测前仍应补充原始文件留存策略、仓库外隔离存储和过期清理。
+Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，但技术曲线仍只纳入 CSV；单独覆盖的负荷/光伏/风电曲线只允许 CSV；下网电价曲线允许 CSV/XLSX/XLSM。非法文件不会进入预览、曲线读取或电价曲线解析。正式受控公网内测前仍应补充原始文件留存策略、仓库外隔离存储和定时清理；当前已完成 artifact payload 的过期清理第一版，但还没有保存和清理原始上传文件。
 
 `src/green_direct/services/pilot_registry.py` 已提供第一版 `LocalPilotRegistry`：
 
@@ -1035,7 +1038,8 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `reset-password`：重置用户密码；
 - `disable-user`：停用用户并撤销有效会话；
 - `grant-platform-admin` / `revoke-platform-admin`：授予或撤销平台管理员；
-- `list-users` / `list-sessions`：查看用户和会话。
+- `list-users` / `list-sessions`：查看用户和会话；
+- `purge-expired-artifacts`：由平台管理员清理已过期 artifact payload，保留元数据并写入项目级 `DELETE_ARTIFACT` 审计。
 
 密码参数支持 `--password-env`，优先从环境变量读取，避免把密码直接写入命令历史。该 CLI 使用与服务层相同的本地 store，不替代后续 Streamlit 管理员页面。
 
@@ -1115,6 +1119,10 @@ python -m green_direct.cli pilot-admin create-user `
     --password-env GREEN_DIRECT_USER_PASSWORD
 
 python -m green_direct.cli pilot-admin list-users `
+    --store-dir .runtime/pilot_store `
+    --actor-user-id admin
+
+python -m green_direct.cli pilot-admin purge-expired-artifacts `
     --store-dir .runtime/pilot_store `
     --actor-user-id admin
 ```
