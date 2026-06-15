@@ -3503,3 +3503,29 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_ui_import.py::test_pilot_project_activity_frames_summarize_jobs_and_results tests/test_ui_import.py::test_pilot_history_artifact_refs_and_download_use_access_service -q` 通过，2 项通过；
 - `python -m compileall -q src` 通过；
 - `python -m pytest -q` 通过，259 项通过。
+
+### 2026-06-15 历史技术汇总 summary-only 恢复入口
+
+本轮继续补项目历史结果的“可继续工作”能力。上一轮已经能在欢迎页加载并下载历史 artifact，但如果用户只是想把某次历史技术汇总重新放回当前工作台，还需要手动下载 CSV 再重新测算或导出，体验仍不连贯。因此本轮先做技术 summary-only 恢复，而不是完整恢复逐小时台账。
+
+本轮判断：
+- 技术 summary 是已落盘且体量较小的稳定产物，可以先恢复成兼容的 `BatchResult.summary`；
+- 逐小时明细、图表缓存、经济性结果和推荐结果不能随 summary 恢复而假装存在，必须清理旧会话结果；
+- 如果恢复后仍保留当前上传的电价曲线，容易让价格曲线经济性误以为有匹配的逐小时明细，因此恢复时一并清理价格曲线状态。
+
+本轮实现：
+- “历史结果产物”区新增“恢复技术汇总到当前会话”按钮；
+- 恢复动作读取 `technical_summary` artifact，并尝试读取同一 study 下的 `config_snapshot` artifact；
+- 恢复后写入 `st.session_state["batch_result"]`、`study_result` 和 `config_snapshot`，其中 `BatchResult.hourly_details={}`，warnings 明确标注未恢复逐小时明细；
+- 恢复动作会清理旧经济性、推荐、下载、图表 PNG、价格曲线和历史 artifact 下载缓存，避免跨结果混用；
+- 恢复动作仍走 `PilotAccessService.load_artifact()` / `read_artifact_payload()`，保留项目查看权限与 artifact 读取审计。
+
+边界说明：
+- 当前只恢复技术汇总，不恢复完整 `StudyResult` 的逐小时台账；
+- 图表页、逐小时 CSV/ZIP 和价格曲线经济性仍需要重新测算或后续按需补算代表方案明细；
+- 经济性 summary、推荐 portfolio 可以下载，但尚未恢复成当前会话内可继续排序/出图的对象。
+
+验证：
+- `python -m pytest tests/test_ui_import.py::test_pilot_history_artifact_refs_and_download_use_access_service tests/test_ui_import.py::test_pilot_restore_technical_summary_rebuilds_summary_only_session -q` 通过，2 项通过；
+- `python -m compileall -q src` 通过；
+- `python -m pytest -q` 通过，260 项通过。

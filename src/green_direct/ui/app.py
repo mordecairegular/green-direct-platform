@@ -6,6 +6,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import replace
 import html
 import hashlib
+import json
 from io import BytesIO
 from numbers import Number
 import os
@@ -27,7 +28,7 @@ if sys.path[0] != SRC_ROOT:  # pragma: no cover - import path guard for Streamli
     sys.path.insert(0, SRC_ROOT)
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
-from green_direct.batch.batch_runner import estimate_scenario_count
+from green_direct.batch.batch_runner import BatchResult, estimate_scenario_count
 from green_direct.economy import (
     AvoidedGridPurchaseParams,
     EconomicParams,
@@ -39,6 +40,7 @@ from green_direct.export.csv_exporter import export_hourly_details_zip
 from green_direct.export.excel_exporter import export_summary_excel
 from green_direct.io.read_curves import read_csv_auto_encoding
 from green_direct.io.validators import DataValidationError
+from green_direct.models.diagnostics import InputDiagnostics
 from green_direct.models.params import BessParams, DataCleaningParams, PerformanceParams, PolicyParams
 from green_direct.models.pilot_backend import Job, Project, ProjectMembership, ProjectRole, StudyResultRecord, User
 from green_direct.recommendation import (
@@ -58,6 +60,7 @@ from green_direct.services import (
     RecommendationInputSnapshot,
     StudyResult,
     TechnicalStudyInput,
+    TechnicalStudyResult,
     build_recommendation_study,
     persist_economic_study_result,
     persist_recommendation_study_result,
@@ -2288,6 +2291,105 @@ def _pilot_load_artifact_download(
     }
 
 
+def _pilot_restore_technical_summary_result(
+    access: PilotAccessService,
+    *,
+    actor_user_id: str,
+    record: StudyResultRecord,
+) -> dict[str, object]:
+    if not record.technical_summary_artifact_id:
+        raise ValueError("该结果没有技术汇总 artifact，暂不能恢复为当前技术结果。")
+
+    summary_download = _pilot_load_artifact_download(
+        access,
+        actor_user_id=actor_user_id,
+        record=record,
+        artifact_id=record.technical_summary_artifact_id,
+    )
+    summary = pd.read_csv(BytesIO(summary_download["payload"]))
+
+    config_snapshot: dict[str, object] = {}
+    config_restored = False
+    try:
+        config_download = _pilot_load_artifact_download(
+            access,
+            actor_user_id=actor_user_id,
+            record=record,
+            artifact_id="config_snapshot",
+        )
+    except FileNotFoundError:
+        config_download = None
+    if config_download is not None:
+        loaded_config = json.loads(config_download["payload"].decode("utf-8"))
+        if isinstance(loaded_config, dict):
+            config_snapshot = loaded_config
+            config_restored = True
+
+    config_snapshot.setdefault("study_id", record.study_id)
+    config_snapshot["restored_from_result_store"] = {
+        "project_id": record.project_id,
+        "study_id": record.study_id,
+        "result_id": record.result_id,
+        "technical_summary_artifact_id": record.technical_summary_artifact_id,
+        "summary_only": True,
+    }
+    warning = "从项目历史恢复技术汇总；未恢复逐小时明细，图表和逐小时导出需要重新测算或后续按需补算。"
+    batch_result = BatchResult(
+        summary=summary,
+        hourly_details={},
+        errors=pd.DataFrame(),
+        warnings=[warning],
+        scenario_count=len(summary),
+    )
+    technical_result = TechnicalStudyResult(
+        study_id=record.study_id,
+        batch_result=batch_result,
+        input_diagnostics=InputDiagnostics(),
+        config_snapshot=config_snapshot,
+    )
+    refs = {
+        "project_id": record.project_id,
+        "technical_job_id": record.created_by_job_id,
+        "technical_result_id": record.result_id,
+        "technical_summary_artifact_id": record.technical_summary_artifact_id,
+    }
+    if config_restored:
+        refs["config_snapshot_artifact_id"] = "config_snapshot"
+    study_result = replace(StudyResult.from_technical(technical_result), result_store_refs=refs)
+    return {
+        "batch_result": batch_result,
+        "study_result": study_result,
+        "config_snapshot": config_snapshot,
+        "row_count": len(summary),
+        "config_restored": config_restored,
+    }
+
+
+def _pilot_restore_technical_summary_to_session(
+    st,
+    *,
+    access: PilotAccessService,
+    actor_user_id: str,
+    record: StudyResultRecord,
+) -> dict[str, object]:
+    restored = _pilot_restore_technical_summary_result(
+        access,
+        actor_user_id=actor_user_id,
+        record=record,
+    )
+    _clear_pilot_work_state(st)
+    for notice_key in ["_simulation_notice", "_economy_notice", "_runtime_restore_notice"]:
+        st.session_state.pop(notice_key, None)
+    st.session_state["batch_result"] = restored["batch_result"]
+    st.session_state["study_result"] = restored["study_result"]
+    st.session_state["config_snapshot"] = restored["config_snapshot"]
+    st.session_state["_runtime_restore_notice"] = (
+        f"已从项目历史恢复技术汇总：{record.result_id}，共 {restored['row_count']} 条方案。"
+        "这是 summary-only 恢复，不包含逐小时明细。"
+    )
+    return restored
+
+
 def _pilot_result_history_frame(records: list[StudyResultRecord], *, limit: int = 8) -> pd.DataFrame:
     sorted_records = sorted(
         records,
@@ -2331,6 +2433,24 @@ def _render_pilot_result_artifact_downloads(
     for record in records_with_artifacts[:limit]:
         title = f"{record.result_id} · {_pilot_result_record_kind(record)} · {_pilot_datetime_text(record.created_at)}"
         with st.expander(title, expanded=False):
+            if record.technical_summary_artifact_id:
+                restore_key = f"pilot_history_restore_{record.project_id}:{record.study_id}:{record.result_id}"
+                if st.button("恢复技术汇总到当前会话", key=restore_key):
+                    try:
+                        _pilot_restore_technical_summary_to_session(
+                            st,
+                            access=access,
+                            actor_user_id=actor_user_id,
+                            record=record,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - restore errors should be user-visible
+                        if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
+                            st.warning(f"历史技术汇总暂不能恢复：{exc}")
+                        else:
+                            raise
+                    else:
+                        st.rerun()
+                st.caption("恢复仅写入技术汇总；逐小时明细、图表缓存、经济性和推荐结果不会随之恢复。")
             for label, artifact_id in _pilot_result_artifact_refs(record):
                 cache_key = _pilot_artifact_download_key(record, artifact_id)
                 load_key = f"pilot_history_load_{cache_key}"

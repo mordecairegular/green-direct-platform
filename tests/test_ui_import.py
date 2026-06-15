@@ -496,6 +496,78 @@ def test_pilot_history_artifact_refs_and_download_use_access_service(tmp_path):
     assert result_store.read_audit_log("project_1")[-1].action == AuditAction.DOWNLOAD_ARTIFACT
 
 
+def test_pilot_restore_technical_summary_rebuilds_summary_only_session(tmp_path):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import ArtifactKind, Project, StudyResultRecord, User
+    from green_direct.services import LocalJobStore, LocalPilotRegistry, LocalResultStore, PilotAccessService, StudyResult
+
+    registry = LocalPilotRegistry(tmp_path)
+    result_store = LocalResultStore(tmp_path)
+    access = PilotAccessService(
+        registry=registry,
+        job_store=LocalJobStore(tmp_path),
+        result_store=result_store,
+    )
+    registry.save_user(User("admin", "admin@example.local", "Admin"))
+    access.create_project(actor_user_id="admin", project=Project("project_1", "Pilot project"))
+    result_store.store_artifact(
+        artifact_id="technical_summary",
+        project_id="project_1",
+        study_id="study_1",
+        job_id="job_1",
+        kind=ArtifactKind.TECHNICAL_SUMMARY,
+        payload="scenario_id,green_load_rate\nS0001,0.5\nS0002,0.6\n",
+        filename="technical_summary.csv",
+        content_type="text/csv",
+    )
+    result_store.store_artifact(
+        artifact_id="config_snapshot",
+        project_id="project_1",
+        study_id="study_1",
+        job_id="job_1",
+        kind=ArtifactKind.CONFIG_SNAPSHOT,
+        payload='{"study_id":"study_1","scenario_grid":{"pv_capacity":[5]}}',
+        filename="config_snapshot.json",
+        content_type="application/json",
+    )
+    record = StudyResultRecord(
+        result_id="technical_result",
+        project_id="project_1",
+        study_id="study_1",
+        created_by_job_id="job_1",
+        technical_summary_artifact_id="technical_summary",
+    )
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                "economy_v1_result": {"summary": pd.DataFrame({"scenario_id": ["old"]})},
+                app.PROJECT_PRICE_CURVE_DATA_KEY: object(),
+                app.PILOT_HISTORY_ARTIFACT_DOWNLOADS_KEY: {"old": b"payload"},
+            }
+
+    dummy = DummyStreamlit()
+    restored = app._pilot_restore_technical_summary_to_session(
+        dummy,
+        access=access,
+        actor_user_id="admin",
+        record=record,
+    )
+
+    batch_result = dummy.session_state["batch_result"]
+    assert list(batch_result.summary["scenario_id"]) == ["S0001", "S0002"]
+    assert batch_result.hourly_details == {}
+    assert batch_result.scenario_count == 2
+    assert dummy.session_state["config_snapshot"]["scenario_grid"] == {"pv_capacity": [5]}
+    assert dummy.session_state["config_snapshot"]["restored_from_result_store"]["summary_only"] is True
+    assert isinstance(dummy.session_state["study_result"], StudyResult)
+    assert dummy.session_state["study_result"].result_store_refs["technical_job_id"] == "job_1"
+    assert "economy_v1_result" not in dummy.session_state
+    assert app.PROJECT_PRICE_CURVE_DATA_KEY not in dummy.session_state
+    assert app.PILOT_HISTORY_ARTIFACT_DOWNLOADS_KEY not in dummy.session_state
+    assert restored["row_count"] == 2
+
+
 def test_streamlit_app_shows_pilot_login_gate_when_enabled(tmp_path, monkeypatch):
     import green_direct.ui.app as app
     from streamlit.testing.v1 import AppTest
