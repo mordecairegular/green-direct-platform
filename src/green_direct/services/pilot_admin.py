@@ -229,6 +229,7 @@ class LocalPilotAdminService:
         project_id: str,
         user_id: str,
         role: ProjectRole | str,
+        can_export_artifacts: bool | None = None,
     ) -> ProjectMembership:
         """Grant or update a project role after checking platform-admin permission."""
 
@@ -243,6 +244,7 @@ class LocalPilotAdminService:
             project_id=project.project_id,
             user_id=target.user_id,
             role=role,
+            can_export_artifacts=can_export_artifacts,
         )
         self._audit(
             actor_user_id=actor.user_id,
@@ -254,6 +256,7 @@ class LocalPilotAdminService:
                 "user_id": target.user_id,
                 "role": membership.role.value,
                 "status": membership.status.value,
+                "can_export_artifacts": membership.can_export_artifacts,
                 "platform_admin_override": True,
             },
         )
@@ -280,6 +283,7 @@ class LocalPilotAdminService:
                 "user_id": user_id,
                 "role": disabled.role.value,
                 "status": disabled.status.value,
+                "can_export_artifacts": disabled.can_export_artifacts,
                 "platform_admin_override": True,
             },
         )

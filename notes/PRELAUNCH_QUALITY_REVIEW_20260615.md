@@ -33,7 +33,7 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 
 结果：
 
-- 全量测试通过：261 项通过；
+- 全量测试通过：263 项通过；
 - `src` 编译检查通过；
 - 源码树下 CLI 启动口径验证通过；
 - `git diff --check` 没有实际空白错误，仅有 Windows 换行转换提示；
@@ -60,8 +60,8 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 1. Streamlit 主 UI 已有可选登录门禁、最小项目工作区门禁和平台账号/项目成员管理页，但还不是正式权限系统。
    设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，未登录用户不能进入六步工作流；登录用户必须先创建或选择有效项目；切换项目会清理当前测算结果和下载缓存；平台管理员可在“平台管理”中创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并维护项目成员角色。技术仿真 summary/config snapshot、经济性 summary 和推荐 portfolio 已能写入项目级 `ResultStore`，欢迎页也能展示项目最近任务/结果索引、加载下载已落盘 artifact，并把技术 summary-only 恢复为当前会话结果；但正式上线前仍必须接入更正式的会话/数据库适配、CSRF/反向代理安全边界，并继续迁移年度现金流、逐小时明细、完整历史结果恢复和导出产物持久化。
 
-2. 可导出/不可导出用户权限尚未成为后端统一授权位。
-   当前项目角色主要控制项目查看、提交任务和成员管理，历史 artifact 下载也按项目查看权限处理；这不等同于 `BETA_USER_NO_EXPORT` / `BETA_USER_EXPORT`。受控公网内测前必须把导出权限显式落到用户或 membership 策略，并确保 UI 按钮、直接 URL、未来 API 和后台 artifact 读取都走同一后端校验与审计。
+2. 可导出/不可导出用户权限已有第一版 membership 授权位，但仍不是正式下载服务。
+   `ProjectMembership.can_export_artifacts` 已能独立于项目角色控制 artifact payload 读取，最小平台管理页也可维护该字段；欢迎页历史产物下载和 06 导出页会在禁止导出时拦截，`PilotAccessService.read_artifact_payload()` 会对成功和拒绝的下载尝试写入审计。受控公网内测前仍需把未来 API、图表/报告项目级 artifacts、数据库适配和反向代理下载入口全部接到同一授权策略。
 
 3. 没有正式后台任务队列和 worker。
    当前重计算仍发生在 Streamlit 进程内，PNG ZIP 使用进程内后台线程，技术/经济/推荐 Job 也是计算完成后的同步状态登记。`LocalJobStore` 只是任务状态契约，不会真正调度 worker。多人同时大算例时缺少排队、取消、限流、重试和失败恢复。
@@ -107,5 +107,5 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 2. 运行 `python -m pytest -q` 和 `python -m compileall -q src`；
 3. 重点审查 `src/green_direct/ui/app.py` 是否存在跨用户状态、旧结果复用、价格曲线误用、导出缓存串会话；
 4. 重点审查 `src/green_direct/services/` 下本地后台服务的权限边界、路径校验、审计记录和失败场景；
-5. 重点审查受控公网内测 Route A 缺口：不可导出用户是否能绕过下载、普通用户是否能猜测他人 project/run/artifact、上传文件是否限制大小/类型/路径、日志是否可能泄露原始曲线；
-6. 设计并实现下一阶段最小闭环：导出权限后端策略 + 完整任务状态页 + 历史结果恢复/下载/删除 + 代表方案按需逐小时明细 + 图表/报告项目级 artifacts + 部署 runbook。
+5. 重点审查受控公网内测 Route A 缺口：不可导出用户是否还能通过未来 API、项目级报告 artifact、缓存或反向代理路径绕过下载，普通用户是否能猜测他人 project/run/artifact，上传文件是否限制大小/类型/路径，日志是否可能泄露原始曲线；
+6. 设计并实现下一阶段最小闭环：完整任务状态页 + 历史结果恢复/下载/删除 + 代表方案按需逐小时明细 + 图表/报告项目级 artifacts + 部署 runbook。

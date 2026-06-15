@@ -88,6 +88,12 @@ class PilotAccessService:
             raise PilotAccessError("User cannot manage this project.")
         return membership
 
+    def require_project_export(self, *, actor_user_id: str, project_id: str) -> ProjectMembership:
+        membership = self._membership(project_id, actor_user_id, require_active_project=False)
+        if not membership.can_download_artifacts():
+            raise PilotAccessError("User cannot export or download artifacts for this project.")
+        return membership
+
     def _audit(
         self,
         *,
@@ -179,6 +185,7 @@ class PilotAccessService:
         project_id: str,
         user_id: str,
         role: ProjectRole | str,
+        can_export_artifacts: bool | None = None,
     ) -> ProjectMembership:
         """Grant or update a project role after checking admin membership."""
 
@@ -188,6 +195,7 @@ class PilotAccessService:
             project_id=project_id,
             user_id=target.user_id,
             role=role,
+            can_export_artifacts=can_export_artifacts,
         )
         self._audit(
             actor_user_id=actor_user_id,
@@ -195,7 +203,12 @@ class PilotAccessService:
             project_id=project_id,
             target_type="project_membership",
             target_id=membership.membership_id,
-            metadata={"user_id": target.user_id, "role": membership.role.value, "status": membership.status.value},
+            metadata={
+                "user_id": target.user_id,
+                "role": membership.role.value,
+                "status": membership.status.value,
+                "can_export_artifacts": membership.can_export_artifacts,
+            },
         )
         return membership
 
@@ -216,7 +229,12 @@ class PilotAccessService:
             project_id=project_id,
             target_type="project_membership",
             target_id=disabled.membership_id,
-            metadata={"user_id": user_id, "role": disabled.role.value, "status": disabled.status.value},
+            metadata={
+                "user_id": user_id,
+                "role": disabled.role.value,
+                "status": disabled.status.value,
+                "can_export_artifacts": disabled.can_export_artifacts,
+            },
         )
         return disabled
 
@@ -385,7 +403,25 @@ class PilotAccessService:
     def read_artifact_payload(self, *, actor_user_id: str, artifact: JobArtifact) -> bytes:
         """Read artifact bytes and audit the download action."""
 
-        self.require_project_view(actor_user_id=actor_user_id, project_id=artifact.project_id)
+        try:
+            self.require_project_export(actor_user_id=actor_user_id, project_id=artifact.project_id)
+        except PilotAccessError as exc:
+            self._audit(
+                actor_user_id=actor_user_id,
+                action=AuditAction.DOWNLOAD_ARTIFACT,
+                project_id=artifact.project_id,
+                study_id=artifact.study_id,
+                job_id=artifact.job_id,
+                target_type="artifact",
+                target_id=artifact.artifact_id,
+                metadata={
+                    "kind": artifact.kind.value,
+                    "size_bytes": artifact.size_bytes,
+                    "success": False,
+                    "reason": str(exc),
+                },
+            )
+            raise
         payload = self.result_store.read_artifact_payload(artifact)
         self._audit(
             actor_user_id=actor_user_id,
@@ -395,6 +431,6 @@ class PilotAccessService:
             job_id=artifact.job_id,
             target_type="artifact",
             target_id=artifact.artifact_id,
-            metadata={"kind": artifact.kind.value, "size_bytes": artifact.size_bytes},
+            metadata={"kind": artifact.kind.value, "size_bytes": artifact.size_bytes, "success": True},
         )
         return payload

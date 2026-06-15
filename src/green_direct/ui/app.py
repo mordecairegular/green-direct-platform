@@ -147,6 +147,7 @@ PILOT_ADMIN_NOTICE_KEY = "_pilot_admin_notice"
 PILOT_ACTIVE_PROJECT_ID_KEY = "_pilot_active_project_id"
 PILOT_ACTIVE_PROJECT_NAME_KEY = "_pilot_active_project_name"
 PILOT_ACTIVE_PROJECT_ROLE_KEY = "_pilot_active_project_role"
+PILOT_ACTIVE_PROJECT_CAN_EXPORT_KEY = "_pilot_active_project_can_export"
 PILOT_PROJECT_NOTICE_KEY = "_pilot_project_notice"
 PILOT_RESULT_STORE_NOTICE_KEY = "_pilot_result_store_notice"
 PILOT_RECOMMENDATION_STORE_SIGNATURE_KEY = "_pilot_recommendation_store_signature"
@@ -174,6 +175,7 @@ PILOT_AUTH_SESSION_KEYS = (
     PILOT_ACTIVE_PROJECT_ID_KEY,
     PILOT_ACTIVE_PROJECT_NAME_KEY,
     PILOT_ACTIVE_PROJECT_ROLE_KEY,
+    PILOT_ACTIVE_PROJECT_CAN_EXPORT_KEY,
 )
 PILOT_AUTH_WORK_STATE_KEYS = tuple(
     dict.fromkeys(
@@ -1937,6 +1939,7 @@ def _clear_pilot_project_context(st, *, clear_work_state: bool) -> None:
         PILOT_ACTIVE_PROJECT_ID_KEY,
         PILOT_ACTIVE_PROJECT_NAME_KEY,
         PILOT_ACTIVE_PROJECT_ROLE_KEY,
+        PILOT_ACTIVE_PROJECT_CAN_EXPORT_KEY,
     ):
         st.session_state.pop(key, None)
     if clear_work_state:
@@ -1952,12 +1955,16 @@ def _activate_pilot_project(
 ) -> None:
     previous_project_id = _current_pilot_project_id(st)
     previous_role = st.session_state.get(PILOT_ACTIVE_PROJECT_ROLE_KEY)
+    previous_can_export = st.session_state.get(PILOT_ACTIVE_PROJECT_CAN_EXPORT_KEY)
     st.session_state[PILOT_ACTIVE_PROJECT_ID_KEY] = project.project_id
     st.session_state[PILOT_ACTIVE_PROJECT_NAME_KEY] = project.name
     st.session_state[PILOT_ACTIVE_PROJECT_ROLE_KEY] = membership.role.value
+    st.session_state[PILOT_ACTIVE_PROJECT_CAN_EXPORT_KEY] = bool(membership.can_export_artifacts)
     if clear_work_state and previous_project_id and previous_project_id != project.project_id:
         _clear_pilot_work_state(st)
     elif previous_role and previous_role != membership.role.value:
+        _clear_pilot_work_state(st)
+    elif previous_can_export is not None and bool(previous_can_export) != bool(membership.can_export_artifacts):
         _clear_pilot_work_state(st)
 
 
@@ -1970,9 +1977,20 @@ def _current_pilot_project_can_submit_jobs(st) -> bool:
     }
 
 
+def _current_pilot_project_can_export_artifacts(st) -> bool:
+    if not _pilot_auth_enabled():
+        return True
+    return bool(st.session_state.get(PILOT_ACTIVE_PROJECT_CAN_EXPORT_KEY, False))
+
+
 def _render_pilot_project_submit_permission_block(st) -> None:
     st.markdown("## 当前项目为只读权限")
     st.warning("你的项目角色当前不能发起新的技术仿真或经济性测算。请联系项目管理员或平台管理员调整为 admin / analyst 后再运行计算。")
+
+
+def _render_pilot_project_export_permission_block(st) -> None:
+    st.markdown("## 当前项目未开放导出")
+    st.warning("你的账号可以查看当前项目结果，但不能下载或导出结果文件。请联系项目管理员或平台管理员开通导出权限。")
 
 
 def _study_result_with_pilot_refs(study_result: StudyResult, persisted) -> StudyResult:
@@ -2108,7 +2126,8 @@ def _persist_pilot_recommendation_result_if_enabled(st, recommendation_result) -
 
 def _pilot_project_option_label(option: tuple[Project, ProjectMembership]) -> str:
     project, membership = option
-    return f"{project.name} ({project.project_id}, {membership.role.value})"
+    export_text = "可导出" if membership.can_export_artifacts else "不可导出"
+    return f"{project.name} ({project.project_id}, {membership.role.value}, {export_text})"
 
 
 def _render_create_project_form(st, *, actor_user_id: str, form_key: str) -> None:
@@ -2178,7 +2197,8 @@ def _render_pilot_project_sidebar(
                 )
                 st.session_state[PILOT_PROJECT_NOTICE_KEY] = f"已切换到项目：{selected_project.name}"
                 st.rerun()
-            st.caption(f"当前角色：{selected_membership.role.value}")
+            export_text = "允许导出" if selected_membership.can_export_artifacts else "禁止导出"
+            st.caption(f"当前角色：{selected_membership.role.value} / {export_text}")
             with st.expander("新建项目"):
                 _render_create_project_form(
                     st,
@@ -2429,6 +2449,10 @@ def _render_pilot_result_artifact_downloads(
         return
 
     st.caption("历史结果产物")
+    if not _current_pilot_project_can_export_artifacts(st):
+        st.info("当前项目成员权限允许查看历史结果索引，但不允许加载、下载或恢复历史产物。")
+        return
+
     downloads = st.session_state.setdefault(PILOT_HISTORY_ARTIFACT_DOWNLOADS_KEY, {})
     for record in records_with_artifacts[:limit]:
         title = f"{record.result_id} · {_pilot_result_record_kind(record)} · {_pilot_datetime_text(record.created_at)}"
@@ -2629,6 +2653,7 @@ def _platform_admin_membership_frame(
                 if membership.user_id in users_by_id
                 else "",
                 "角色": membership.role.value,
+                "允许导出": "是" if membership.can_export_artifacts else "否",
                 "状态": membership.status.value,
                 "创建时间": membership.created_at.isoformat(),
             }
@@ -2819,6 +2844,15 @@ def _render_platform_admin_page(st) -> None:
                     [role.value for role in ProjectRole],
                     key="pilot_admin_project_member_role",
                 )
+                existing_membership = next(
+                    (membership for membership in memberships if membership.user_id == str(member_user_id)),
+                    None,
+                )
+                can_export_artifacts = st.checkbox(
+                    "允许下载 / 导出项目结果",
+                    value=True if existing_membership is None else bool(existing_membership.can_export_artifacts),
+                    key="pilot_admin_project_member_can_export",
+                )
                 grant_submitted = st.form_submit_button("保存项目成员", type="primary")
             if grant_submitted:
                 try:
@@ -2827,9 +2861,11 @@ def _render_platform_admin_page(st) -> None:
                         project_id=str(selected_project_id),
                         user_id=str(member_user_id),
                         role=str(role_value),
+                        can_export_artifacts=bool(can_export_artifacts),
                     )
                     st.session_state[PILOT_ADMIN_NOTICE_KEY] = (
-                        f"已更新项目成员：{membership.user_id} / {membership.role.value}"
+                        f"已更新项目成员：{membership.user_id} / {membership.role.value} / "
+                        f"允许导出={'是' if membership.can_export_artifacts else '否'}"
                     )
                     st.rerun()
                 except Exception as exc:  # noqa: BLE001
@@ -6592,6 +6628,10 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
         "图表下载和报告生成",
         "集中下载技术结果、经济性结果、单方案逐小时复核数据，并生成可复核的简版说明报告。",
     )
+
+    if not _current_pilot_project_can_export_artifacts(st):
+        _render_pilot_project_export_permission_block(st)
+        return
 
     scenario_ids = list(batch_result.hourly_details.keys())
     if not scenario_ids:

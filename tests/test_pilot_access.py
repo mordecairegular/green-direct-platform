@@ -276,6 +276,42 @@ def test_artifact_payload_read_requires_project_view_and_is_audited(tmp_path):
         service.read_artifact_payload(actor_user_id="outsider", artifact=artifact)
 
 
+def test_artifact_payload_download_requires_export_permission_and_audits_denial(tmp_path):
+    service = _service(tmp_path)
+    _create_project_with_members(service)
+    service.grant_project_role(
+        actor_user_id="admin",
+        project_id="project_1",
+        user_id="analyst",
+        role=ProjectRole.ANALYST,
+        can_export_artifacts=False,
+    )
+    artifact = service.result_store.store_artifact(
+        artifact_id="technical_summary",
+        project_id="project_1",
+        study_id="study_1",
+        job_id="job_1",
+        kind=ArtifactKind.TECHNICAL_SUMMARY,
+        payload="scenario_id,total_load_energy\nS0001,100\n",
+        filename="summary.csv",
+        content_type="text/csv",
+    )
+
+    assert service.load_artifact(
+        actor_user_id="analyst",
+        project_id="project_1",
+        study_id="study_1",
+        artifact_id="technical_summary",
+    ) == artifact
+    with pytest.raises(PilotAccessError, match="cannot export"):
+        service.read_artifact_payload(actor_user_id="analyst", artifact=artifact)
+
+    denied_event = service.result_store.read_audit_log("project_1")[-1]
+    assert denied_event.action == AuditAction.DOWNLOAD_ARTIFACT
+    assert denied_event.metadata["success"] is False
+    assert denied_event.metadata["reason"].startswith("User cannot export")
+
+
 def test_result_record_lists_require_project_view(tmp_path):
     service = _service(tmp_path)
     _create_project_with_members(service)

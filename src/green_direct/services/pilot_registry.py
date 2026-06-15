@@ -55,6 +55,7 @@ def _membership_from_json(data: dict) -> ProjectMembership:
         user_id=data["user_id"],
         role=data["role"],
         status=data.get("status", MembershipStatus.ACTIVE.value),
+        can_export_artifacts=bool(data.get("can_export_artifacts", True)),
         created_at=_parse_datetime(data["created_at"]),
     )
 
@@ -178,19 +179,29 @@ class LocalPilotRegistry:
         project_id: str,
         user_id: str,
         role: ProjectRole | str,
+        can_export_artifacts: bool | None = None,
     ) -> ProjectMembership:
         self.load_project(project_id)
         self.load_user(user_id)
         existing = self.get_project_membership(project_id, user_id)
+        next_can_export = True if existing is None else existing.can_export_artifacts
+        if can_export_artifacts is not None:
+            next_can_export = bool(can_export_artifacts)
         if existing is None:
             membership = ProjectMembership(
                 membership_id=self._default_membership_id(project_id, user_id),
                 project_id=project_id,
                 user_id=user_id,
                 role=role,
+                can_export_artifacts=next_can_export,
             )
         else:
-            membership = replace(existing, role=ProjectRole(role), status=MembershipStatus.ACTIVE)
+            membership = replace(
+                existing,
+                role=ProjectRole(role),
+                status=MembershipStatus.ACTIVE,
+                can_export_artifacts=next_can_export,
+            )
         return self.save_membership(membership, overwrite=existing is not None)
 
     def disable_membership(self, project_id: str, user_id: str) -> ProjectMembership:

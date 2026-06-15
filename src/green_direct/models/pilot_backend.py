@@ -158,6 +158,7 @@ class ProjectMembership:
     user_id: str
     role: ProjectRole | str
     status: MembershipStatus | str = MembershipStatus.ACTIVE
+    can_export_artifacts: bool = True
     created_at: datetime = field(default_factory=_utcnow)
 
     def __post_init__(self) -> None:
@@ -167,6 +168,7 @@ class ProjectMembership:
         _ensure_aware(self.created_at, "created_at")
         object.__setattr__(self, "role", _coerce_enum(self.role, ProjectRole, "role"))
         object.__setattr__(self, "status", _coerce_enum(self.status, MembershipStatus, "status"))
+        object.__setattr__(self, "can_export_artifacts", bool(self.can_export_artifacts))
 
     @property
     def is_active(self) -> bool:
@@ -180,6 +182,9 @@ class ProjectMembership:
 
     def can_manage_project(self) -> bool:
         return self.is_active and self.role == ProjectRole.ADMIN
+
+    def can_download_artifacts(self) -> bool:
+        return self.is_active and self.can_export_artifacts
 
 
 @dataclass(frozen=True)

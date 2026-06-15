@@ -235,6 +235,7 @@ def test_pilot_project_switch_clears_work_state():
     assert dummy.session_state[app.PILOT_ACTIVE_PROJECT_ID_KEY] == "project_2"
     assert dummy.session_state[app.PILOT_ACTIVE_PROJECT_NAME_KEY] == "Second project"
     assert dummy.session_state[app.PILOT_ACTIVE_PROJECT_ROLE_KEY] == "admin"
+    assert dummy.session_state[app.PILOT_ACTIVE_PROJECT_CAN_EXPORT_KEY] is True
     assert "batch_result" not in dummy.session_state
     assert "download_payloads" not in dummy.session_state
     assert dummy.session_state[app.WORKFLOW_PAGE_KEY] == app.WORKFLOW_PAGES[0]
@@ -258,14 +259,22 @@ def test_pilot_project_role_change_to_viewer_clears_work_state_and_blocks_submit
     app._activate_pilot_project(
         dummy,
         project=Project("project_1", "Internal pilot project"),
-        membership=ProjectMembership("m1", "project_1", "viewer", ProjectRole.VIEWER),
+        membership=ProjectMembership(
+            "m1",
+            "project_1",
+            "viewer",
+            ProjectRole.VIEWER,
+            can_export_artifacts=False,
+        ),
         clear_work_state=False,
     )
 
     assert dummy.session_state[app.PILOT_ACTIVE_PROJECT_ROLE_KEY] == "viewer"
+    assert dummy.session_state[app.PILOT_ACTIVE_PROJECT_CAN_EXPORT_KEY] is False
     assert "batch_result" not in dummy.session_state
     assert dummy.session_state[app.WORKFLOW_PAGE_KEY] == app.WORKFLOW_PAGES[0]
     assert app._current_pilot_project_can_submit_jobs(dummy) is False
+    assert app._current_pilot_project_can_export_artifacts(dummy) is False
 
 
 def test_pilot_technical_result_helper_persists_and_attaches_refs(tmp_path, monkeypatch):

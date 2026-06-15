@@ -99,6 +99,7 @@ PNG 图表包后台任务也按会话隔离：
 
 - `src/green_direct/models/pilot_backend.py` 定义了持久化无关的 `User`、`Project`、`ProjectMembership`、`ProjectStudy`、`Job`、`JobArtifact`、`StudyResultRecord` 和 `AuditLog`；
 - `ProjectMembership` 已区分 `admin`、`analyst`、`viewer` 的查看、提交任务和项目管理权限；
+- `ProjectMembership.can_export_artifacts` 已作为第一版独立导出授权位，可表达“可计算、可查看但不可导出”的内部试用成员；
 - `User.is_platform_admin` 已区分平台账号管理员和项目 `admin`，项目 `admin` 只管理项目成员，不能天然创建或停用全站账号；
 - `Job` 已定义排队、运行、成功、失败、取消状态、进度字段及合法状态转换；
 - `JobArtifact` 和 `StudyResultRecord` 保留 `project_id` / `study_id` 边界，用于后续 `ResultStore` 和下载文件隔离；
@@ -120,7 +121,7 @@ PNG 图表包后台任务也按会话隔离：
 - `src/green_direct/services/pilot_registry.py` 提供 `LocalPilotRegistry`；
 - 支持保存、读取、列出和停用 `User`；
 - 支持保存、读取、列出和归档 `Project`；
-- 支持为项目授予/更新/停用用户角色，角色沿用 `admin`、`analyst`、`viewer`；
+- 支持为项目授予/更新/停用用户角色，角色沿用 `admin`、`analyst`、`viewer`，并可独立维护是否允许下载/导出 artifact；
 - 写入成员关系时会检查用户和项目已存在，避免孤立 membership；
 - 当前注册表不存储密码、不处理登录会话、不替代正式认证；后续登录页或企业身份集成只应把认证主体映射到这些 `User` / `ProjectMembership` 记录。
 
@@ -139,7 +140,7 @@ PNG 图表包后台任务也按会话隔离：
 - `src/green_direct/services/pilot_admin.py` 提供 `LocalPilotAdminService` 和 `PilotAdminError`；
 - 支持 bootstrap 首个 `is_platform_admin=True` 的平台管理员，并设置本地密码；
 - 平台管理员可创建用户、设置初始密码、重置密码、授予/撤销平台管理员标记、停用用户和列出用户；
-- 平台管理员可列出项目、查看项目成员、授予/更新项目角色、禁用项目成员关系；
+- 平台管理员可列出项目、查看项目成员、授予/更新项目角色、维护导出授权、禁用项目成员关系；
 - 停用用户时会撤销该用户仍然有效的本地会话；
 - 创建用户、更新用户、重置密码、停用和平台管理员标记变更会写入全局 `AuditLog`；
 - 为避免锁死后台，服务不允许停用或降级最后一个活跃平台管理员；
@@ -163,7 +164,9 @@ PNG 图表包后台任务也按会话隔离：
 - `admin` 可创建/归档项目、授予/停用成员、提交任务、查看任务和产物、取消他人任务；
 - `analyst` 可提交和查看本项目任务，并取消自己提交的任务；
 - `viewer` 只能查看本项目任务和产物，不能提交或取消任务；
+- 成员是否能下载/导出 artifact 由 `can_export_artifacts` 独立控制，不再仅由 `viewer` / `analyst` / `admin` 推断；
 - 结果索引读取已通过 `list_project_result_records()` / `list_study_result_records()` 纳入项目查看权限；
+- 产物索引读取仍要求项目查看权限；产物 payload 读取要求项目导出权限，成功和拒绝都会写入 `DOWNLOAD_ARTIFACT` 审计；
 - 停用用户、停用 membership、非成员、已归档项目的新任务提交会被拒绝；
 - 创建项目、成员变更、提交任务、取消任务、读取产物 payload 会写入 `AuditLog`；
 - 当前服务仍不包含 worker 调度、数据库事务或并发锁；它是当前 Streamlit 项目工作区、后续任务入口和 SQLite/Postgres 适配器应复用的权限/审计语义。

@@ -72,16 +72,27 @@ def test_registry_grants_updates_and_disables_project_membership(tmp_path):
         project_id="project_1",
         user_id="analyst",
         role=ProjectRole.ANALYST,
+        can_export_artifacts=False,
     )
 
     assert membership.membership_id == "project_1__analyst"
     assert membership.can_submit_jobs()
+    assert not membership.can_download_artifacts()
     assert registry.get_project_membership("project_1", "analyst") == membership
 
     updated = registry.grant_project_role(project_id="project_1", user_id="analyst", role="viewer")
     assert updated.membership_id == membership.membership_id
     assert updated.role == ProjectRole.VIEWER
     assert not updated.can_submit_jobs()
+    assert not updated.can_download_artifacts()
+
+    export_enabled = registry.grant_project_role(
+        project_id="project_1",
+        user_id="analyst",
+        role=ProjectRole.VIEWER,
+        can_export_artifacts=True,
+    )
+    assert export_enabled.can_download_artifacts()
 
     disabled = registry.disable_membership("project_1", "analyst")
     assert disabled.status == MembershipStatus.DISABLED

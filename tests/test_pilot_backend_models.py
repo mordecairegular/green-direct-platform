@@ -40,10 +40,26 @@ def test_membership_permissions_distinguish_admin_analyst_and_viewer():
     assert viewer.can_view_project()
     assert not viewer.can_submit_jobs()
     assert not viewer.can_manage_project()
+    assert viewer.can_download_artifacts()
 
     assert not disabled.can_view_project()
     assert not disabled.can_submit_jobs()
     assert not disabled.can_manage_project()
+    assert not disabled.can_download_artifacts()
+
+
+def test_membership_export_permission_is_independent_from_project_role():
+    no_export_analyst = ProjectMembership(
+        "m_no_export",
+        "p1",
+        "u2",
+        ProjectRole.ANALYST,
+        can_export_artifacts=False,
+    )
+
+    assert no_export_analyst.can_view_project()
+    assert no_export_analyst.can_submit_jobs()
+    assert not no_export_analyst.can_download_artifacts()
 
 
 def test_user_platform_admin_flag_defaults_false():

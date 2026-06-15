@@ -153,6 +153,7 @@ def test_platform_admin_can_manage_project_memberships_without_project_admin_rol
         project_id="project_1",
         user_id="analyst",
         role=ProjectRole.ANALYST,
+        can_export_artifacts=False,
     )
     disabled = service.disable_project_membership(
         actor_user_id="platform_admin",
@@ -161,6 +162,7 @@ def test_platform_admin_can_manage_project_memberships_without_project_admin_rol
     )
 
     assert membership.role == ProjectRole.ANALYST
+    assert not membership.can_download_artifacts()
     assert not disabled.is_active
     assert [(project.project_id, project.name) for project in service.list_projects(actor_user_id="platform_admin")] == [
         ("project_1", "Internal pilot project")
@@ -168,6 +170,7 @@ def test_platform_admin_can_manage_project_memberships_without_project_admin_rol
     assert any(
         event.action == AuditAction.UPDATE_MEMBERSHIP
         and event.metadata.get("platform_admin_override") is True
+        and event.metadata.get("can_export_artifacts") is False
         for event in service.result_store.read_audit_log("project_1")
     )
 

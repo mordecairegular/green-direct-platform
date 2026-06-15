@@ -974,7 +974,7 @@ python -m pytest
 
 其中 `User.is_platform_admin` 表示平台账号管理员，和项目内 `ProjectRole.ADMIN` 分离：前者可用于全站用户管理，后者只用于某个项目内的成员、任务和产物权限。
 
-受控公网内测 Route A 还需要一个独立的导出授权语义：可上传/可计算但不可导出的用户，应能在页面查看自己的结果，但不能通过 UI、直接 URL 或未来 API 下载结果文件。当前 `ProjectRole.VIEWER` / `ANALYST` / `ADMIN` 主要表达项目查看、提交任务和项目管理权限，不能直接等同于 `BETA_USER_NO_EXPORT` / `BETA_USER_EXPORT`。后续若面向公网内测，应在 `User`、membership 或权限策略层显式加入导出能力，并让所有 export/download 入口复用后端校验和审计。
+受控公网内测 Route A 需要独立的导出授权语义：可上传/可计算但不可导出的用户，应能在页面查看自己的结果，但不能通过 UI、直接 URL 或未来 API 下载结果文件。`ProjectRole.VIEWER` / `ANALYST` / `ADMIN` 主要表达项目查看、提交任务和项目管理权限，不能直接等同于 `BETA_USER_NO_EXPORT` / `BETA_USER_EXPORT`。当前 `ProjectMembership.can_export_artifacts` 已作为第一版导出授权位，后续数据库/API 适配和正式下载接口应继续复用该语义。
 
 这些模型只定义边界和状态，不包含登录页、密码、数据库、任务队列或 Streamlit 管理后台。后续 `ResultStore`、管理员页面和后台 worker 应基于这些对象逐步接入，而不是继续把多人运行态绑定在全局缓存或 `session_state` 上。
 
@@ -992,7 +992,8 @@ python -m pytest
 
 - `save_user()` / `load_user()` / `list_users()` / `disable_user()`；
 - `save_project()` / `load_project()` / `list_projects()` / `archive_project()`；
-- `grant_project_role()` / `disable_membership()` / `list_project_memberships()`。
+- `grant_project_role()` / `disable_membership()` / `list_project_memberships()`；
+- `ProjectMembership.can_export_artifacts` 可独立于项目角色控制下载/导出权限。
 
 `LocalPilotRegistry` 只管理账户、项目和成员关系元数据，不存储密码、不处理登录会话。后续管理员页面可以先调用该服务完成用户停用、项目归档和角色授权；正式部署时再替换为 SQLite/Postgres 或企业身份系统映射。
 
@@ -1014,7 +1015,7 @@ python -m pytest
 - `set_platform_admin()`：授予或撤销平台管理员标记；
 - `disable_user()`：停用用户，并撤销其有效本地会话；
 - `list_users()`：平台管理员列出用户；
-- `list_projects()` / `list_project_memberships()` / `grant_project_role()` / `disable_project_membership()`：平台管理员查看项目并维护项目成员角色。
+- `list_projects()` / `list_project_memberships()` / `grant_project_role()` / `disable_project_membership()`：平台管理员查看项目并维护项目成员角色和导出授权。
 
 `LocalPilotAdminService` 会写入 `CREATE_USER` / `UPDATE_USER` / `UPDATE_MEMBERSHIP` 审计事件，并阻止停用或降级最后一个活跃平台管理员。它是后续 Streamlit 管理页和数据库适配器应复用的账号/项目成员管理语义，不是完整企业 IAM。
 
@@ -1037,8 +1038,8 @@ python -m pytest
 - 登录成功会用 `LocalPilotAuth.require_session()` 校验本地 bearer-token 会话；
 - 会话失效、token 错误或退出登录时，会清理当前浏览器会话内的测算结果、下载缓存、价格曲线和图表导出缓存，避免下一位用户看到上一位用户的临时结果；
 - 登录后必须先创建或选择一个有效项目工作区，六步业务工作流才会继续渲染；切换项目会清理当前测算结果和下载缓存；
-- 平台管理员登录后，侧栏会出现“平台管理”入口，当前支持创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并在“项目和成员”中为已有项目分配或禁用成员角色；
-- 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引，并可加载下载已落盘的 summary / portfolio artifact；技术 summary 可 summary-only 恢复到当前会话；
+- 平台管理员登录后，侧栏会出现“平台管理”入口，当前支持创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并在“项目和成员”中为已有项目分配或禁用成员角色、维护是否允许下载/导出项目结果；
+- 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引；导出权限允许时，可加载下载已落盘的 summary / portfolio artifact，并可 summary-only 恢复技术汇总到当前会话；导出权限禁止时，只显示历史索引，不加载产物 payload；
 - 当前门禁、平台管理页和结果面板只解决内部试用账号、项目工作区控制、结果可见性和已落盘 artifact 取回入口，仍没有数据库会话表、CSRF 防护、正式审计后台、完整历史结果恢复或后台 worker。
 
 `src/green_direct/services/job_store.py` 已提供第一版 `LocalJobStore`：
@@ -1057,8 +1058,9 @@ python -m pytest
 - `grant_project_role()` / `disable_project_membership()` / `archive_project()`：项目管理员权限下的成员和项目管理动作；
 - `submit_job()` / `list_project_jobs()` / `load_job()` / `cancel_job()`：带项目角色校验的任务操作；
 - `list_project_result_records()` / `list_study_result_records()`：带项目查看权限校验的结果索引列表；
-- `load_artifact()` / `read_artifact_payload()`：带项目查看权限校验的产物索引和 payload 读取；
-- 创建项目、成员变更、提交任务、取消任务和产物读取会写入 `AuditLog`。
+- `load_artifact()`：带项目查看权限校验的产物索引读取；
+- `read_artifact_payload()`：带项目导出权限校验的产物 payload 读取，成功和拒绝都会写入 `DOWNLOAD_ARTIFACT` 审计；
+- 创建项目、成员变更、提交任务、取消任务和产物读取/拒绝会写入 `AuditLog`。
 
 `PilotAccessService` 是权限和审计服务门面，不启动 worker、不做数据库事务或并发锁；后续 Streamlit 管理页、后台任务入口和 SQLite/Postgres 适配器应优先复用这层语义，避免直接绕过角色控制调用底层本地文件 store。
 

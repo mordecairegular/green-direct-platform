@@ -3573,3 +3573,33 @@ exchange_import_shortfall_energy == 0
 边界说明：
 - 本轮只吸收方向和审查口径，没有实现正式数据库、后端导出权限、Docker/compose、部署 runbook 或文件清理任务；
 - 现有本地 JSON store 和 Streamlit 门禁仍只适合受控内部 pilot 或开发演示，公网可访问内测前仍需按质量审查记录补齐 P0。
+
+### 2026-06-15 导出权限第一版后端门禁
+
+本轮继续推进受控公网内测 Route A 的 P0 缺口。上一轮已确认 `viewer` / `analyst` / `admin` 不能直接等同于“可导出/不可导出”角色，因为内测可能存在“可上传、可计算、可网页查看，但不能下载文件”的用户。原实现中，历史 artifact payload 读取只要求项目查看权限，会让不可导出用户缺少后端约束。
+
+本轮判断：
+- 导出权限应该独立于项目角色，先放在 `ProjectMembership` 上，便于表达同一用户在不同项目里的不同导出授权；
+- `load_artifact()` 可以继续表示“查看产物索引”，但 `read_artifact_payload()` 必须表示“下载/导出 payload”，并要求导出权限；
+- 拒绝下载也应写入审计，便于内部试用排查是权限问题、文件问题还是 UI 问题；
+- Streamlit 当前会话内的 06 导出页也必须受同一项目成员权限影响，否则不可导出用户仍能下载当前会话生成的 Excel/CSV/ZIP/Markdown。
+
+本轮实现：
+- `ProjectMembership` 新增 `can_export_artifacts`，默认 `True` 以兼容既有本地 JSON 数据；
+- `LocalPilotRegistry.grant_project_role()`、`LocalPilotAdminService.grant_project_role()` 和 `PilotAccessService.grant_project_role()` 均可维护该字段；
+- `PilotAccessService.require_project_export()` 和 `read_artifact_payload()` 使用 `can_export_artifacts` 做后端门禁；
+- `DOWNLOAD_ARTIFACT` 审计 metadata 增加 `success=True/False`，拒绝时记录脱敏拒绝原因；
+- Streamlit 平台管理页成员表显示“允许导出”，保存成员时可设置“允许下载 / 导出项目结果”；
+- 登录后的项目上下文保存当前 membership 的导出授权，侧栏显示“允许导出/禁止导出”；
+- 欢迎页历史结果产物区在无导出权限时只显示索引，不加载或下载 payload；
+- 06“图表下载和报告生成”页在无导出权限时直接显示权限提示，不渲染下载按钮。
+
+边界说明：
+- 这仍是本地 JSON + Streamlit 的第一版授权，不是正式企业 IAM、数据库权限表或 API 网关；
+- 当前未来 API、图表/报告项目级 artifacts、反向代理静态下载路径和对象存储签名 URL 还没有实现，后续实现时必须复用 `can_export_artifacts` 或等价策略；
+- 不可导出用户仍应能在网页查看当前会话内的结果和历史索引；完整历史结果网页查看能力仍待后续结果页实现。
+
+验证：
+- `python -m pytest tests/test_pilot_backend_models.py tests/test_pilot_registry.py tests/test_pilot_access.py tests/test_pilot_admin.py tests/test_ui_import.py::test_pilot_project_switch_clears_work_state tests/test_ui_import.py::test_pilot_project_role_change_to_viewer_clears_work_state_and_blocks_submit tests/test_ui_import.py::test_pilot_history_artifact_refs_and_download_use_access_service -q` 通过，41 项通过；
+- `python -m compileall -q src` 通过；
+- `python -m pytest -q` 通过，263 项通过。
