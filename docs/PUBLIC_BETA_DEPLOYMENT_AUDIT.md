@@ -18,11 +18,12 @@
 - 上传文件类型/大小校验和 hash 元数据；
 - 大方案池 summary-first、可选并行和当前会话单方案逐小时明细补算；
 - `.env.example`、内部部署 runbook、pilot store 备份/恢复脚本。
+- Dockerfile、docker-compose.yml、README_DEPLOY.md、SECURITY.md 第一版。
 
 仍未达到公网内测 Route A：
 
-- 缺少 `Dockerfile`、`docker-compose.yml`、`README_DEPLOY.md`、`SECURITY.md`；
-- 缺少正式 HTTPS/反向代理样例、系统服务托管、日志轮转、监控和健康检查；
+- Docker 部署包仍是本地文件 store 版，缺少正式系统服务托管、日志轮转、监控告警和安全扫描；
+- HTTPS/反向代理已有文档样例，但仍未经过目标服务器实机演练；
 - 原始上传文件、逐小时明细、图表包、报告和导出文件尚未完整进入项目/Run 级 artifact 留存闭环；
 - 历史 summary-only 结果仍不能跨会话补算逐小时明细；
 - 计算仍主要在 Streamlit 进程内同步执行，没有后台 worker、队列、取消和重试闭环；
@@ -40,17 +41,17 @@
 | 项目/Run/参数/结果摘要留存 | 部分满足 | 技术/经济/推荐 summary 已写 `ResultStore` | 年度现金流、逐小时明细、图表和报告未完整持久化 | 按 `StudyResultRecord` 串联完整结果索引 |
 | 原始文件、逐小时明细、导出文件留存和清理 | 不满足 | 当前只有 artifact payload 过期清理第一版 | 不能支撑跨会话复盘、审计和恢复 | 做 user/project/run 隔离 input/detail/export artifacts |
 | 关键操作审计日志 | 部分满足 | 登录、项目、成员、任务、artifact 下载/清理已审计 | 管理员跨项目查看、原始文件查看、未来导出仍需补齐 | 扩充 `AuditAction` 覆盖面 |
-| Docker 可部署 | 不满足 | 仓库无 `Dockerfile` / `docker-compose.yml` | 不能按公网内测要求标准化部署和数据卷挂载 | 增加容器部署包 |
-| HTTPS/反向代理/备份/恢复/回滚说明 | 部分满足 | 内部 runbook 和 PowerShell 备份/恢复脚本 | 缺少 Nginx/Caddy 样例、系统服务、监控 | 增加 `README_DEPLOY.md` 和 `SECURITY.md` |
+| Docker 可部署 | 第一版满足 | `Dockerfile`、`docker-compose.yml`、`README_DEPLOY.md` | 尚未在目标服务器完成构建/启动/恢复演练 | 实机运行 `docker compose build/up` 和数据卷恢复演练 |
+| HTTPS/反向代理/备份/恢复/回滚说明 | 部分满足 | 内部 runbook、PowerShell 备份/恢复脚本、`README_DEPLOY.md` | 缺少系统服务托管、集中日志、监控告警和自动恢复演练 | 在目标服务器补 Caddy/Nginx 配置、日志和监控 |
 | 核心算法回归通过 | 满足当前 checkpoint | 最近 `pytest -q` 为 275 passed | 后续改性能/后台时仍需重复验证 | 每个工程化切片后跑回归 |
 
 ## 3. 推荐执行顺序
 
-1. **部署包切片**
-   - 新增 `Dockerfile`、`docker-compose.yml`、`README_DEPLOY.md`、`SECURITY.md`；
-   - 容器默认启用 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1`；
-   - 数据目录通过仓库外 volume 挂载；
-   - 文档明确本工具不接 EMS/SCADA/真实设备。
+1. **部署包演练**
+   - 在目标服务器或等效 Linux 环境运行 `docker compose build`、`docker compose up -d`；
+   - 验证容器默认启用 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1`；
+   - 验证数据目录通过仓库外 volume 挂载，重启后账号和项目不丢失；
+   - 结合目标域名补 Caddy/Nginx HTTPS 配置和日志策略。
 
 2. **项目级 artifact 闭环**
    - 原始上传文件保存为 input artifact；

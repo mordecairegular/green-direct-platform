@@ -91,7 +91,7 @@
 - 如果开放公网访问，只按“受控公网内测 Route A”推进：关闭开放注册，用户由管理员创建或邀请，保留不接真实电力控制系统的边界说明；
 - 继续收口导出授权：已完成 membership 级 `can_export_artifacts` 第一版，下一步需要让未来 API、图表/报告项目级 artifacts、反向代理下载路径和数据库适配全部复用同一后端策略；
 - 继续补文件安全和留存策略：已完成上传类型/大小第一层门禁、hash 记录和 artifact payload 到期清理第一版；下一步让原始上传文件、逐小时明细、现金流、图表包和报告存在仓库外受控目录，并补定时清理、关键 Run 保留和恢复策略；
-- 继续补部署材料：已完成 `.env.example`、内部试用 runbook 和 pilot store 备份/恢复脚本第一版；下一步补 Docker/compose 或等效服务化说明、HTTPS/反向代理、日志轮转、健康检查、监控告警和恢复演练；
+- 继续补部署材料：已完成 `.env.example`、内部试用 runbook、pilot store 备份/恢复脚本、Dockerfile、docker-compose、`README_DEPLOY.md` 和 `SECURITY.md` 第一版；下一步在目标服务器实机演练 Docker build/up、HTTPS 反向代理、日志轮转、健康检查、监控告警和恢复演练；
 - 下一阶段把 `pilot_backend` 模型、`LocalPilotRegistry`、`LocalPilotAuth`、`LocalPilotAdminService`、`LocalJobStore`、`LocalResultStore` 和 `PilotAccessService` 接入轻量 SQLite/Postgres、完整后台任务状态页和正式项目结果存储；
 - 下一阶段把技术仿真、经济性测算和图表导出提交为项目级 `Job`，并把产物写入 `ResultStore`；
 - 依据 `notes/PRELAUNCH_QUALITY_REVIEW_20260615.md` 推进内部 pilot 上线前闭环：后台任务 worker、结果存储接入、部署 runbook、数据库/备份策略；

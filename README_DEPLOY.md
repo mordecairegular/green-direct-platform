@@ -1,0 +1,254 @@
+# Green Direct 内部试用部署说明
+
+本文面向内部 10-20 人试用和邀请制受控公网内测 Route A。它不是正式公网 SaaS 部署手册；正式对外前仍需要后台 worker、数据库/对象存储适配、监控告警和安全复核。
+
+## 1. 产品边界
+
+本工具仅用于绿电直连 / 微电网项目前期方案测算、政策指标初判和方案比选辅助。
+
+禁止把本工具部署或宣传为：
+
+- EMS、SCADA、调度自动化或生产控制系统；
+- 实时运行平台；
+- 真实电表、保护装置、储能 PCS、发电设备或负荷控制接口；
+- 项目审批、接入批复、交易结算或绿证核发依据。
+
+## 2. Docker 快速启动
+
+构建镜像：
+
+```powershell
+docker compose build
+```
+
+初始化第一个平台管理员。请使用一次性强密码，不要把密码写入仓库：
+
+```powershell
+$env:GREEN_DIRECT_ADMIN_PASSWORD = "change-me-before-use"
+docker compose run --rm `
+  -e GREEN_DIRECT_ADMIN_PASSWORD `
+  green-direct `
+  python -m green_direct.cli pilot-admin bootstrap `
+    --store-dir /data/pilot_store `
+    --user-id admin `
+    --login-name admin@example.local `
+    --display-name "平台管理员" `
+    --password-env GREEN_DIRECT_ADMIN_PASSWORD
+Remove-Item Env:\GREEN_DIRECT_ADMIN_PASSWORD
+```
+
+启动服务：
+
+```powershell
+docker compose up -d
+```
+
+本机访问：
+
+```text
+http://localhost:8503
+```
+
+查看日志：
+
+```powershell
+docker compose logs -f green-direct
+```
+
+停止服务：
+
+```powershell
+docker compose down
+```
+
+## 3. 默认安全设置
+
+`docker-compose.yml` 默认设置：
+
+```text
+GREEN_DIRECT_ENABLE_PILOT_AUTH=1
+GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0
+GREEN_DIRECT_PILOT_STORE_DIR=/data/pilot_store
+GREEN_DIRECT_MAX_UPLOAD_MB=20
+```
+
+含义：
+
+- 用户必须登录后才能进入六步工作流；
+- 多人部署不启用本地 runtime snapshot，避免恢复上一位用户结果；
+- 账号、会话、项目、任务、结果、artifact 和审计日志写入容器外 volume；
+- 上传文件默认单文件 20MB 上限。
+
+## 4. 数据卷
+
+Compose 使用命名卷：
+
+```text
+green_direct_pilot_store -> /data/pilot_store
+```
+
+该目录保存：
+
+- 用户和本地密码 hash；
+- 会话 token hash；
+- 项目和项目成员；
+- Job 状态；
+- 技术/经济/推荐 summary artifact；
+- artifact 元数据和 payload；
+- 审计日志。
+
+不要把该数据卷内容提交到 Git，也不要放到 Web 静态目录。
+
+## 5. 账号与权限
+
+平台管理员登录后可以在“平台管理”页：
+
+- 创建用户；
+- 重置密码；
+- 停用用户；
+- 授予/撤销平台管理员；
+- 维护项目成员角色；
+- 控制项目成员是否允许下载/导出结果。
+
+当前项目角色为 `admin`、`analyst`、`viewer`，导出权限由 `can_export_artifacts` 独立控制。不可导出用户应能查看网页结果，但不能下载 artifact 或 06 页导出文件。
+
+## 6. 反向代理与 HTTPS
+
+受控公网内测必须放在 HTTPS 反向代理后。推荐拓扑：
+
+```text
+Browser
+  -> HTTPS:443
+  -> Caddy/Nginx
+  -> http://127.0.0.1:8503 or http://green-direct:8503
+```
+
+Caddy 示例：
+
+```caddyfile
+green-direct.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8503
+}
+```
+
+Nginx 示例：
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name green-direct.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/green-direct.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/green-direct.example.com/privkey.pem;
+
+    client_max_body_size 25m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8503;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 300s;
+    }
+}
+```
+
+公网访问时不要直接暴露 8503 到互联网；应只允许反向代理或 VPN 网关访问容器端口。
+
+## 7. 备份
+
+备份命名卷到本地目录：
+
+```powershell
+New-Item -ItemType Directory -Force .\backups | Out-Null
+docker run --rm `
+  -v green_direct_pilot_store:/data/pilot_store:ro `
+  -v ${PWD}\backups:/backup `
+  alpine `
+  sh -c "cd /data && tar czf /backup/green-direct-pilot-store-$(date +%Y%m%d-%H%M%S).tgz pilot_store"
+```
+
+建议：
+
+- 每天自动备份一次；
+- 重要试用前手动备份；
+- 定期把备份恢复到临时目录演练；
+- 备份文件不得提交到 Git。
+
+## 8. 恢复
+
+恢复前先停服务并备份当前卷：
+
+```powershell
+docker compose down
+```
+
+恢复到一个新卷更安全：
+
+```powershell
+docker volume create green_direct_pilot_store_restored
+docker run --rm `
+  -v green_direct_pilot_store_restored:/data `
+  -v ${PWD}\backups:/backup `
+  alpine `
+  sh -c "cd /data && tar xzf /backup/green-direct-pilot-store-YYYYMMDD-HHMMSS.tgz"
+```
+
+核查无误后，再切换 compose volume 名称或把恢复内容复制到正式卷。不要在未备份的情况下覆盖现有数据卷。
+
+## 9. 过期清理
+
+清理到期 artifact payload：
+
+```powershell
+docker compose run --rm green-direct `
+  python -m green_direct.cli pilot-admin purge-expired-artifacts `
+    --store-dir /data/pilot_store `
+    --actor-user-id admin
+```
+
+当前清理能力只覆盖已登记的 artifact payload。原始上传文件、逐小时明细、图表包和报告导出的完整项目级留存闭环仍在后续路线中。
+
+## 10. 健康检查与冒烟
+
+容器健康检查访问：
+
+```text
+http://127.0.0.1:8503/_stcore/health
+```
+
+每次发布后至少检查：
+
+- 未登录用户只能看到登录页；
+- 平台管理员可登录并进入“平台管理”；
+- 普通用户只能看到授权项目；
+- 禁止导出的成员不能下载历史 artifact 或 06 页导出文件；
+- Demo 技术仿真、经济测算、推荐、图表和导出页可打开；
+- 日志不包含明文密码、token、原始曲线和服务器敏感路径。
+
+## 11. 回滚
+
+推荐流程：
+
+1. 备份当前 `green_direct_pilot_store`；
+2. 记录当前镜像 tag 或 commit；
+3. 切回上一份已验证源码或镜像；
+4. 启动服务后做冒烟检查；
+5. 如果新版本写入了旧版本不认识的 metadata，先在恢复副本上验证旧版本能否读取关键结果。
+
+不要用删除数据卷的方式回滚代码问题。
+
+## 12. 仍未完成
+
+当前 Docker 部署包解决的是“可标准化启动和持久化本地 store”。尚未完成：
+
+- 后台 worker / 队列 / 取消 / 重试；
+- SQLite/Postgres 或对象存储适配；
+- 原始上传文件、逐小时明细、图表包和报告导出的完整 artifact 留存；
+- 集中日志、监控告警、CI/CD 和自动化恢复演练；
+- 正式企业 IAM、OIDC/LDAP、CSRF 防护和安全扫描。

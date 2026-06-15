@@ -3767,3 +3767,27 @@ exchange_import_shortfall_energy == 0
 - benchmark 脚本不是 CI 性能门槛，不同机器结果不可简单横比；
 - 性能路线不允许改变 V0.1 调度口径、经济性 V1 现金流口径或推荐 V1 排序口径；
 - 公网内测仍缺 Docker/compose、正式部署文档、安全说明、项目级完整 artifact 留存、后台 Job、数据库/并发存储和跨会话明细补算。
+
+### 2026-06-16 受控公网内测 Docker 部署包第一版
+
+上一轮已经把 Route A 的审计矩阵和性能专项写清楚，本轮继续推进 P0 部署缺口：如果没有标准容器入口、compose、部署说明和安全说明，内部 10-20 人试用仍然会依赖手工命令和个人环境，难以复现、备份、回滚和排障。
+
+本轮判断：
+- 容器部署必须默认启用 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1`，不能把开发模式的匿名访问当成内测默认；
+- 多人部署必须默认关闭 `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT`，避免容器重启或新会话恢复旧用户结果；
+- pilot store 必须挂载到容器外数据卷，不能打包进镜像，也不能落在 Git 仓库目录；
+- Docker 包只是标准化运行入口，不等于完整生产化；后台 worker、数据库、对象存储、监控和安全扫描仍是后续任务。
+
+本轮实现：
+- 新增 `.dockerignore`，排除 `.env`、`.runtime`、虚拟环境、输出目录、历史构建产物和大体量参考资料，避免把本地敏感或无关文件打进镜像；
+- 新增 `Dockerfile`，基于 `python:3.11-slim` 安装运行依赖、Chromium 和中文字体，默认监听 `8503`，内置 Streamlit healthcheck；
+- 新增 `docker-compose.yml`，默认启用登录门禁、关闭 runtime snapshot、将 `/data/pilot_store` 挂载到命名卷 `green_direct_pilot_store`；
+- 新增 `README_DEPLOY.md`，覆盖 Docker 构建、首个管理员 bootstrap、启动、数据卷、反向代理 HTTPS 示例、备份、恢复、清理、冒烟和回滚；
+- 新增 `SECURITY.md`，记录当前安全边界、数据处理、密码/密钥、上传与日志、权限模型、部署要求和已知限制；
+- 更新 `.env.example`、`docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md`、`docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md`、`docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md`、`notes/HANDOFF_FOR_NEW_MACHINE.md` 和 `notes/TODO.md`，把部署包从“缺失”更新为“第一版已落地，仍需实机演练和生产化补强”。
+
+边界说明：
+- 本轮没有引入后台 worker、数据库事务、对象存储或企业 IAM；
+- Docker 镜像只复制运行所需代码、配置和样例，不复制本地 `.runtime` 或 `.env`；
+- 反向代理示例仍需按目标服务器域名、证书、网络和日志策略实机调整；
+- 仍不建议直接把 8503 端口暴露到公网。

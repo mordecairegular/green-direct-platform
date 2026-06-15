@@ -75,6 +75,7 @@
 
 - `docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md`：把受控公网内测准备方案映射为当前仓库的 P0 审计矩阵；
 - `docs/PERFORMANCE_OPTIMIZATION_PLAN.md`：记录方案遍历、summary-first、并行、经济性批量化和后台 Job 的性能路线；
+- `README_DEPLOY.md` 和 `SECURITY.md`：记录 Docker/compose 内测部署、安全边界、反向代理、备份恢复和已知限制；
 - `scripts/benchmark_internal_pilot_performance.py`：用于记录技术仿真和经济性测算的可重复 benchmark。
 
 ## 3. 当前项目定位

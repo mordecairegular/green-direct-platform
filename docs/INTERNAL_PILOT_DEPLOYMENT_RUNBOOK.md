@@ -30,6 +30,8 @@ D:\GreenDirectPilot\
 
 Linux 或容器部署可使用同等含义的挂载目录，例如 `/srv/green-direct/pilot_store`。
 
+Docker/compose 部署第一版见 `README_DEPLOY.md`。该入口默认启用登录门禁、关闭 runtime snapshot，并把 pilot store 挂载到容器外 volume。
+
 ## 3. 环境变量
 
 以 `.env.example` 为准，内部试用至少需要：
@@ -151,5 +153,5 @@ python -m green_direct.cli pilot-admin purge-expired-artifacts `
 - SQLite/Postgres 或对象存储适配；
 - 原始上传文件保存、留存和清理；
 - 完整历史结果恢复、删除、标记和跨项目搜索；
-- HTTPS/反向代理配置样例、系统服务托管、监控告警和集中日志；
+- 目标服务器上的 HTTPS/反向代理实机演练、系统服务托管、监控告警和集中日志；
 - CI/CD、版本化发布包和自动化端到端冒烟。
