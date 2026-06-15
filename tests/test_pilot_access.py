@@ -8,6 +8,7 @@ from green_direct.models.pilot_backend import (
     JobType,
     Project,
     ProjectRole,
+    StudyResultRecord,
     User,
 )
 from green_direct.services import (
@@ -273,3 +274,24 @@ def test_artifact_payload_read_requires_project_view_and_is_audited(tmp_path):
     )
     with pytest.raises(PilotAccessError, match="no active membership"):
         service.read_artifact_payload(actor_user_id="outsider", artifact=artifact)
+
+
+def test_result_record_lists_require_project_view(tmp_path):
+    service = _service(tmp_path)
+    _create_project_with_members(service)
+    record = service.result_store.save_result_record(
+        StudyResultRecord(
+            result_id="technical_result",
+            project_id="project_1",
+            study_id="study_1",
+            created_by_job_id="job_1",
+            technical_summary_artifact_id="technical_summary",
+        )
+    )
+
+    assert service.list_project_result_records(actor_user_id="viewer", project_id="project_1") == [record]
+    assert service.list_study_result_records(actor_user_id="viewer", project_id="project_1", study_id="study_1") == [
+        record
+    ]
+    with pytest.raises(PilotAccessError, match="no active membership"):
+        service.list_project_result_records(actor_user_id="outsider", project_id="project_1")

@@ -111,6 +111,55 @@ def test_result_store_round_trips_result_record(tmp_path):
         store.save_result_record(record)
 
 
+def test_result_store_lists_project_and_study_result_records_newest_first(tmp_path):
+    store = LocalResultStore(tmp_path)
+    older = StudyResultRecord(
+        result_id="technical_result",
+        project_id="project_1",
+        study_id="study_1",
+        created_by_job_id="job_1",
+        technical_summary_artifact_id="technical_summary",
+        created_at=_dt(1),
+    )
+    newer = StudyResultRecord(
+        result_id="economy_result_job_2",
+        project_id="project_1",
+        study_id="study_1",
+        created_by_job_id="job_2",
+        economy_summary_artifact_id="economy_summary_job_2",
+        created_at=_dt(2),
+    )
+    other_study = StudyResultRecord(
+        result_id="recommendation_result_job_3",
+        project_id="project_1",
+        study_id="study_2",
+        created_by_job_id="job_3",
+        recommendation_artifact_id="recommendation_job_3",
+        created_at=_dt(3),
+    )
+    other_project = StudyResultRecord(
+        result_id="result_other",
+        project_id="project_2",
+        study_id="study_1",
+        created_by_job_id="job_4",
+        created_at=_dt(4),
+    )
+
+    for record in [older, newer, other_study, other_project]:
+        store.save_result_record(record)
+
+    assert [record.result_id for record in store.list_study_result_records("project_1", "study_1")] == [
+        "economy_result_job_2",
+        "technical_result",
+    ]
+    assert [record.result_id for record in store.list_project_result_records("project_1")] == [
+        "recommendation_result_job_3",
+        "economy_result_job_2",
+        "technical_result",
+    ]
+    assert store.list_project_result_records("project_missing") == []
+
+
 def test_result_store_appends_project_and_global_audit_logs(tmp_path):
     store = LocalResultStore(tmp_path)
     project_event = AuditLog(

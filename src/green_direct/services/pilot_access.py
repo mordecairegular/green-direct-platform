@@ -21,6 +21,7 @@ from green_direct.models.pilot_backend import (
     ProjectMembership,
     ProjectRole,
     ProjectStatus,
+    StudyResultRecord,
     User,
 )
 from green_direct.services.job_store import LocalJobStore
@@ -255,6 +256,24 @@ class PilotAccessService:
 
         self.require_project_view(actor_user_id=actor_user_id, project_id=project_id)
         return self.job_store.load_job(project_id, study_id, job_id)
+
+    def list_project_result_records(self, *, actor_user_id: str, project_id: str) -> list[StudyResultRecord]:
+        """List stored result indexes visible to an active project member."""
+
+        self.require_project_view(actor_user_id=actor_user_id, project_id=project_id)
+        return self.result_store.list_project_result_records(project_id)
+
+    def list_study_result_records(
+        self,
+        *,
+        actor_user_id: str,
+        project_id: str,
+        study_id: str,
+    ) -> list[StudyResultRecord]:
+        """List stored result indexes for one study visible to an active project member."""
+
+        self.require_project_view(actor_user_id=actor_user_id, project_id=project_id)
+        return self.result_store.list_study_result_records(project_id, study_id)
 
     def cancel_job(self, *, actor_user_id: str, project_id: str, study_id: str, job_id: str) -> Job:
         """Cancel a queued/running job; analysts may cancel only their own jobs."""

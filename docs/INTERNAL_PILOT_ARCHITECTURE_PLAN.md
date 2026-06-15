@@ -94,6 +94,7 @@ PNG 图表包后台任务也按会话隔离：
 - 产物按 `projects/{project_id}/studies/{study_id}/artifacts/{artifact_id}` 隔离保存；
 - 写入产物时自动记录 `JobArtifact`、`storage_uri`、`sha256` 和 `size_bytes`；
 - `StudyResultRecord` 可落盘并回读，用于把技术汇总、经济汇总、推荐组合、逐小时明细和报告产物串起来；
+- `StudyResultRecord` 已支持按项目或研究列出，供项目内结果索引面板读取；
 - 审计事件可按项目或全局写入 JSONL；
 - 路径片段使用白名单校验，防止把用户输入直接拼成越权文件路径；
 - 当前实现是本地文件适配器，不替代后续 SQLite/Postgres、对象存储或正式权限控制。
@@ -146,6 +147,7 @@ PNG 图表包后台任务也按会话隔离：
 - `admin` 可创建/归档项目、授予/停用成员、提交任务、查看任务和产物、取消他人任务；
 - `analyst` 可提交和查看本项目任务，并取消自己提交的任务；
 - `viewer` 只能查看本项目任务和产物，不能提交或取消任务；
+- 结果索引读取已通过 `list_project_result_records()` / `list_study_result_records()` 纳入项目查看权限；
 - 停用用户、停用 membership、非成员、已归档项目的新任务提交会被拒绝；
 - 创建项目、成员变更、提交任务、取消任务、读取产物 payload 会写入 `AuditLog`；
 - 当前服务仍不包含 worker 调度、数据库事务或并发锁；它是当前 Streamlit 项目工作区、后续任务入口和 SQLite/Postgres 适配器应复用的权限/审计语义。
@@ -218,15 +220,16 @@ PNG 图表包后台任务也按会话隔离：
 - Streamlit 02 页 Demo 和正式测算完成后，在启用内部登录且存在当前项目时，会调用该路径，并把结果引用挂到 `StudyResult.result_store_refs`。
 - `persist_economic_study_result()` 会把一次 `EconomicStudyResult` 登记为 `economic_study` 类型同步 `Job`，写入电源侧和同一主体经济性 summary；
 - `persist_recommendation_study_result()` 会把一次 `RecommendationStudyResult` 登记为 `recommendation` 类型同步 `Job`，写入推荐组合和负荷侧明细；Streamlit 推荐页使用 fingerprint 去重，避免同一组合刷新时重复写入。
+- `LocalResultStore` 和 `PilotAccessService` 已支持按项目/研究列出结果索引；Streamlit 欢迎页已新增只读“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引。
 
 仍未落地：
 - 后台 worker / 队列 / 取消闭环；
 - 技术仿真逐小时明细的按需补算与持久化；
 - 经济性年度现金流、图表包、报告产物写入 `ResultStore`；
-- 项目级任务状态页和历史结果页；
+- 完整项目级任务状态页、历史结果恢复、历史 artifact 下载、删除和跨项目搜索；
 - SQLite/Postgres 或对象存储适配、并发锁、备份和部署 runbook。
 
 下一阶段建议：
-1. 先做任务状态页和结果历史页，让用户可以在项目内找回已完成测算；
+1. 先做完整任务状态页和结果历史恢复/下载页，让用户可以在项目内找回已完成测算；
 2. 再把经济性年度现金流和代表方案按需逐小时明细纳入 artifacts；
 3. 最后把图表包和报告导出统一变成项目级 artifacts，并接入后台 worker。

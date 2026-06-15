@@ -139,6 +139,9 @@ class LocalResultStore:
         """Load a study result index."""
 
         data = read_json(self._result_path(project_id, study_id, result_id))
+        return self._result_record_from_json(data)
+
+    def _result_record_from_json(self, data: dict) -> StudyResultRecord:
         return StudyResultRecord(
             result_id=data["result_id"],
             project_id=data["project_id"],
@@ -152,6 +155,30 @@ class LocalResultStore:
             report_artifact_ids=data.get("report_artifact_ids") or {},
             created_at=datetime.fromisoformat(data["created_at"]),
         )
+
+    def list_study_result_records(self, project_id: str, study_id: str) -> list[StudyResultRecord]:
+        """List result indexes under one study, newest first."""
+
+        results_dir = self._study_dir(project_id, study_id) / "results"
+        if not results_dir.exists():
+            return []
+        records = [
+            self._result_record_from_json(read_json(path))
+            for path in sorted(results_dir.glob("*.json"))
+        ]
+        return sorted(records, key=lambda record: (record.created_at, record.result_id), reverse=True)
+
+    def list_project_result_records(self, project_id: str) -> list[StudyResultRecord]:
+        """List result indexes under every study in one project, newest first."""
+
+        project_dir = self._project_dir(project_id)
+        if not project_dir.exists():
+            return []
+        records = [
+            self._result_record_from_json(read_json(path))
+            for path in sorted(project_dir.glob("studies/*/results/*.json"))
+        ]
+        return sorted(records, key=lambda record: (record.created_at, record.study_id, record.result_id), reverse=True)
 
     def append_audit_log(self, event: AuditLog) -> AuditLog:
         """Append one audit event as JSONL."""

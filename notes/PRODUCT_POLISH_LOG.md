@@ -3453,3 +3453,28 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_pilot_study_persistence.py tests/test_ui_import.py::test_pilot_economy_and_recommendation_helpers_persist_refs_and_dedupe -q` 通过，5 项通过；
 - `python -m pytest -q` 通过，255 项通过；
 - `python -m compileall -q src` 通过。
+
+### 2026-06-15 项目任务与结果索引面板
+
+本轮继续补内部多人试用的结果可见性。前几轮已经把技术、经济 summary 和推荐 portfolio 写入项目级 `Job` / `ResultStore`，但用户在 UI 中仍看不到这些历史记录；这会让多人 pilot 仍然像“当前浏览器会话工具”，不够像项目工作台。因此本轮先补一个轻量项目任务与结果索引面板。
+
+本轮判断：
+- 先列出最近任务和结果索引，比直接做完整历史结果恢复更稳；
+- 历史结果恢复涉及重新装载 `StudyResult`、逐小时明细、经济年度现金流和导出缓存，应该在结果索引稳定后再做；
+- 项目历史读取必须走 `PilotAccessService`，不能在 Streamlit 中直接扫本地文件目录。
+
+本轮实现：
+- `LocalResultStore` 新增 `list_study_result_records()` 和 `list_project_result_records()`，按创建时间倒序列出结果索引；
+- `PilotAccessService` 新增同名权限门面，项目成员可查看本项目结果，非成员不可查看；
+- Streamlit 欢迎页新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引；
+- 面板展示 job 类型、状态、进度、发起人、开始/完成时间，以及 result 类型、产物数、来源 Job 和保存时间。
+
+边界说明：
+- 当前面板只读索引，不把历史结果重新加载回六步工作流；
+- 当前仍不支持下载历史 artifact、删除结果、标记推荐结果、跨项目搜索或后台任务取消；
+- 本地 JSON store 仍没有并发锁、事务和正式数据库适配。
+
+验证：
+- `python -m pytest tests/test_result_store.py tests/test_pilot_access.py::test_result_record_lists_require_project_view tests/test_ui_import.py::test_pilot_project_activity_frames_summarize_jobs_and_results -q` 通过，8 项通过；
+- `python -m compileall -q src` 通过；
+- `python -m pytest -q` 通过，258 项通过。

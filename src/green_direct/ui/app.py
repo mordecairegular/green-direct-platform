@@ -40,7 +40,7 @@ from green_direct.export.excel_exporter import export_summary_excel
 from green_direct.io.read_curves import read_csv_auto_encoding
 from green_direct.io.validators import DataValidationError
 from green_direct.models.params import BessParams, DataCleaningParams, PerformanceParams, PolicyParams
-from green_direct.models.pilot_backend import Project, ProjectMembership, ProjectRole, User
+from green_direct.models.pilot_backend import Job, Project, ProjectMembership, ProjectRole, StudyResultRecord, User
 from green_direct.recommendation import (
     ENGINEERING_VIEW_LABELS,
     SINGLE_ENTITY_VIEW_LABELS,
@@ -2182,6 +2182,115 @@ def _render_pilot_project_sidebar(
                 )
         else:
             st.info("当前账号尚未加入项目。")
+
+
+def _pilot_datetime_text(value) -> str:
+    return value.strftime("%Y-%m-%d %H:%M") if value else "-"
+
+
+def _pilot_job_history_frame(jobs: list[Job], *, limit: int = 8) -> pd.DataFrame:
+    sorted_jobs = sorted(jobs, key=lambda job: (job.queued_at, job.study_id, job.job_id), reverse=True)
+    rows = []
+    for job in sorted_jobs[:limit]:
+        progress = f"{job.progress_current}/{job.progress_total}" if job.progress_total else str(job.progress_current)
+        rows.append(
+            {
+                "job_id": job.job_id,
+                "study_id": job.study_id,
+                "类型": job.job_type.value,
+                "状态": job.status.value,
+                "进度": progress,
+                "发起人": job.requested_by_user_id,
+                "开始": _pilot_datetime_text(job.started_at),
+                "完成": _pilot_datetime_text(job.finished_at),
+                "说明": job.error_message or job.progress_message or "",
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _pilot_result_record_kind(record: StudyResultRecord) -> str:
+    if record.recommendation_artifact_id:
+        return "recommendation"
+    if record.economy_summary_artifact_id or record.single_entity_summary_artifact_id:
+        return "economy"
+    if record.technical_summary_artifact_id:
+        return "technical"
+    if record.report_artifact_ids:
+        return "report"
+    if record.hourly_detail_artifact_ids:
+        return "hourly_detail"
+    return "result"
+
+
+def _pilot_result_artifact_count(record: StudyResultRecord) -> int:
+    artifact_ids = [
+        record.technical_summary_artifact_id,
+        record.economy_summary_artifact_id,
+        record.single_entity_summary_artifact_id,
+        record.recommendation_artifact_id,
+    ]
+    direct_artifact_count = sum(1 for artifact_id in artifact_ids if artifact_id)
+    return direct_artifact_count + len(record.hourly_detail_artifact_ids) + len(record.report_artifact_ids)
+
+
+def _pilot_result_history_frame(records: list[StudyResultRecord], *, limit: int = 8) -> pd.DataFrame:
+    sorted_records = sorted(
+        records,
+        key=lambda record: (record.created_at, record.study_id, record.result_id),
+        reverse=True,
+    )
+    rows = []
+    for record in sorted_records[:limit]:
+        rows.append(
+            {
+                "result_id": record.result_id,
+                "study_id": record.study_id,
+                "类型": _pilot_result_record_kind(record),
+                "产物数": _pilot_result_artifact_count(record),
+                "来源 Job": record.created_by_job_id,
+                "保存时间": _pilot_datetime_text(record.created_at),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _render_pilot_project_activity(st) -> None:
+    if not _pilot_auth_enabled():
+        return
+    actor_user_id = _current_pilot_user_id(st)
+    project_id = _current_pilot_project_id(st)
+    if not actor_user_id or not project_id:
+        return
+    try:
+        access = _pilot_access_service()
+        jobs = access.list_project_jobs(actor_user_id=actor_user_id, project_id=project_id)
+        records = access.list_project_result_records(actor_user_id=actor_user_id, project_id=project_id)
+    except Exception as exc:  # noqa: BLE001 - project activity should not block the main workflow
+        if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
+            st.warning(f"项目任务与结果暂不可读：{exc}")
+            return
+        raise
+
+    st.markdown("### 项目任务与结果")
+    col1, col2 = st.columns(2)
+    col1.metric("已登记任务", len(jobs))
+    col2.metric("已保存结果", len(records))
+    left, right = st.columns(2)
+    with left:
+        st.caption("最近任务")
+        jobs_frame = _pilot_job_history_frame(jobs)
+        if jobs_frame.empty:
+            st.info("当前项目还没有任务记录。")
+        else:
+            st.dataframe(jobs_frame, width="stretch", hide_index=True)
+    with right:
+        st.caption("最近结果索引")
+        results_frame = _pilot_result_history_frame(records)
+        if results_frame.empty:
+            st.info("当前项目还没有保存结果。")
+        else:
+            st.dataframe(results_frame, width="stretch", hide_index=True)
 
 
 def _ensure_pilot_project_selected(st) -> bool:
@@ -4842,6 +4951,7 @@ def _render_welcome_page(st) -> None:
         ),
     ]
     st.markdown(f'<div class="gd-launch-grid">{"".join(cards)}</div>', unsafe_allow_html=True)
+    _render_pilot_project_activity(st)
 
     next_rows = []
     for title, copy, status, state in _launch_next_steps(

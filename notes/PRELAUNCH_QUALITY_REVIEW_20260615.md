@@ -4,7 +4,7 @@
 
 - 当前分支：`codex/UI`
 - 对比基线：`origin/codex/UI`
-- 当前状态：本地已有连续 checkpoint；本记录随 Streamlit 项目工作区、项目成员管理和技术结果持久化补充更新。
+- 当前状态：本地已有连续 checkpoint；本记录随 Streamlit 项目工作区、项目成员管理、项目级结果持久化和最小任务/结果索引面板补充更新。
 - 目标口径：近期上线应理解为受控内部试用 / pilot，不应理解为公网生产 SaaS。
 
 ## 本轮 checkpoint 概览
@@ -14,11 +14,11 @@
 - UI 大改造、方案图谱、经济性参数工作台与导出体验；
 - 大批量汇总优先策略与可选并行技术仿真；
 - 经济性批量评价性能优化；
-- 内部试用后台模型、结果存储、账号注册表、认证、可选 Streamlit 登录门禁、项目工作区门禁、最小平台账号/项目成员管理页、管理员服务、任务状态存储、权限审计门面，以及技术/经济 summary/推荐 portfolio 持久化第一阶段；
+- 内部试用后台模型、结果存储、账号注册表、认证、可选 Streamlit 登录门禁、项目工作区门禁、最小平台账号/项目成员管理页、管理员服务、任务状态存储、权限审计门面，技术/经济 summary/推荐 portfolio 持久化第一阶段，以及欢迎页只读任务/结果索引面板；
 - `pilot-admin` 命令行账号管理入口；
 - 面向 Claude Code 的内部试用审查 / 后台架构 prompt 和跨机器 handoff 文档。
 
-近期 checkpoint 已覆盖 CLI、认证、平台管理、项目工作区、大批量汇总优先模式，以及技术仿真 summary/config、经济性 summary、推荐 portfolio 写入项目级 `ResultStore`；具体提交以 `git log --oneline` 为准。
+近期 checkpoint 已覆盖 CLI、认证、平台管理、项目工作区、大批量汇总优先模式，技术仿真 summary/config、经济性 summary、推荐 portfolio 写入项目级 `ResultStore`，以及项目内最近任务/结果索引展示；具体提交以 `git log --oneline` 为准。
 
 ## 验证结果
 
@@ -32,11 +32,11 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 
 结果：
 
-- 全量测试通过：255 项通过；
+- 全量测试通过：258 项通过；
 - `src` 编译检查通过；
 - 源码树下 CLI 启动口径验证通过；
 - `git diff --check` 没有实际空白错误，仅有 Windows 换行转换提示；
-- 本轮技术结果持久化 checkpoint 提交前，工作区为有意修改状态；提交后应重新确认干净。
+- 本轮任务/结果索引 checkpoint 提交前，工作区为有意修改状态；提交后应重新确认干净。
 
 ## 结论
 
@@ -55,7 +55,7 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 ### P0：公网生产阻塞
 
 1. Streamlit 主 UI 已有可选登录门禁、最小项目工作区门禁和平台账号/项目成员管理页，但还不是正式权限系统。
-   设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，未登录用户不能进入六步工作流；登录用户必须先创建或选择有效项目；切换项目会清理当前测算结果和下载缓存；平台管理员可在“平台管理”中创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并维护项目成员角色。技术仿真 summary/config snapshot、经济性 summary 和推荐 portfolio 已能写入项目级 `ResultStore`，但正式上线前仍必须接入更正式的会话/数据库适配、CSRF/反向代理安全边界，并继续迁移年度现金流、逐小时明细和导出产物持久化。
+   设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，未登录用户不能进入六步工作流；登录用户必须先创建或选择有效项目；切换项目会清理当前测算结果和下载缓存；平台管理员可在“平台管理”中创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并维护项目成员角色。技术仿真 summary/config snapshot、经济性 summary 和推荐 portfolio 已能写入项目级 `ResultStore`，欢迎页也能展示项目最近任务/结果索引，但正式上线前仍必须接入更正式的会话/数据库适配、CSRF/反向代理安全边界，并继续迁移年度现金流、逐小时明细、历史结果恢复和导出产物持久化。
 
 2. 没有正式后台任务队列和 worker。
    当前重计算仍发生在 Streamlit 进程内，PNG ZIP 使用进程内后台线程，技术/经济/推荐 Job 也是计算完成后的同步状态登记。`LocalJobStore` 只是任务状态契约，不会真正调度 worker。多人同时大算例时缺少排队、取消、限流、重试和失败恢复。
@@ -80,6 +80,9 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 4. `pilot-admin` CLI 仍是 bootstrap 和应急运维入口。
    最小 Streamlit 平台管理页已经可维护账号和项目成员，但首个管理员创建、密码应急重置和服务器端排障仍需要 CLI 或后续独立后台。
 
+5. 欢迎页“项目任务与结果”仍只是只读索引。
+   它可以帮助内部试用用户确认当前项目已有任务和结果记录，但不能恢复历史 `StudyResult`、下载历史 artifact、删除结果、标记报告版本或跨项目搜索。
+
 ### P2：后续质量改进
 
 - 增加端到端冒烟：启动 Streamlit、加载样例、跑技术仿真、跑经济性、进入推荐和导出页；
@@ -95,4 +98,4 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 2. 运行 `python -m pytest -q` 和 `python -m compileall -q src`；
 3. 重点审查 `src/green_direct/ui/app.py` 是否存在跨用户状态、旧结果复用、价格曲线误用、导出缓存串会话；
 4. 重点审查 `src/green_direct/services/` 下本地后台服务的权限边界、路径校验、审计记录和失败场景；
-5. 设计并实现下一阶段最小闭环：经济性/推荐/导出项目级 `Job` + 任务状态页 + 历史结果读取 + 代表方案按需逐小时明细 + 部署 runbook。
+5. 设计并实现下一阶段最小闭环：完整任务状态页 + 历史结果恢复/下载/删除 + 代表方案按需逐小时明细 + 图表/报告项目级 artifacts + 部署 runbook。

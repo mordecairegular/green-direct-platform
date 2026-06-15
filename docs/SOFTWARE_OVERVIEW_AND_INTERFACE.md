@@ -981,9 +981,10 @@ python -m pytest
 - `store_artifact()`：按 `project_id` / `study_id` 写入产物 payload，并返回 `JobArtifact`；
 - `load_artifact()` / `read_artifact_payload()`：读取产物索引和 payload，读取时校验 SHA256；
 - `save_result_record()` / `load_result_record()`：保存和读取 `StudyResultRecord`；
+- `list_project_result_records()` / `list_study_result_records()`：按项目或研究列出结果索引，默认创建时间倒序；
 - `append_audit_log()` / `read_audit_log()`：写入和读取项目级或全局审计事件。
 
-`LocalResultStore` 目前是服务层骨架，不接管现有 Streamlit 工作流。后续接入时，技术仿真、经济测算、推荐组合和导出文件应逐步写入该 store 或其数据库/对象存储替代实现。
+`LocalResultStore` 目前已接入技术仿真 summary/config、经济性 summary、推荐 portfolio 的第一阶段写入和最小结果索引读取，但仍不是正式数据库或对象存储。后续接入时，年度现金流、逐小时明细、图表包、报告和历史结果恢复应逐步写入该 store 或其数据库/对象存储替代实现。
 
 `src/green_direct/services/pilot_registry.py` 已提供第一版 `LocalPilotRegistry`：
 
@@ -1035,7 +1036,8 @@ python -m pytest
 - 会话失效、token 错误或退出登录时，会清理当前浏览器会话内的测算结果、下载缓存、价格曲线和图表导出缓存，避免下一位用户看到上一位用户的临时结果；
 - 登录后必须先创建或选择一个有效项目工作区，六步业务工作流才会继续渲染；切换项目会清理当前测算结果和下载缓存；
 - 平台管理员登录后，侧栏会出现“平台管理”入口，当前支持创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并在“项目和成员”中为已有项目分配或禁用成员角色；
-- 当前门禁和平台管理页只解决内部试用账号与项目工作区控制，仍没有数据库会话表、CSRF 防护、正式审计后台、项目级结果持久化或后台 worker。
+- 欢迎页已新增只读“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引；
+- 当前门禁、平台管理页和结果索引面板只解决内部试用账号、项目工作区控制和结果可见性入口，仍没有数据库会话表、CSRF 防护、正式审计后台、完整历史结果恢复或后台 worker。
 
 `src/green_direct/services/job_store.py` 已提供第一版 `LocalJobStore`：
 
@@ -1052,6 +1054,7 @@ python -m pytest
 - `list_accessible_projects()`：列出当前用户有有效 membership 的项目；
 - `grant_project_role()` / `disable_project_membership()` / `archive_project()`：项目管理员权限下的成员和项目管理动作；
 - `submit_job()` / `list_project_jobs()` / `load_job()` / `cancel_job()`：带项目角色校验的任务操作；
+- `list_project_result_records()` / `list_study_result_records()`：带项目查看权限校验的结果索引列表；
 - `load_artifact()` / `read_artifact_payload()`：带项目查看权限校验的产物索引和 payload 读取；
 - 创建项目、成员变更、提交任务、取消任务和产物读取会写入 `AuditLog`。
 
@@ -1137,6 +1140,7 @@ TechnicalStudyResult
 -> LocalResultStore.store_artifact()
 -> LocalResultStore.save_result_record()
 -> StudyResult.result_store_refs
+-> Streamlit 欢迎页“项目任务与结果”只读索引
 
 EconomicStudyResult
 -> persist_economic_study_result()
@@ -1162,9 +1166,15 @@ RecommendationStudyResult
 - `recommendation_portfolio.csv` / `recommendation_load_side_detail.csv`：推荐组合和负荷侧可成交收益明细；
 - `StudyResult.result_store_refs`：在 UI 会话内保存技术、经济、推荐的 job/result/artifact 引用，供后续结果页、导出页和缓存层迁移使用。
 
+当前读取入口：
+- `LocalResultStore.list_project_result_records()` / `list_study_result_records()`：按创建时间倒序返回结果索引；
+- `PilotAccessService.list_project_result_records()` / `list_study_result_records()`：在读取结果索引前统一校验项目查看权限；
+- Streamlit 欢迎页“项目任务与结果”：展示任务数、结果数、最近任务和最近结果索引，帮助内部试用用户确认项目内已有持久化记录。
+
 边界：
 - 这仍是 Streamlit 进程内同步写入，不是真正后台 worker；
 - 当前不持久化全量逐小时明细、经济性年度现金流、图表包或报告；
+- 当前结果索引面板不恢复历史 `StudyResult`，不下载历史 artifact，不删除或标记结果，也不做跨项目搜索；
 - `technical_input_fingerprint()` 目前基于 `config_snapshot` 生成稳定 sha256，用于追踪输入配置，不等同于对原始上传曲线文件逐字节哈希；
 - `economic_input_fingerprint()` 基于经济参数、价格模式和 summary 形状生成；`recommendation_result_fingerprint()` 基于推荐结果表生成，用于 UI 内去重；
 - 后续后台任务、数据库适配和结果页读取应继续复用 `PilotAccessService`，不要直接绕过权限与审计门面调用底层 store。

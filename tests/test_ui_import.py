@@ -388,6 +388,63 @@ def test_pilot_economy_and_recommendation_helpers_persist_refs_and_dedupe(tmp_pa
     assert {job.job_type for job in jobs} == {JobType.ECONOMIC_STUDY, JobType.RECOMMENDATION}
 
 
+def test_pilot_project_activity_frames_summarize_jobs_and_results():
+    from datetime import datetime, timezone
+
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import Job, JobStatus, JobType, StudyResultRecord
+
+    earlier = datetime(2026, 6, 15, 1, tzinfo=timezone.utc)
+    later = datetime(2026, 6, 15, 2, tzinfo=timezone.utc)
+
+    older_job = Job(
+        job_id="job_old",
+        project_id="project_1",
+        study_id="study_1",
+        requested_by_user_id="analyst",
+        job_type=JobType.TECHNICAL_STUDY,
+        status=JobStatus.SUCCEEDED,
+        queued_at=earlier,
+    )
+    newer_job = Job(
+        job_id="job_new",
+        project_id="project_1",
+        study_id="study_1",
+        requested_by_user_id="analyst",
+        job_type=JobType.RECOMMENDATION,
+        status=JobStatus.RUNNING,
+        progress_current=1,
+        progress_total=2,
+        queued_at=later,
+    )
+    older_result = StudyResultRecord(
+        result_id="technical_result",
+        project_id="project_1",
+        study_id="study_1",
+        created_by_job_id="job_old",
+        technical_summary_artifact_id="technical_summary",
+        created_at=earlier,
+    )
+    newer_result = StudyResultRecord(
+        result_id="recommendation_result_job_new",
+        project_id="project_1",
+        study_id="study_1",
+        created_by_job_id="job_new",
+        recommendation_artifact_id="recommendation_portfolio_job_new",
+        report_artifact_ids={"load_side_detail": "recommendation_load_side_detail_job_new"},
+        created_at=later,
+    )
+
+    job_frame = app._pilot_job_history_frame([older_job, newer_job])
+    result_frame = app._pilot_result_history_frame([older_result, newer_result])
+
+    assert job_frame.iloc[0]["job_id"] == "job_new"
+    assert job_frame.iloc[0]["进度"] == "1/2"
+    assert result_frame.iloc[0]["result_id"] == "recommendation_result_job_new"
+    assert result_frame.iloc[0]["类型"] == "recommendation"
+    assert result_frame.iloc[0]["产物数"] == 2
+
+
 def test_streamlit_app_shows_pilot_login_gate_when_enabled(tmp_path, monkeypatch):
     import green_direct.ui.app as app
     from streamlit.testing.v1 import AppTest
