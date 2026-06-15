@@ -147,6 +147,7 @@ PILOT_ACTIVE_PROJECT_ROLE_KEY = "_pilot_active_project_role"
 PILOT_PROJECT_NOTICE_KEY = "_pilot_project_notice"
 PILOT_RESULT_STORE_NOTICE_KEY = "_pilot_result_store_notice"
 PILOT_RECOMMENDATION_STORE_SIGNATURE_KEY = "_pilot_recommendation_store_signature"
+PILOT_HISTORY_ARTIFACT_DOWNLOADS_KEY = "_pilot_history_artifact_downloads"
 PLATFORM_ADMIN_PAGE = "平台管理"
 CHART_PNG_DOCX_SESSION_ID_KEY = "_chart_png_docx_session_id"
 _CHART_PNG_DOCX_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="green-direct-png")
@@ -181,6 +182,7 @@ PILOT_AUTH_WORK_STATE_KEYS = tuple(
             PROJECT_PRICE_CURVE_SESSION_UPLOAD_KEY,
             PILOT_RESULT_STORE_NOTICE_KEY,
             PILOT_RECOMMENDATION_STORE_SIGNATURE_KEY,
+            PILOT_HISTORY_ARTIFACT_DOWNLOADS_KEY,
             "download_payloads",
             "chart_png_docx_export",
             "chart_png_docx_export_error",
@@ -2234,6 +2236,58 @@ def _pilot_result_artifact_count(record: StudyResultRecord) -> int:
     return direct_artifact_count + len(record.hourly_detail_artifact_ids) + len(record.report_artifact_ids)
 
 
+def _pilot_result_artifact_refs(record: StudyResultRecord) -> list[tuple[str, str]]:
+    refs: list[tuple[str, str]] = []
+    direct_refs = [
+        ("技术汇总", record.technical_summary_artifact_id),
+        ("电源侧经济性汇总", record.economy_summary_artifact_id),
+        ("同一主体经济性汇总", record.single_entity_summary_artifact_id),
+        ("推荐组合", record.recommendation_artifact_id),
+    ]
+    refs.extend((label, artifact_id) for label, artifact_id in direct_refs if artifact_id)
+    refs.extend(
+        (f"逐小时明细 {scenario_id}", artifact_id)
+        for scenario_id, artifact_id in sorted(record.hourly_detail_artifact_ids.items())
+    )
+    report_labels = {
+        "load_side_detail": "负荷侧推荐明细",
+        "markdown": "Markdown 报告",
+        "docx": "Word 报告",
+    }
+    refs.extend(
+        (report_labels.get(name, f"扩展产物 {name}"), artifact_id)
+        for name, artifact_id in sorted(record.report_artifact_ids.items())
+    )
+    return refs
+
+
+def _pilot_artifact_download_key(record: StudyResultRecord, artifact_id: str) -> str:
+    return f"{record.project_id}:{record.study_id}:{record.result_id}:{artifact_id}"
+
+
+def _pilot_load_artifact_download(
+    access: PilotAccessService,
+    *,
+    actor_user_id: str,
+    record: StudyResultRecord,
+    artifact_id: str,
+) -> dict[str, object]:
+    artifact = access.load_artifact(
+        actor_user_id=actor_user_id,
+        project_id=record.project_id,
+        study_id=record.study_id,
+        artifact_id=artifact_id,
+    )
+    payload = access.read_artifact_payload(actor_user_id=actor_user_id, artifact=artifact)
+    file_name = artifact.storage_uri.rsplit("/", 1)[-1] if artifact.storage_uri else f"{artifact.artifact_id}.bin"
+    return {
+        "payload": payload,
+        "file_name": file_name,
+        "mime": artifact.content_type or "application/octet-stream",
+        "size_bytes": artifact.size_bytes,
+    }
+
+
 def _pilot_result_history_frame(records: list[StudyResultRecord], *, limit: int = 8) -> pd.DataFrame:
     sorted_records = sorted(
         records,
@@ -2253,6 +2307,58 @@ def _pilot_result_history_frame(records: list[StudyResultRecord], *, limit: int 
             }
         )
     return pd.DataFrame(rows)
+
+
+def _render_pilot_result_artifact_downloads(
+    st,
+    *,
+    access: PilotAccessService,
+    actor_user_id: str,
+    records: list[StudyResultRecord],
+    limit: int = 5,
+) -> None:
+    sorted_records = sorted(
+        records,
+        key=lambda record: (record.created_at, record.study_id, record.result_id),
+        reverse=True,
+    )
+    records_with_artifacts = [record for record in sorted_records if _pilot_result_artifact_refs(record)]
+    if not records_with_artifacts:
+        return
+
+    st.caption("历史结果产物")
+    downloads = st.session_state.setdefault(PILOT_HISTORY_ARTIFACT_DOWNLOADS_KEY, {})
+    for record in records_with_artifacts[:limit]:
+        title = f"{record.result_id} · {_pilot_result_record_kind(record)} · {_pilot_datetime_text(record.created_at)}"
+        with st.expander(title, expanded=False):
+            for label, artifact_id in _pilot_result_artifact_refs(record):
+                cache_key = _pilot_artifact_download_key(record, artifact_id)
+                load_key = f"pilot_history_load_{cache_key}"
+                download_key = f"pilot_history_download_{cache_key}"
+                col_label, col_action = st.columns([3, 2])
+                col_label.caption(f"{label} · {artifact_id}")
+                if col_action.button("加载", key=load_key):
+                    try:
+                        downloads[cache_key] = _pilot_load_artifact_download(
+                            access,
+                            actor_user_id=actor_user_id,
+                            record=record,
+                            artifact_id=artifact_id,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - one artifact should not break the whole activity panel
+                        if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
+                            st.warning(f"{label} 暂不可下载：{exc}")
+                            continue
+                        raise
+                cached = downloads.get(cache_key)
+                if cached:
+                    st.download_button(
+                        f"下载 {label}",
+                        data=cached["payload"],
+                        file_name=str(cached["file_name"]),
+                        mime=str(cached["mime"]),
+                        key=download_key,
+                    )
 
 
 def _render_pilot_project_activity(st) -> None:
@@ -2291,6 +2397,12 @@ def _render_pilot_project_activity(st) -> None:
             st.info("当前项目还没有保存结果。")
         else:
             st.dataframe(results_frame, width="stretch", hide_index=True)
+    _render_pilot_result_artifact_downloads(
+        st,
+        access=access,
+        actor_user_id=actor_user_id,
+        records=records,
+    )
 
 
 def _ensure_pilot_project_selected(st) -> bool:

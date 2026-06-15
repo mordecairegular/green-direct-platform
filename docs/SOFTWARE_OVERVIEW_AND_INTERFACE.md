@@ -1036,8 +1036,8 @@ python -m pytest
 - 会话失效、token 错误或退出登录时，会清理当前浏览器会话内的测算结果、下载缓存、价格曲线和图表导出缓存，避免下一位用户看到上一位用户的临时结果；
 - 登录后必须先创建或选择一个有效项目工作区，六步业务工作流才会继续渲染；切换项目会清理当前测算结果和下载缓存；
 - 平台管理员登录后，侧栏会出现“平台管理”入口，当前支持创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并在“项目和成员”中为已有项目分配或禁用成员角色；
-- 欢迎页已新增只读“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引；
-- 当前门禁、平台管理页和结果索引面板只解决内部试用账号、项目工作区控制和结果可见性入口，仍没有数据库会话表、CSRF 防护、正式审计后台、完整历史结果恢复或后台 worker。
+- 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引，并可加载下载已落盘的 summary / portfolio artifact；
+- 当前门禁、平台管理页和结果面板只解决内部试用账号、项目工作区控制、结果可见性和已落盘 artifact 取回入口，仍没有数据库会话表、CSRF 防护、正式审计后台、完整历史结果恢复或后台 worker。
 
 `src/green_direct/services/job_store.py` 已提供第一版 `LocalJobStore`：
 
@@ -1140,7 +1140,7 @@ TechnicalStudyResult
 -> LocalResultStore.store_artifact()
 -> LocalResultStore.save_result_record()
 -> StudyResult.result_store_refs
--> Streamlit 欢迎页“项目任务与结果”只读索引
+-> Streamlit 欢迎页“项目任务与结果”索引和 artifact 下载入口
 
 EconomicStudyResult
 -> persist_economic_study_result()
@@ -1169,12 +1169,12 @@ RecommendationStudyResult
 当前读取入口：
 - `LocalResultStore.list_project_result_records()` / `list_study_result_records()`：按创建时间倒序返回结果索引；
 - `PilotAccessService.list_project_result_records()` / `list_study_result_records()`：在读取结果索引前统一校验项目查看权限；
-- Streamlit 欢迎页“项目任务与结果”：展示任务数、结果数、最近任务和最近结果索引，帮助内部试用用户确认项目内已有持久化记录。
+- Streamlit 欢迎页“项目任务与结果”：展示任务数、结果数、最近任务和最近结果索引，帮助内部试用用户确认项目内已有持久化记录，并可按需加载下载已落盘 artifact。
 
 边界：
 - 这仍是 Streamlit 进程内同步写入，不是真正后台 worker；
 - 当前不持久化全量逐小时明细、经济性年度现金流、图表包或报告；
-- 当前结果索引面板不恢复历史 `StudyResult`，不下载历史 artifact，不删除或标记结果，也不做跨项目搜索；
+- 当前结果面板不恢复历史 `StudyResult`，不删除或标记结果，也不做跨项目搜索；
 - `technical_input_fingerprint()` 目前基于 `config_snapshot` 生成稳定 sha256，用于追踪输入配置，不等同于对原始上传曲线文件逐字节哈希；
 - `economic_input_fingerprint()` 基于经济参数、价格模式和 summary 形状生成；`recommendation_result_fingerprint()` 基于推荐结果表生成，用于 UI 内去重；
 - 后续后台任务、数据库适配和结果页读取应继续复用 `PilotAccessService`，不要直接绕过权限与审计门面调用底层 store。

@@ -56,14 +56,14 @@
 - 服务层已新增 `LocalJobStore`，支持本地 JSON 任务提交、读取、项目/研究列表、状态筛选、进度更新、成功/失败/取消状态持久化，暂未包含 worker 调度、认证、管理员页面或数据库锁。
 - 服务层已新增 `PilotAccessService`，把项目角色权限、可见项目列表、任务提交/取消、产物读取和审计日志统一成可测试服务门面，暂未包含 worker 调度、数据库事务或并发锁。
 - 技术仿真完成后已能在启用内部试用登录和当前项目时登记项目级同步 `Job`，并把 `technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord` 写入 `LocalResultStore`；经济性 summary 和推荐 portfolio 也已接入第一阶段项目级写入；年度现金流、逐小时明细和导出产物仍待迁移。
-- Streamlit 欢迎页已新增只读“项目任务与结果”面板，可查看当前项目任务数、已保存结果数、最近任务和最近结果索引；完整历史结果恢复、artifact 下载、删除和后台任务状态页仍待实现。
+- Streamlit 欢迎页已新增“项目任务与结果”面板，可查看当前项目任务数、已保存结果数、最近任务和最近结果索引；已落盘的技术 summary、经济 summary、推荐 portfolio/detail 等 artifact 可加载下载；完整历史结果恢复、删除、标记和后台任务状态页仍待实现。
 
 后续方向：
 
 - 大批量模式继续补前台预计耗时、后台进度、取消入口和完整任务状态页。
 - 大批量模式下继续补代表方案按需逐小时明细计算，不再要求用户只能缩小范围或指定单方案复核。
 - 用户选择代表方案、图表方案或导出方案后，再按需计算或加载该方案逐小时明细。
-- 下一阶段把历史结果恢复/下载/删除、经济性年度现金流、推荐跨会话去重、图表/报告导出也提交为项目级 `Job`，并把对应 hourly/cashflow/chart/report artifacts 写入 `ResultStore`。
+- 下一阶段把历史结果恢复/删除/标记、经济性年度现金流、推荐跨会话去重、图表/报告导出也提交为项目级 `Job`，并把对应 hourly/cashflow/chart/report artifacts 写入 `ResultStore`。
 - 技术仿真优先评估 `ProcessPoolExecutor` / 后台任务队列，按方案块并行，保持 `scenario_id`、warning、error 和顺序稳定。
 - 经济性测算优先做 DataFrame/NumPy 批量化，完整年度现金流可先只对报告方案或推荐组合生成。
 - 后续再评估 Numba、编译化调度内核或更高性能的数据结构。

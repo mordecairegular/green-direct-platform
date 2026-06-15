@@ -3478,3 +3478,28 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_result_store.py tests/test_pilot_access.py::test_result_record_lists_require_project_view tests/test_ui_import.py::test_pilot_project_activity_frames_summarize_jobs_and_results -q` 通过，8 项通过；
 - `python -m compileall -q src` 通过；
 - `python -m pytest -q` 通过，258 项通过。
+
+### 2026-06-15 历史结果产物下载入口
+
+本轮在项目任务与结果索引面板上继续补“可取回”的能力。上一轮用户已经能看到项目内最近任务和结果索引，但仍不能把已持久化的技术 summary、经济 summary 和推荐组合重新下载下来；这会削弱内部 pilot 的项目工作台感，也不利于多人复核。
+
+本轮判断：
+- 先支持已落盘 summary / portfolio artifact 的加载与下载，比直接恢复完整 `StudyResult` 更稳；
+- artifact payload 读取必须继续走 `PilotAccessService.read_artifact_payload()`，让项目权限和下载审计保持统一；
+- Streamlit `download_button` 需要提前持有 bytes，因此不能在页面每次渲染时直接读取 payload，否则会产生虚假的下载审计；本轮改为用户先点“加载”，再显示下载按钮。
+
+本轮实现：
+- Streamlit 欢迎页“项目任务与结果”面板新增“历史结果产物”区，按最近结果列出可下载 artifact；
+- 支持技术汇总、经济性汇总、同一主体经济性汇总、推荐组合、负荷侧推荐明细，以及未来挂在 `hourly_detail_artifact_ids` / `report_artifact_ids` 下的扩展产物；
+- 新增 `_pilot_result_artifact_refs()`、`_pilot_load_artifact_download()` 和下载缓存 key；项目切换、退出登录或清理工作态时会清掉历史 artifact 下载缓存；
+- 读取 artifact 时使用 `PilotAccessService.load_artifact()` 和 `read_artifact_payload()`，下载准备动作会写入 `AuditAction.DOWNLOAD_ARTIFACT`。
+
+边界说明：
+- 当前只是下载已持久化 artifact，不把历史 `StudyResult` 重新加载回六步工作流；
+- 当前仍不支持删除结果、标记报告版本、跨项目搜索、完整任务状态页或后台任务取消；
+- 当前仍未迁移经济年度现金流、全量逐小时明细、图表包和报告产物。
+
+验证：
+- `python -m pytest tests/test_ui_import.py::test_pilot_project_activity_frames_summarize_jobs_and_results tests/test_ui_import.py::test_pilot_history_artifact_refs_and_download_use_access_service -q` 通过，2 项通过；
+- `python -m compileall -q src` 通过；
+- `python -m pytest -q` 通过，259 项通过。
