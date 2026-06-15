@@ -17,10 +17,11 @@
 - 内部试用后台模型、结果存储、账号注册表、认证、可选 Streamlit 登录门禁、项目工作区门禁、最小平台账号/项目成员管理页、管理员服务、任务状态存储、权限审计门面，技术/经济 summary/推荐 portfolio 持久化第一阶段，以及欢迎页任务/结果索引、已落盘 artifact 下载和技术 summary-only 恢复面板；
 - `pilot-admin` 命令行账号管理入口；
 - Artifact payload 留存清理第一版；
+- 内部试用 `.env.example`、部署 runbook 和 pilot store 备份/恢复脚本第一版；
 - 面向 Claude Code 的内部试用审查 / 后台架构 prompt 和跨机器 handoff 文档；
 - 已吸收用户补充的受控公网内测讨论稿方向：不接真实电力控制系统、不开放社会化注册、保留项目/Run/Artifact/AuditLog、后端控制导出权限、补文件安全和部署恢复边界。
 
-近期 checkpoint 已覆盖 CLI、认证、平台管理、项目工作区、大批量汇总优先模式，技术仿真 summary/config、经济性 summary、推荐 portfolio 写入项目级 `ResultStore`，项目内最近任务/结果索引、已落盘 artifact 下载和技术 summary-only 恢复，以及到期 artifact payload 清理；具体提交以 `git log --oneline` 为准。
+近期 checkpoint 已覆盖 CLI、认证、平台管理、项目工作区、大批量汇总优先模式，技术仿真 summary/config、经济性 summary、推荐 portfolio 写入项目级 `ResultStore`，项目内最近任务/结果索引、已落盘 artifact 下载和技术 summary-only 恢复，到期 artifact payload 清理，以及内部试用部署/备份/恢复第一版材料；具体提交以 `git log --oneline` 为准。
 
 ## 验证结果
 
@@ -52,7 +53,7 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 - 服务器部署不要启用本地运行快照；
 - 大批量算例先按汇总优先试用，图表和报告只围绕已有逐小时明细的方案开展。
 
-若要从内网/VPN pilot 进一步开放为公网可访问内测，应先补齐 Route A 的 P0 条件：邀请制账号、可导出/不可导出用户权限、后端导出校验、文件上传限制、仓库外产物存储、日志脱敏、HTTPS/反向代理、数据卷备份和回滚说明。
+若要从内网/VPN pilot 进一步开放为公网可访问内测，应先补齐 Route A 的 P0 条件：邀请制账号、可导出/不可导出用户权限、后端导出校验、文件上传限制、仓库外产物存储、日志脱敏、HTTPS/反向代理、数据卷备份和回滚说明。当前已有 `docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md` 和 pilot store 备份/恢复脚本第一版，但还不是完整公网生产部署体系。
 
 ## 主要风险
 
@@ -73,8 +74,8 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 5. 上传文件已有第一层类型/大小门禁，artifact payload 已有过期清理第一版，但数据留存仍未达到公网内测级闭环。
    Streamlit 上传入口已限制允许后缀和默认 20MB 单文件大小，技术仿真配置快照会记录上传文件名、大小和 SHA256；`JobArtifact` 已能记录 `retention_policy`、`expires_at`、`purged_at`，`pilot-admin purge-expired-artifacts` 可由平台管理员清理到期 payload 并写入 `DELETE_ARTIFACT` 审计。但仍需要按用户/项目/Run 保存或选择性清理原始上传文件、逐小时明细、图表包和报告文件，避免普通日志记录原始曲线或服务器内部路径，并实现关键 Run 保留机制和定时调度。
 
-6. 部署策略仍是本地/桌面优先。
-   当前启动脚本更适合 Windows 本机或演示机，缺少服务守护、日志、监控、HTTPS、反向代理、CI/CD、健康检查和恢复手册。
+6. 部署策略已补内部试用 runbook，但仍不是完整生产部署。
+   当前已有 `.env.example`、`docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md`、`scripts/backup_pilot_store.ps1` 和 `scripts/restore_pilot_store.ps1`，可覆盖环境变量、首个管理员、启动、备份、恢复、清理、冒烟和回滚边界；但仍缺系统服务守护、集中日志、监控告警、HTTPS/反向代理样例、CI/CD、健康检查和自动化恢复演练。
 
 ### P1：内部试用前应重点观察
 
@@ -98,7 +99,7 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 - 增加端到端冒烟：启动 Streamlit、加载样例、跑技术仿真、跑经济性、进入推荐和导出页；
 - 增加一个大批量性能基准样例，记录方案数、耗时、内存和是否保留逐小时明细；
 - 增加本地 store 并发写入测试或尽快替换为数据库；
-- 为内部试用部署写一份 runbook：启动、端口、环境变量、数据目录、备份、故障处理、回滚。
+- 把第一版 runbook 继续升级为可执行部署包：HTTPS/反向代理示例、系统服务配置、日志轮转、健康检查、备份演练和回滚演练。
 
 ## 给下一轮 Claude Code 的审查重点
 

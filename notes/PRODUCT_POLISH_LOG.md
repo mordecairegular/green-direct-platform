@@ -3660,3 +3660,32 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_result_store.py tests/test_pilot_backend_models.py tests/test_cli.py -q` 通过，23 项通过；
 - `python -m compileall -q src` 通过；
 - `python -m pytest -q` 通过，269 项通过。
+
+### 2026-06-16 内部试用部署 Runbook 第一版
+
+本轮继续补“上线”从本地开发走向多人内部试用时最容易掉链子的运维边界。前面已经有账号门禁、项目隔离、导出授权、上传门禁和 artifact 清理，但如果没有环境变量样板、数据目录规划、备份恢复和回滚步骤，10-20 人试用仍然容易被一次误配置或磁盘问题打断。
+
+本轮判断：
+- 内部试用部署不应默认使用本地桌面启动器，因为桌面启动器服务本机体验，并会在单机模式下开启运行快照；
+- 多人 pilot 必须显式设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1`、`GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0`，并把 `GREEN_DIRECT_PILOT_STORE_DIR` 指向 Git 仓库外的受控目录；
+- 备份恢复第一版应先覆盖本地文件版 pilot store，且恢复脚本不应覆盖非空目录，避免误删现有账号、项目和审计数据；
+- runbook 应明确“不接生产控制系统、不开放注册、经济性 V1 非最终投资决策”的试用边界。
+
+本轮实现：
+- 新增 `.env.example`，记录内部 pilot 所需环境变量和禁止在多人部署中开启本地 snapshot 的口径；
+- 新增 `docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md`，覆盖部署边界、目录规划、环境变量、安装自检、首个管理员 bootstrap、服务器启动命令、备份、恢复、过期清理、冒烟检查和回滚；
+- 新增 `scripts/backup_pilot_store.ps1`，把 pilot store 内容压缩到指定备份目录；
+- 新增 `scripts/restore_pilot_store.ps1`，只允许恢复到不存在或空的 store 目录；
+- `.gitignore` 增加 `.env` / `.env.*` 忽略规则，同时保留 `.env.example` 可提交。
+
+边界说明：
+- 这仍不是完整生产部署包；HTTPS/反向代理、系统服务托管、日志轮转、监控告警、CI/CD、健康检查接口和自动化恢复演练仍待补；
+- 备份脚本只备份本地文件版 pilot store，不处理未来数据库或对象存储；
+- 恢复脚本不会覆盖非空目录，正式恢复时仍需管理员先停止服务、备份当前 store，并用恢复目录核查后再切换。
+
+验证：
+- 两个 PowerShell 脚本均通过 `System.Management.Automation.Language.Parser` 语法解析；
+- 使用 `.runtime` 临时 pilot store 完成备份 ZIP、恢复到空目录和内容校验；
+- 临时测试目录已安全清理；
+- `python -m pytest -q` 通过，269 项通过；
+- `git diff --check` 无实际空白错误，仅 Windows 换行转换提示。
