@@ -30,8 +30,10 @@ from green_direct.services.study_runner import (
     TechnicalStudyInput,
     TechnicalStudyResult,
     build_recommendation_study,
+    run_hourly_detail_for_scenario,
     run_economic_study,
     run_technical_study,
+    scenario_from_summary_row,
 )
 from green_direct.services.upload_policy import (
     DEFAULT_MAX_UPLOAD_BYTES,
@@ -75,7 +77,9 @@ __all__ = [
     "persist_recommendation_study_result",
     "persist_technical_study_result",
     "recommendation_result_fingerprint",
+    "run_hourly_detail_for_scenario",
     "run_economic_study",
     "run_technical_study",
+    "scenario_from_summary_row",
     "technical_input_fingerprint",
 ]

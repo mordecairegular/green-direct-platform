@@ -7,8 +7,10 @@ from green_direct.services import (
     StudyResult,
     TechnicalStudyInput,
     build_recommendation_study,
+    run_hourly_detail_for_scenario,
     run_economic_study,
     run_technical_study,
+    scenario_from_summary_row,
 )
 
 
@@ -43,6 +45,35 @@ def _curve_csv(values: list[float], column: str) -> bytes:
         }
     )
     return frame.to_csv(index=False).encode("utf-8-sig")
+
+
+def _small_technical_input(
+    *,
+    retain_hourly_details: bool = True,
+    hourly_detail_scenario_ids: tuple[str, ...] = (),
+) -> TechnicalStudyInput:
+    grid = {
+        "pv_capacity": {"start": 0, "end": 1, "step": 1},
+        "wind_capacity": {"start": 0, "end": 1, "step": 1},
+        "bess_power": {"start": 0, "end": 0, "step": 1},
+        "bess_duration_hours": [0],
+    }
+    return TechnicalStudyInput(
+        load_source=_curve_csv([10.0, 10.0], "负荷"),
+        pv_source=_curve_csv([1.0, 0.0], "光伏"),
+        wind_source=_curve_csv([0.0, 1.0], "风电"),
+        load_time_col="时间",
+        load_value_col="负荷",
+        pv_time_col="时间",
+        pv_value_col="光伏",
+        wind_time_col="时间",
+        wind_value_col="风电",
+        scenario_grid=grid,
+        policy_params=PolicyParams(allow_export=False),
+        validate_length=False,
+        retain_hourly_details=retain_hourly_details,
+        hourly_detail_scenario_ids=hourly_detail_scenario_ids,
+    )
 
 
 def test_technical_study_wraps_curve_reading_batch_run_and_study_result():
@@ -114,6 +145,60 @@ def test_technical_study_can_skip_hourly_detail_retention():
     assert len(technical.summary) == 3
     assert technical.hourly_details == {}
     assert technical.config_snapshot["detail_retention"]["retain_hourly_details"] is False
+
+
+def test_hourly_detail_can_be_regenerated_for_selected_summary_scenario():
+    full = run_technical_study(_small_technical_input(), study_id="study-full")
+    summary_only = run_technical_study(
+        _small_technical_input(retain_hourly_details=False),
+        study_id="study-summary-only",
+    )
+    selected_id = str(summary_only.summary["scenario_id"].iloc[-1])
+
+    regenerated = run_hourly_detail_for_scenario(
+        _small_technical_input(retain_hourly_details=False),
+        scenario_id=selected_id,
+        summary=summary_only.summary,
+    )
+
+    assert selected_id not in summary_only.hourly_details
+    assert regenerated.summary["scenario_id"] == selected_id
+    pd.testing.assert_frame_equal(
+        regenerated.hourly_detail.reset_index(drop=True),
+        full.hourly_details[selected_id].reset_index(drop=True),
+    )
+    expected_summary = full.summary.loc[full.summary["scenario_id"] == selected_id].iloc[0]
+    for column, value in regenerated.summary.items():
+        if isinstance(value, float):
+            assert value == pytest.approx(expected_summary[column])
+        else:
+            assert value == expected_summary[column]
+
+
+def test_hourly_detail_regeneration_rejects_missing_summary_scenario():
+    technical = run_technical_study(
+        _small_technical_input(retain_hourly_details=False),
+        study_id="study-summary-only",
+    )
+
+    with pytest.raises(ValueError, match="Scenario is not present"):
+        run_hourly_detail_for_scenario(
+            _small_technical_input(retain_hourly_details=False),
+            scenario_id="S_DOES_NOT_EXIST",
+            summary=technical.summary,
+        )
+
+
+def test_scenario_from_summary_row_requires_capacity_columns():
+    with pytest.raises(ValueError, match="bess_energy"):
+        scenario_from_summary_row(
+            {
+                "scenario_id": "S0001",
+                "pv_capacity": 1.0,
+                "wind_capacity": 0.0,
+                "bess_power": 0.0,
+            }
+        )
 
 
 def test_economic_study_preserves_recommendation_input_snapshot():

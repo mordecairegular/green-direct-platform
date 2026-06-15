@@ -3,7 +3,7 @@
 本文档面向后续模块开发者和 AI 协作上下文，说明当前软件的模块边界、核心计算口径、数据结构和接口契约。后续图表制作、经济性评价、报告生成等模块应优先参考本文档接入当前 V0.1 技术测算模块。
 
 状态：V0.1 技术测算基线 + 经济性 / 推荐 V1 试用接口说明 + 服务层 StudyResult 雏形
-最近更新：2026-06-15
+最近更新：2026-06-16
 适用范围：当前代码位于 `src/green_direct/`
 
 ## 1. 软件定位
@@ -24,7 +24,7 @@
 - 提供经济性评价 V1：电源侧年度现金流、FNPV、FIRR、静态/动态回收期；
 - 提供同一主体税前经济性试算：自发自用购电节费、税前 FIRR、年度现金流；
 - 提供推荐方案 V1 试用：同一主体 FIRR、电源侧 FIRR、负荷侧可成交收益和工程代表方案四类席位；
-- 提供第一版服务层入口：`run_technical_study()`、`run_economic_study()`、`build_recommendation_study()` 和顶层 `StudyResult` 雏形；
+- 提供第一版服务层入口：`run_technical_study()`、`run_hourly_detail_for_scenario()`、`run_economic_study()`、`build_recommendation_study()` 和顶层 `StudyResult` 雏形；
 - 提供独立方案遍历试用程序：只包装风光储技术遍历和方案概览/详表导出。
 
 当前版本仍明确不做：
@@ -262,7 +262,7 @@ PerformanceParams(
 
 用于批量测算时给出大方案数量提醒，并控制技术仿真的可选并行 worker 数。`parallel_workers=1` 为默认串行口径；设置为大于 1 时，`run_batch()` 会使用 `ProcessPoolExecutor` 按方案并行执行单方案调度，结果聚合仍保持 `scenario_id`、warning、error 和进度回调顺序稳定。
 
-02 页 UI 还基于 `warn_if_scenarios_exceed` 做大批量保留策略：候选方案数未超过阈值时保留全部逐小时明细；超过阈值时进入汇总优先模式，只常驻方案汇总和前 N 个方案逐小时明细。N 由 02 页“大批量保留明细数”控制，默认 20。未保留明细的方案会走 `run_single_scenario(..., retain_hourly_detail=False)` summary-only 路径：仍逐小时执行同一 dispatch/SOC 逻辑并累计 summary，但不构造完整 `hourly_detail` DataFrame。该策略会影响后续图表/导出可用明细，不改变任何方案的逐小时调度计算口径。
+02 页 UI 还基于 `warn_if_scenarios_exceed` 做大批量保留策略：候选方案数未超过阈值时保留全部逐小时明细；超过阈值时进入汇总优先模式，只常驻方案汇总和前 N 个方案逐小时明细。N 由 02 页“大批量保留明细数”控制，默认 20。未保留明细的方案会走 `run_single_scenario(..., retain_hourly_detail=False)` summary-only 路径：仍逐小时执行同一 dispatch/SOC 逻辑并累计 summary，但不构造完整 `hourly_detail` DataFrame。该策略会影响后续图表/导出可用明细；当前会话内可通过 `run_hourly_detail_for_scenario()` 为选中方案补算明细，不改变任何方案的逐小时调度计算口径。
 
 ## 8. 方案模型接口
 
@@ -393,7 +393,7 @@ ScenarioResult(
 适用场景：
 
 - 图表模块中用户自定义 1 到 5 个方案后，直接对每个方案调用；
-- 批量测算后，用户选择某个方案重新生成逐小时明细；
+- 批量测算后，用户选择某个方案重新生成逐小时明细；服务层推荐优先用 `run_hourly_detail_for_scenario()` 从 summary 行和技术输入补算；
 - 单方案人工复核和测试。
 
 不建议：
@@ -615,7 +615,8 @@ BatchResult(
 - 当方案数量达到上万时，内存、DataFrame 构造和 UI 交互都可能成为瓶颈；
 - 02 页已接入第一版“汇总优先”大批量模式，超过方案数提醒阈值时不再默认常驻全部逐小时明细；
 - 未保留明细的方案只生成技术 summary，不构造完整 `hourly_detail` DataFrame；
-- 后续建议继续增加代表方案按需补算明细，并把技术仿真、经济性测算和图表导出逐步改为后台任务；
+- 当前会话内已支持为代表方案、图表方案或导出方案按需补算单个 `hourly_detail`，但补算依赖当前 session 保存的 `TechnicalStudyInput`，不会随 runtime snapshot 或历史 summary-only 恢复持久化；
+- 后续建议把按需明细补算升级为项目级 artifact / 后台任务，并把技术仿真、经济性测算和图表导出逐步改为后台任务；
 - 多人内部试用时，计算任务应通过 `Job` / `ResultStore` 隔离到项目和用户，不能依赖全局 `session_state` 或项目级运行快照；
 - 图表模块若只展示 1 到 5 个方案，不应强制依赖所有方案的逐小时明细都已保存在内存中。
 
@@ -626,6 +627,7 @@ BatchResult(
 ```python
 TechnicalStudyInput(...)
 run_technical_study(inputs) -> TechnicalStudyResult
+run_hourly_detail_for_scenario(inputs, scenario_id=..., summary=...) -> ScenarioResult
 StudyResult.from_technical(technical_result) -> StudyResult
 ```
 
@@ -635,6 +637,10 @@ StudyResult.from_technical(technical_result) -> StudyResult
 - `TechnicalStudyResult.input_diagnostics`：曲线读取和清洗产生的结构化诊断；
 - `TechnicalStudyResult.config_snapshot`：本次测算方案池、储能参数、政策参数、时间参数、编码和 warning 快照；
 - `StudyResult`：顶层结果雏形，当前先包装技术结果，并可挂载经济性和推荐结果。
+
+`run_hourly_detail_for_scenario()` 用于大批量 summary-first 之后的单方案明细补算。它从 `summary` 中按 `scenario_id` 找到容量配置，重建 `Scenario`，再复用 `TechnicalStudyInput` 中的三条原始曲线、列名、储能参数、政策参数和 `dt_hours` 运行同一单方案仿真。该函数不重新遍历全量方案，也不改变 summary-first 阶段的调度口径。
+
+当前 Streamlit 只把 `TechnicalStudyInput` 保存在当前浏览器会话中，用于刚完成测算后的按需补算；它不会写入 `.runtime/latest_session_snapshot.pkl`，也不会随历史 technical summary artifact 恢复，避免旧原始曲线被误用于另一个历史 summary。
 
 后续新模块建议优先依赖服务层对象，再按需读取其中的 `batch_result` 兼容旧模块；不建议继续把 Streamlit 页面函数作为业务入口。
 
@@ -1195,7 +1201,7 @@ RecommendationStudyResult
 
 边界：
 - 这仍是 Streamlit 进程内同步写入，不是真正后台 worker；
-- 当前不持久化全量逐小时明细、经济性年度现金流、图表包或报告；
+- 当前不持久化全量逐小时明细、经济性年度现金流、图表包或报告；当前会话内补算出的单方案 `hourly_detail` 只写回 session 中的 `batch_result` / `study_result`，尚未写入 `ResultStore`；
 - 当前结果面板只支持技术 summary-only 恢复，不恢复完整历史 `StudyResult`、逐小时明细、经济结果或推荐结果，不删除或标记结果，也不做跨项目搜索；
 - `technical_input_fingerprint()` 目前基于 `config_snapshot` 生成稳定 sha256，用于追踪输入配置，不等同于对原始上传曲线文件逐字节哈希；
 - `economic_input_fingerprint()` 基于经济参数、价格模式和 summary 形状生成；`recommendation_result_fingerprint()` 基于推荐结果表生成，用于 UI 内去重；

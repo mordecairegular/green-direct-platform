@@ -168,7 +168,7 @@
 
 ```text
 python -m pytest -q
-248 passed
+275 passed
 python -m compileall -q src
 ```
 
@@ -181,7 +181,7 @@ python -m compileall -q src
 3. 推荐引擎和 `RecommendationPortfolio`；
 4. 轻量经济性排序；
 5. 柴发资产和离网 / 备用调度策略；
-6. 项目级 Job 状态页、ResultStore 结果接入和代表方案按需明细；
+6. 项目级 Job 状态页、ResultStore 结果接入、hourly artifact 和跨会话按需明细；
 7. UI 和报告围绕推荐方案重塑。
 
 当前特别说明：
@@ -418,8 +418,9 @@ git status --short
 - 2026-06-15 已新增技术仿真结果持久化第一阶段：`src/green_direct/services/pilot_study_persistence.py` 提供 `persist_technical_study_result()`，在启用 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 且用户已选择项目时，Streamlit Demo 和正式技术仿真完成后会登记项目级同步 `technical_study` Job，写入 `technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord(result_id="technical_result")`，并把 `project_id`、`technical_job_id`、`technical_result_id`、`technical_summary_artifact_id`、`config_snapshot_artifact_id` 挂到 `StudyResult.result_store_refs`。这仍不是后台 worker；逐小时明细、图表包和报告仍待迁移到 `ResultStore`。
 - 2026-06-15 已新增项目任务与结果索引面板：`LocalResultStore` 和 `PilotAccessService` 可按项目/研究列出 `StudyResultRecord`，Streamlit 欢迎页在启用内部试用登录且选中项目后显示“项目任务与结果”，列出当前项目任务数、已保存结果数、最近任务和最近结果索引。随后已补“历史结果产物”区，可加载并下载已落盘的技术 summary、经济 summary、推荐 portfolio/detail 等 artifact；技术 summary 可 summary-only 恢复到当前会话，写回 `batch_result.summary` / `study_result` / `config_snapshot`，但 `hourly_details` 为空。加载 payload 走 `PilotAccessService.read_artifact_payload()` 并写下载审计。该面板仍不支持完整历史 `StudyResult` 恢复、删除、标记、完整历史页或跨项目搜索。
 - 2026-06-15 已新增经济性与推荐结果持久化第一阶段：`persist_economic_study_result()` 会登记项目级同步 `economic_study` Job，写入 `power_economy_summary.csv`、`single_entity_summary.csv` 和 `StudyResultRecord(result_id="economy_result_<job_id>")`；`persist_recommendation_study_result()` 会登记 `recommendation` Job，写入 `recommendation_portfolio.csv`、`recommendation_load_side_detail.csv` 和 `StudyResultRecord(result_id="recommendation_result_<job_id>")`。Streamlit 03 页经济性测算成功后会写经济 summary，推荐页会按 fingerprint 去重写推荐组合。年度现金流、逐小时明细、图表包、报告和真正后台 worker 仍待迁移。
-- 2026-06-15 已把大批量“汇总优先”接入 02 页：`simulation_large_run_hourly_detail_limit` 默认 20；当候选方案数超过 `simulation_warn_threshold` 时，`TechnicalStudyInput` 会传 `retain_hourly_details=False` 和前 N 个 `S0001...` 方案 ID，只常驻保存方案汇总和少量逐小时明细。该策略不改变调度口径；若当前有项目级下网电价曲线，会清除并切回固定价/网页组价，避免价格曲线经济性缺少全量逐小时明细。后续仍需做代表方案按需补算、后台任务进度和取消入口。
+- 2026-06-15 已把大批量“汇总优先”接入 02 页：`simulation_large_run_hourly_detail_limit` 默认 20；当候选方案数超过 `simulation_warn_threshold` 时，`TechnicalStudyInput` 会传 `retain_hourly_details=False` 和前 N 个 `S0001...` 方案 ID，只常驻保存方案汇总和少量逐小时明细。该策略不改变调度口径；若当前有项目级下网电价曲线，会清除并切回固定价/网页组价，避免价格曲线经济性缺少全量逐小时明细。后续仍需做后台任务进度和取消入口。
 - 2026-06-16 已把技术仿真汇总优先从“只少存明细”推进为真正 summary-only 执行路径：`run_single_scenario(..., retain_hourly_detail=False)` 仍逐小时执行同一 dispatch/SOC 逻辑并累计 summary，但不构造完整 `hourly_detail` DataFrame；`run_batch()` 只为全量保留或指定保留的方案生成 ledger，其余方案只返回 summary。小基准：120 个 8760 小时方案完整保留明细约 7.822s，summary-only 约 4.941s，约 1.58x。该优化不改变 V0.1 调度口径；价格曲线、图表、报告仍需要被保留或后续按需补算的逐小时明细。
+- 2026-06-16 已新增当前会话内单方案逐小时明细按需补算：服务层 `run_hourly_detail_for_scenario()` 从 `summary` 行重建 `Scenario`，复用 `TechnicalStudyInput` 中的原始曲线、BESS、Policy 和 `dt_hours`，只跑选中方案并返回完整 `ScenarioResult.hourly_detail`。Streamlit 推荐页、图表概览页和导出/报告页在所选方案缺明细时显示“补算逐小时明细”，成功后写回当前 `batch_result.hourly_details` 与 `study_result.technical_result.batch_result`，清空旧下载和图表缓存。本能力只依赖当前 session 里的 `_technical_study_input`；该对象不会写入 runtime snapshot，历史 technical summary-only 恢复也会清除它，避免旧原始曲线被误用于另一个历史 summary。下一步仍需把 hourly detail 作为项目级 artifact 持久化，并让历史 summary-only 结果在权限和原始输入 artifact 可用时跨会话补算或加载。
 - 2026-06-15 已吸收受控公网内测 Route A 讨论稿方向：近期上线仍优先是内部 10-20 人 pilot；若开放公网访问，必须保持邀请制账号、不接真实电力控制系统、补独立可导出/不可导出权限、上传文件安全、仓库外产物存储、审计日志、留存清理、HTTPS/反向代理、备份恢复和回滚说明。当前 `viewer` / `analyst` / `admin` 项目角色不能直接等同于公网内测的导出授权角色。
 - 2026-06-15 已落地导出授权第一版：`ProjectMembership.can_export_artifacts` 独立于 `admin` / `analyst` / `viewer` 控制下载/导出；`LocalPilotRegistry`、`LocalPilotAdminService` 和 `PilotAccessService` 均已透传该字段；`PilotAccessService.read_artifact_payload()` 要求导出权限，成功和拒绝都会写入 `DOWNLOAD_ARTIFACT` 审计；Streamlit 平台管理页可维护“允许下载/导出项目结果”，欢迎页历史 artifact 下载和 06 导出页会按当前项目成员权限拦截。后续未来 API、图表/报告项目级 artifact、反向代理下载路径和数据库适配仍必须复用这层语义。
 - 2026-06-15 已落地上传文件安全第一版：新增 `src/green_direct/services/upload_policy.py`，默认单文件上限 20MB，可用 `GREEN_DIRECT_MAX_UPLOAD_MB` 调整；Streamlit 02 页批量上传和单独上传会先校验后缀/大小，技术曲线只允许 CSV，下网电价曲线允许 CSV/XLSX/XLSM；合法上传文件的文件名、后缀、大小和 SHA256 写入 `config_snapshot["upload_file_metadata"]`。这不是完整原始文件留存和清理机制，后续仍需仓库外隔离存储、过期清理和关键 Run 保留。

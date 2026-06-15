@@ -74,12 +74,13 @@ def test_runtime_snapshot_round_trips_session_state(tmp_path, monkeypatch):
 
     app._save_runtime_snapshot(source)
 
-    target = DummyStreamlit({})
+    target = DummyStreamlit({app.TECHNICAL_STUDY_INPUT_KEY: object()})
     restored = app._restore_runtime_snapshot_if_needed(target)
 
     assert restored is True
     assert target.session_state["batch_result"] is not None
     assert target.session_state["config_snapshot"] == {"demo": True}
+    assert app.TECHNICAL_STUDY_INPUT_KEY not in target.session_state
     assert app.PROJECT_PRICE_CURVE_DATA_KEY not in target.session_state
     assert app.PROJECT_PRICE_CURVE_META_KEY not in target.session_state
     assert "已从项目本地快照恢复" in target.session_state["_runtime_restore_notice"]
@@ -551,6 +552,7 @@ def test_pilot_restore_technical_summary_rebuilds_summary_only_session(tmp_path)
         def __init__(self):
             self.session_state = {
                 "economy_v1_result": {"summary": pd.DataFrame({"scenario_id": ["old"]})},
+                app.TECHNICAL_STUDY_INPUT_KEY: object(),
                 app.PROJECT_PRICE_CURVE_DATA_KEY: object(),
                 app.PILOT_HISTORY_ARTIFACT_DOWNLOADS_KEY: {"old": b"payload"},
             }
@@ -572,6 +574,7 @@ def test_pilot_restore_technical_summary_rebuilds_summary_only_session(tmp_path)
     assert isinstance(dummy.session_state["study_result"], StudyResult)
     assert dummy.session_state["study_result"].result_store_refs["technical_job_id"] == "job_1"
     assert "economy_v1_result" not in dummy.session_state
+    assert app.TECHNICAL_STUDY_INPUT_KEY not in dummy.session_state
     assert app.PROJECT_PRICE_CURVE_DATA_KEY not in dummy.session_state
     assert app.PILOT_HISTORY_ARTIFACT_DOWNLOADS_KEY not in dummy.session_state
     assert restored["row_count"] == 2
@@ -1014,6 +1017,76 @@ def test_large_run_detail_retention_plan_switches_to_summary_first():
     assert large["retain_hourly_details"] is False
     assert large["hourly_detail_scenario_ids"] == ("S0001", "S0002", "S0003")
     assert summary_only["hourly_detail_scenario_ids"] == ()
+
+
+def test_append_hourly_detail_updates_current_result(monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.batch.batch_runner import BatchResult
+    from green_direct.models.diagnostics import InputDiagnostics
+    from green_direct.services import StudyResult, TechnicalStudyInput, TechnicalStudyResult
+
+    summary = pd.DataFrame(
+        {
+            "scenario_id": ["S0002"],
+            "pv_capacity": [1.0],
+            "wind_capacity": [0.0],
+            "bess_power": [0.0],
+            "bess_energy": [0.0],
+        }
+    )
+    batch_result = BatchResult(
+        summary=summary,
+        hourly_details={},
+        errors=pd.DataFrame(),
+        warnings=[],
+        scenario_count=1,
+    )
+    technical_result = TechnicalStudyResult(
+        study_id="study-ui",
+        batch_result=batch_result,
+        input_diagnostics=InputDiagnostics(),
+        config_snapshot={},
+    )
+    technical_input = TechnicalStudyInput(
+        load_source=b"",
+        pv_source=b"",
+        wind_source=b"",
+        load_time_col="time",
+        load_value_col="load",
+        pv_time_col="time",
+        pv_value_col="pv",
+        wind_time_col="time",
+        wind_value_col="wind",
+        scenario_grid={},
+    )
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.TECHNICAL_STUDY_INPUT_KEY: technical_input,
+                "batch_result": batch_result,
+                "study_result": StudyResult.from_technical(technical_result),
+                "download_payloads": {"old": b"payload"},
+            }
+
+    hourly = pd.DataFrame({"scenario_id": ["S0002"], "hour_index": [0], "load_power": [1.0]})
+    dummy = DummyStreamlit()
+    monkeypatch.setattr(
+        app,
+        "run_hourly_detail_for_scenario",
+        lambda inputs, *, scenario_id, summary: SimpleNamespace(hourly_detail=hourly),
+    )
+    monkeypatch.setattr(app, "_clear_chart_export_cache", lambda st: None)
+    monkeypatch.setattr(app, "_save_runtime_snapshot", lambda st: None)
+
+    message = app._append_hourly_detail_to_current_result(dummy, "S0002", summary)
+
+    next_batch = dummy.session_state["batch_result"]
+    assert "S0002" in message
+    assert next_batch is not batch_result
+    assert next_batch.hourly_details["S0002"].equals(hourly)
+    assert dummy.session_state["study_result"].technical_result.batch_result is next_batch
+    assert "download_payloads" not in dummy.session_state
 
 
 def test_partial_hourly_retention_clears_price_curve():

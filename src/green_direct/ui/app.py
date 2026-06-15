@@ -72,6 +72,7 @@ from green_direct.services import (
     persist_technical_study_result,
     recommendation_result_fingerprint,
     run_economic_study,
+    run_hourly_detail_for_scenario,
     run_technical_study,
 )
 from green_direct.ui.field_labels import FIELD_LABELS, format_display_frame, localize_columns, mapping_frame
@@ -158,6 +159,7 @@ PILOT_PROJECT_NOTICE_KEY = "_pilot_project_notice"
 PILOT_RESULT_STORE_NOTICE_KEY = "_pilot_result_store_notice"
 PILOT_RECOMMENDATION_STORE_SIGNATURE_KEY = "_pilot_recommendation_store_signature"
 PILOT_HISTORY_ARTIFACT_DOWNLOADS_KEY = "_pilot_history_artifact_downloads"
+TECHNICAL_STUDY_INPUT_KEY = "_technical_study_input"
 PLATFORM_ADMIN_PAGE = "平台管理"
 CHART_PNG_DOCX_SESSION_ID_KEY = "_chart_png_docx_session_id"
 _CHART_PNG_DOCX_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="green-direct-png")
@@ -194,6 +196,7 @@ PILOT_AUTH_WORK_STATE_KEYS = tuple(
             PILOT_RESULT_STORE_NOTICE_KEY,
             PILOT_RECOMMENDATION_STORE_SIGNATURE_KEY,
             PILOT_HISTORY_ARTIFACT_DOWNLOADS_KEY,
+            TECHNICAL_STUDY_INPUT_KEY,
             "download_payloads",
             "chart_png_docx_export",
             "chart_png_docx_export_error",
@@ -2991,6 +2994,7 @@ def _restore_runtime_snapshot_if_needed(st) -> bool:
     for key, value in snapshot.items():
         if key in RUNTIME_SNAPSHOT_KEYS and key not in st.session_state:
             st.session_state[key] = value
+    st.session_state.pop(TECHNICAL_STUDY_INPUT_KEY, None)
     st.session_state["_runtime_restore_notice"] = "已从项目本地快照恢复最近一次测算结果。"
     return True
 
@@ -3227,16 +3231,78 @@ def _technical_detail_retention_plan(
     if retained_ids:
         message = (
             f"大批量模式：本次先保留全部方案汇总，并仅常驻前 {len(retained_ids)} 个方案的逐小时明细；"
-            "如需查看其他方案逐小时曲线，请缩小方案范围或使用指定单方案复核。"
+            "如需查看其他方案逐小时曲线，可在推荐、图表或导出页按需补算单个方案。"
         )
     else:
-        message = "大批量模式：本次只常驻方案汇总，不保存逐小时明细；如需图表和报告，请缩小范围或使用指定单方案复核。"
+        message = "大批量模式：本次只常驻方案汇总，不保存逐小时明细；如需图表和报告，可按需补算单个方案。"
     return {
         "mode": "summary_first",
         "retain_hourly_details": False,
         "hourly_detail_scenario_ids": retained_ids,
         "message": message,
     }
+
+
+def _remember_technical_study_input(st, inputs: TechnicalStudyInput) -> None:
+    st.session_state[TECHNICAL_STUDY_INPUT_KEY] = inputs
+
+
+def _has_technical_study_input(st) -> bool:
+    return isinstance(st.session_state.get(TECHNICAL_STUDY_INPUT_KEY), TechnicalStudyInput)
+
+
+def _append_hourly_detail_to_current_result(st, scenario_id: str, summary: pd.DataFrame) -> str:
+    inputs = st.session_state.get(TECHNICAL_STUDY_INPUT_KEY)
+    if not isinstance(inputs, TechnicalStudyInput):
+        raise ValueError("当前会话没有可用于按需补算逐小时明细的原始技术输入。")
+    batch_result = st.session_state.get("batch_result")
+    if not isinstance(batch_result, BatchResult):
+        raise ValueError("当前会话没有可更新的技术仿真结果。")
+    scenario_result = run_hourly_detail_for_scenario(inputs, scenario_id=str(scenario_id), summary=summary)
+    if scenario_result.hourly_detail.empty:
+        raise ValueError(f"方案 {scenario_id} 未生成逐小时明细。")
+
+    hourly_details = dict(batch_result.hourly_details)
+    hourly_details[str(scenario_id)] = scenario_result.hourly_detail
+    next_batch_result = BatchResult(
+        summary=batch_result.summary,
+        hourly_details=hourly_details,
+        errors=batch_result.errors,
+        warnings=batch_result.warnings,
+        scenario_count=batch_result.scenario_count,
+    )
+    st.session_state["batch_result"] = next_batch_result
+    study_result = st.session_state.get("study_result")
+    if isinstance(study_result, StudyResult) and study_result.technical_result is not None:
+        next_technical_result = replace(study_result.technical_result, batch_result=next_batch_result)
+        st.session_state["study_result"] = replace(study_result, technical_result=next_technical_result)
+    st.session_state.pop("download_payloads", None)
+    _clear_chart_export_cache(st)
+    _save_runtime_snapshot(st)
+    return f"已补算方案 {scenario_id} 的逐小时明细，可继续生成图表和导出。"
+
+
+def _render_on_demand_hourly_detail_action(st, scenario_id: str | None, summary: pd.DataFrame, *, key: str) -> bool:
+    if not scenario_id:
+        return False
+    batch_result = st.session_state.get("batch_result")
+    existing = getattr(batch_result, "hourly_details", {}) if batch_result is not None else {}
+    if str(scenario_id) in existing:
+        return True
+    if not _has_technical_study_input(st):
+        st.info("当前会话没有原始技术输入快照，无法按需补算逐小时明细；请重新运行技术仿真或加载含逐小时明细的结果。")
+        return False
+    left, right = st.columns([1.1, 3.9])
+    if left.button("补算逐小时明细", key=key, type="secondary"):
+        try:
+            with st.spinner(f"正在补算 {scenario_id} 的逐小时明细..."):
+                message = _append_hourly_detail_to_current_result(st, str(scenario_id), summary)
+            st.success(message)
+            st.rerun()
+        except Exception as exc:  # noqa: BLE001 - UI action should report a friendly failure
+            st.error(f"逐小时明细补算失败：{exc}")
+    right.caption("仅补算当前方案，不重新遍历全部方案；图表、报告和逐小时 CSV 将读取补算后的 hourly_detail。")
+    return False
 
 
 def _render_run_state(st, ready: bool, scenario_count: int | None, *, has_result: bool = False) -> None:
@@ -5906,7 +5972,14 @@ def _render_recommendation_export_handoff(st, batch_result, summary: pd.DataFram
         return
 
     st.caption(f"默认报告方案：{_scenario_status_text(summary, report_scenario_id)}")
-    if st.button("进入图表下载和报告生成", type="primary", key="recommendation_go_exports"):
+    if not has_hourly:
+        has_hourly = _render_on_demand_hourly_detail_action(
+            st,
+            report_scenario_id,
+            summary,
+            key="recommendation_regenerate_report_hourly",
+        )
+    if st.button("进入图表下载和报告生成", type="primary", key="recommendation_go_exports", disabled=not has_hourly):
         st.session_state["export_report_scenario"] = report_scenario_id
         _go_to_workflow_page(st, "图表下载和报告生成")
 
@@ -6048,18 +6121,27 @@ def _render_chart_overview_page(st, batch_result, summary: pd.DataFrame) -> None
             key_prefix="chart_overview_detail_scenario_button",
             pending_state_key=pending_detail_key,
         )
-        render_chart_analysis(
-            st,
-            batch_result,
-            chart_summary,
-            economy_result=economy_result,
-            recommendation_portfolio=recommendation_result.portfolio if recommendation_result else None,
-            selected_scenario_ids=detail_ids,
-            active_scenario_id=str(active_detail_id),
-            show_overview=False,
-            show_selector=False,
-            show_hero=False,
-        )
+        active_has_hourly = str(active_detail_id) in getattr(batch_result, "hourly_details", {})
+        if not active_has_hourly:
+            active_has_hourly = _render_on_demand_hourly_detail_action(
+                st,
+                str(active_detail_id),
+                chart_summary,
+                key="chart_overview_regenerate_active_hourly",
+            )
+        if active_has_hourly:
+            render_chart_analysis(
+                st,
+                batch_result,
+                chart_summary,
+                economy_result=economy_result,
+                recommendation_portfolio=recommendation_result.portfolio if recommendation_result else None,
+                selected_scenario_ids=detail_ids,
+                active_scenario_id=str(active_detail_id),
+                show_overview=False,
+                show_selector=False,
+                show_hero=False,
+            )
     else:
         st.info("当前没有可用于详细图表复核的方案。")
     _render_recommendation_bottom_status(st, batch_result, chart_summary, recommendation_result)
@@ -6682,10 +6764,11 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
         _render_pilot_project_export_permission_block(st)
         return
 
-    scenario_ids = list(batch_result.hourly_details.keys())
+    scenario_ids = _valid_scenario_ids(summary)
     if not scenario_ids:
-        st.warning("当前没有逐小时明细，无法生成图表复核数据。")
+        st.warning("当前没有可用于导出的方案。")
         return
+    hourly_ids = set(getattr(batch_result, "hourly_details", {}) or {})
 
     economy_result = st.session_state.get("economy_v1_result")
     single_entity_result = st.session_state.get("single_entity_economy_result")
@@ -6724,6 +6807,15 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
         index=selected_index,
         key="export_report_scenario",
     )
+    if selected_id not in hourly_ids:
+        st.warning("所选方案当前没有逐小时明细，需先按需补算后才能生成图表、报告和逐小时 CSV。")
+        _render_on_demand_hourly_detail_action(
+            st,
+            selected_id,
+            summary,
+            key="export_regenerate_selected_hourly",
+        )
+        return
 
     hourly = batch_result.hourly_details[selected_id]
     selected_status = _scenario_status_text(summary, selected_id)
@@ -7567,35 +7659,34 @@ def _render_simulation_page(st) -> None:
                 large_run_hourly_detail_limit=int(large_run_hourly_detail_limit),
             )
             with st.spinner("正在生成 Demo 测算结果..."):
-                technical_result = run_technical_study(
-                    TechnicalStudyInput(
-                        load_source=demo_files["负荷"].getvalue(),
-                        pv_source=demo_files["光伏"].getvalue(),
-                        wind_source=demo_files["风电"].getvalue(),
-                        load_time_col=demo_load_time_col,
-                        load_value_col=demo_load_value_col,
-                        pv_time_col=demo_pv_time_col,
-                        pv_value_col=demo_pv_value_col,
-                        wind_time_col=demo_wind_time_col,
-                        wind_value_col=demo_wind_value_col,
-                        scenario_grid=demo_grid,
-                        bess_params=BessParams(),
-                        policy_params=PolicyParams(export_control_mode="annual_cap_runtime"),
-                        performance_params=PerformanceParams(
-                            warn_if_scenarios_exceed=int(warn_threshold),
-                            parallel_workers=int(parallel_workers),
-                        ),
-                        cleaning_params=DataCleaningParams(),
-                        retain_hourly_details=bool(demo_detail_retention_plan["retain_hourly_details"]),
-                        hourly_detail_scenario_ids=tuple(demo_detail_retention_plan["hourly_detail_scenario_ids"]),
-                        config_metadata={
-                            "bess_calendar_life_years": 15.0,
-                            "demo": True,
-                            "ui_detail_retention_mode": demo_detail_retention_plan["mode"],
-                            "ui_detail_retention_message": demo_detail_retention_plan["message"],
-                        },
+                technical_input = TechnicalStudyInput(
+                    load_source=demo_files["负荷"].getvalue(),
+                    pv_source=demo_files["光伏"].getvalue(),
+                    wind_source=demo_files["风电"].getvalue(),
+                    load_time_col=demo_load_time_col,
+                    load_value_col=demo_load_value_col,
+                    pv_time_col=demo_pv_time_col,
+                    pv_value_col=demo_pv_value_col,
+                    wind_time_col=demo_wind_time_col,
+                    wind_value_col=demo_wind_value_col,
+                    scenario_grid=demo_grid,
+                    bess_params=BessParams(),
+                    policy_params=PolicyParams(export_control_mode="annual_cap_runtime"),
+                    performance_params=PerformanceParams(
+                        warn_if_scenarios_exceed=int(warn_threshold),
+                        parallel_workers=int(parallel_workers),
                     ),
+                    cleaning_params=DataCleaningParams(),
+                    retain_hourly_details=bool(demo_detail_retention_plan["retain_hourly_details"]),
+                    hourly_detail_scenario_ids=tuple(demo_detail_retention_plan["hourly_detail_scenario_ids"]),
+                    config_metadata={
+                        "bess_calendar_life_years": 15.0,
+                        "demo": True,
+                        "ui_detail_retention_mode": demo_detail_retention_plan["mode"],
+                        "ui_detail_retention_message": demo_detail_retention_plan["message"],
+                    },
                 )
+                technical_result = run_technical_study(technical_input)
             persisted_result = _persist_pilot_technical_result_if_enabled(st, technical_result)
             study_result = StudyResult.from_technical(technical_result)
             if persisted_result is not None:
@@ -7603,6 +7694,7 @@ def _render_simulation_page(st) -> None:
             st.session_state["study_result"] = study_result
             st.session_state["batch_result"] = technical_result.batch_result
             st.session_state["config_snapshot"] = technical_result.config_snapshot
+            _remember_technical_study_input(st, technical_input)
             _clear_project_price_curve(st)
             _clear_chart_export_cache(st)
             price_curve_reset_notice = _clear_project_price_curve_for_partial_hourly_retention(
@@ -7676,39 +7768,40 @@ def _render_simulation_page(st) -> None:
                 if value is not None
             }
 
-            technical_result = run_technical_study(
-                TechnicalStudyInput(
-                    load_source=load_file.getvalue(),
-                    pv_source=pv_file.getvalue(),
-                    wind_source=wind_file.getvalue(),
-                    load_time_col=load_time_col,
-                    load_value_col=load_value_col,
-                    pv_time_col=pv_time_col,
-                    pv_value_col=pv_value_col,
-                    wind_time_col=wind_time_col,
-                    wind_value_col=wind_value_col,
-                    scenario_grid=scenario_grid,
-                    bess_params=bess_params,
-                    policy_params=policy_params,
-                    performance_params=PerformanceParams(
-                        warn_if_scenarios_exceed=int(warn_threshold),
-                        parallel_workers=int(parallel_workers),
-                    ),
-                    cleaning_params=DataCleaningParams(),
-                    retain_hourly_details=bool(detail_retention_plan["retain_hourly_details"]),
-                    hourly_detail_scenario_ids=tuple(detail_retention_plan["hourly_detail_scenario_ids"]),
-                    config_metadata={
-                        "bess_calendar_life_years": bess_calendar_life,
-                        "ui_detail_retention_mode": detail_retention_plan["mode"],
-                        "ui_detail_retention_message": detail_retention_plan["message"],
-                        "upload_file_metadata": upload_file_metadata,
-                        "upload_file_policy": {
-                            "max_bytes": _max_upload_bytes(),
-                            "technical_curve_suffixes": sorted(_upload_policy(".csv").allowed_suffixes),
-                            "price_curve_suffixes": sorted(_upload_policy(".csv", ".xlsx", ".xlsm").allowed_suffixes),
-                        },
-                    },
+            technical_input = TechnicalStudyInput(
+                load_source=load_file.getvalue(),
+                pv_source=pv_file.getvalue(),
+                wind_source=wind_file.getvalue(),
+                load_time_col=load_time_col,
+                load_value_col=load_value_col,
+                pv_time_col=pv_time_col,
+                pv_value_col=pv_value_col,
+                wind_time_col=wind_time_col,
+                wind_value_col=wind_value_col,
+                scenario_grid=scenario_grid,
+                bess_params=bess_params,
+                policy_params=policy_params,
+                performance_params=PerformanceParams(
+                    warn_if_scenarios_exceed=int(warn_threshold),
+                    parallel_workers=int(parallel_workers),
                 ),
+                cleaning_params=DataCleaningParams(),
+                retain_hourly_details=bool(detail_retention_plan["retain_hourly_details"]),
+                hourly_detail_scenario_ids=tuple(detail_retention_plan["hourly_detail_scenario_ids"]),
+                config_metadata={
+                    "bess_calendar_life_years": bess_calendar_life,
+                    "ui_detail_retention_mode": detail_retention_plan["mode"],
+                    "ui_detail_retention_message": detail_retention_plan["message"],
+                    "upload_file_metadata": upload_file_metadata,
+                    "upload_file_policy": {
+                        "max_bytes": _max_upload_bytes(),
+                        "technical_curve_suffixes": sorted(_upload_policy(".csv").allowed_suffixes),
+                        "price_curve_suffixes": sorted(_upload_policy(".csv", ".xlsx", ".xlsm").allowed_suffixes),
+                    },
+                },
+            )
+            technical_result = run_technical_study(
+                technical_input,
                 progress_callback=update_progress,
             )
             progress_text.caption(
@@ -7722,6 +7815,7 @@ def _render_simulation_page(st) -> None:
             st.session_state["study_result"] = study_result
             st.session_state["batch_result"] = technical_result.batch_result
             st.session_state["config_snapshot"] = technical_result.config_snapshot
+            _remember_technical_study_input(st, technical_input)
             if batch_price_curve_file is None and price_curve_upload is None:
                 _clear_project_price_curve(st)
             _clear_chart_export_cache(st)
@@ -7805,7 +7899,7 @@ def _render_simulation_page(st) -> None:
                 "逐小时明细字段对应关系",
             )
         else:
-            st.info("当前结果仅常驻方案汇总，未保留逐小时明细；如需图表、逐小时导出或价格曲线经济性，请缩小范围或使用指定单方案复核。")
+            st.info("当前结果仅常驻方案汇总，未保留逐小时明细；如需图表和逐小时导出，可在推荐、图表或导出页按需补算单个方案。价格曲线经济性仍需要全量逐小时明细。")
 
     st.info("方案仿真已完成。下一步请进入“经济性测算”设置经济参数并生成推荐所需的经济结果。")
     if st.button("进入经济性测算", key="technical_go_economy"):

@@ -10,6 +10,7 @@ from uuid import uuid4
 import pandas as pd
 
 from green_direct.batch.batch_runner import BatchResult, run_batch
+from green_direct.core.single_scenario_simulator import run_single_scenario
 from green_direct.economy import (
     AvoidedGridPurchaseParams,
     EconomicParams,
@@ -28,6 +29,7 @@ from green_direct.models.params import (
     TimeParams,
 )
 from green_direct.models.scenario import Scenario
+from green_direct.models.results import ScenarioResult
 from green_direct.recommendation import (
     RecommendationParams,
     build_recommendation_result,
@@ -212,6 +214,61 @@ def run_technical_study(
         batch_result=batch_result,
         input_diagnostics=input_diagnostics,
         config_snapshot=config_snapshot,
+    )
+
+
+def scenario_from_summary_row(row: Mapping[str, Any] | pd.Series) -> Scenario:
+    """Rebuild a Scenario from one technical summary row."""
+
+    data = dict(row)
+    required = ["scenario_id", "pv_capacity", "wind_capacity", "bess_power", "bess_energy"]
+    missing = [column for column in required if column not in data]
+    if missing:
+        raise ValueError(f"Summary row is missing scenario columns: {', '.join(missing)}")
+    return Scenario(
+        scenario_id=str(data["scenario_id"]),
+        pv_capacity=float(data["pv_capacity"]),
+        wind_capacity=float(data["wind_capacity"]),
+        bess_power=float(data["bess_power"]),
+        bess_energy=float(data["bess_energy"]),
+    )
+
+
+def run_hourly_detail_for_scenario(
+    inputs: TechnicalStudyInput,
+    *,
+    scenario_id: str,
+    summary: pd.DataFrame,
+) -> ScenarioResult:
+    """Regenerate one selected scenario's hourly ledger from saved study inputs."""
+
+    if summary.empty or "scenario_id" not in summary.columns:
+        raise ValueError("Technical summary is empty or missing scenario_id.")
+    matches = summary[summary["scenario_id"].astype(str) == str(scenario_id)]
+    if matches.empty:
+        raise ValueError(f"Scenario is not present in the technical summary: {scenario_id}")
+    scenario = scenario_from_summary_row(matches.iloc[0])
+    curve_set = read_curve_set(
+        inputs.load_source,
+        inputs.pv_source,
+        inputs.wind_source,
+        load_time_col=inputs.load_time_col,
+        load_value_col=inputs.load_value_col,
+        pv_time_col=inputs.pv_time_col,
+        pv_value_col=inputs.pv_value_col,
+        wind_time_col=inputs.wind_time_col,
+        wind_value_col=inputs.wind_value_col,
+        validate_length=inputs.validate_length,
+        cleaning=inputs.cleaning_params,
+        time_params=inputs.time_params,
+    )
+    return run_single_scenario(
+        curve_set.data,
+        scenario,
+        bess_params=inputs.bess_params,
+        policy_params=inputs.policy_params,
+        dt_hours=inputs.dt_hours,
+        retain_hourly_detail=True,
     )
 
 

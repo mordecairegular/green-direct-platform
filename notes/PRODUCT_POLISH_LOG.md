@@ -3717,3 +3717,28 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_batch_runner.py tests/test_single_scenario.py -q` 通过，40 项通过；
 - `python -m pytest -q` 通过，271 项通过；
 - 小基准：120 个 8760 小时方案，完整保留明细约 7.822s，summary-only 约 4.941s，约 1.58x；完整保留 120 个 hourly，summary-only 保留 0 个 hourly。
+
+### 2026-06-16 当前会话内单方案逐小时明细按需补算
+
+本轮继续补 summary-first 大批量模式的产品闭环。前一轮已经能只保留 summary，并让未保留明细的方案不构造完整 hourly ledger；但推荐方案、图表方案或报告方案很可能不是前 N 个常驻明细方案，如果用户必须重新缩小方案池再跑，会打断“先筛选、再看代表方案”的工作流。
+
+本轮判断：
+- 按需补算必须复用同一套技术输入、BESS 参数、政策参数和 `dt_hours`，不能让图表/导出层自己重算或变更调度口径；
+- 当前第一阶段只做当前浏览器会话内补算，不把原始曲线字节写入 runtime snapshot，避免本地快照或历史 summary 恢复误用旧输入；
+- 历史 technical summary-only 恢复后如果没有受控原始输入 artifact，不能假装可以补算，应提示用户重新运行技术仿真或等待项目级 hourly artifact / 原始输入持久化能力。
+
+本轮实现：
+- 服务层新增 `scenario_from_summary_row()` 和 `run_hourly_detail_for_scenario()`：从 `summary` 行重建 `Scenario`，重新读取 `TechnicalStudyInput` 内的三条曲线，并只对指定 `scenario_id` 调用同一单方案仿真生成完整 `hourly_detail`；
+- Streamlit 技术仿真成功后在当前 session 保存 `_technical_study_input`，但该 key 不进入 `RUNTIME_SNAPSHOT_KEYS`；项目切换、退出登录、历史 summary-only 恢复和本地 runtime snapshot 恢复都会清除旧输入引用；
+- 推荐页默认报告方案、图表概览页当前详细方案、图表下载/报告页所选方案缺明细时，会显示“补算逐小时明细”动作；补算成功后写回当前 `batch_result.hourly_details` 和 `study_result.technical_result.batch_result`，并清空旧下载和图表缓存；
+- 导出页方案选择改为基于全量 `summary` 的有效方案列表，而不是只列已有 `hourly_details` 的方案；所选方案没有明细时先补算，再允许生成图表、报告和逐小时 CSV。
+
+边界说明：
+- 该能力不是后台任务，也不会跨浏览器会话保留原始上传曲线；
+- 目前不会把补算出的 hourly detail 写入 `ResultStore`，历史结果页仍只能恢复 technical summary；
+- 价格曲线经济性仍要求全量或可覆盖所需方案的逐小时明细；summary-first 大批量模式仍会安全清除项目级下网电价曲线。
+
+验证：
+- `python -m pytest tests/test_study_runner.py tests/test_ui_import.py -q` 通过，71 项通过；
+- `python -m compileall src/green_direct/services/study_runner.py src/green_direct/ui/app.py` 通过；
+- `python -m pytest -q` 通过，275 项通过。
