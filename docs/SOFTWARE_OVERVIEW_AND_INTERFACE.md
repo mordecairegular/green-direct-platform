@@ -988,6 +988,15 @@ python -m pytest
 
 `LocalResultStore` 目前已接入技术仿真 summary/config、经济性 summary、推荐 portfolio 的第一阶段写入和最小结果索引读取，但仍不是正式数据库或对象存储。后续接入时，年度现金流、逐小时明细、图表包、报告和历史结果恢复应逐步写入该 store 或其数据库/对象存储替代实现。
 
+`src/green_direct/services/upload_policy.py` 已提供第一版上传安全门禁：
+
+- `UploadPolicy` 定义允许后缀和单文件大小上限；
+- 默认单文件上限为 20MB，Streamlit 可通过 `GREEN_DIRECT_MAX_UPLOAD_MB` 调整；
+- `inspect_upload()` 会返回安全 trace metadata：文件名、后缀、大小和 SHA256；
+- `filter_uploads()` 会过滤非法文件并返回用户可读的拒绝原因。
+
+Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，但技术曲线仍只纳入 CSV；单独覆盖的负荷/光伏/风电曲线只允许 CSV；下网电价曲线允许 CSV/XLSX/XLSM。非法文件不会进入预览、曲线读取或电价曲线解析。正式受控公网内测前仍应补充原始文件留存策略、仓库外隔离存储和过期清理。
+
 `src/green_direct/services/pilot_registry.py` 已提供第一版 `LocalPilotRegistry`：
 
 - `save_user()` / `load_user()` / `list_users()` / `disable_user()`；

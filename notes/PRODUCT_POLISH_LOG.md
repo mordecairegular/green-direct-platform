@@ -3603,3 +3603,32 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_pilot_backend_models.py tests/test_pilot_registry.py tests/test_pilot_access.py tests/test_pilot_admin.py tests/test_ui_import.py::test_pilot_project_switch_clears_work_state tests/test_ui_import.py::test_pilot_project_role_change_to_viewer_clears_work_state_and_blocks_submit tests/test_ui_import.py::test_pilot_history_artifact_refs_and_download_use_access_service -q` 通过，41 项通过；
 - `python -m compileall -q src` 通过；
 - `python -m pytest -q` 通过，263 项通过。
+
+### 2026-06-15 上传文件安全第一版
+
+本轮继续补受控公网内测 Route A 的文件安全缺口。当前 Streamlit 页面会直接读取用户上传曲线，schema 校验虽在曲线读取阶段执行，但上线前还需要更早的文件类型和大小门禁，避免非预期文件或过大文件进入预览、解析和计算链路。
+
+本轮判断：
+- 第一版不急于保存原始上传文件，先解决“哪些文件允许进入程序”的边界；
+- 技术曲线仍只支持 CSV，不应因为批量入口允许电价曲线 XLSX/XLSM 而让技术曲线 Excel 悄悄进入仿真；
+- 上传文件可追溯信息应记录文件名、后缀、大小和 SHA256，不记录原始曲线内容；
+- 单文件大小上限应可配置，便于不同内测服务器按实际资源调整。
+
+本轮实现：
+- 新增 `src/green_direct/services/upload_policy.py`，提供 `UploadPolicy`、`inspect_upload()`、`filter_uploads()` 和 `UploadFileInfo`；
+- 默认单文件上限 20MB，可用 `GREEN_DIRECT_MAX_UPLOAD_MB` 调整；
+- Streamlit 02 页批量上传入口先按 CSV/XLSX/XLSM 和大小过滤；技术曲线自动识别仍只纳入 CSV；
+- 单独覆盖上传的负荷/光伏/风电曲线只允许 CSV；
+- 下网电价曲线允许 CSV/XLSX/XLSM；
+- 不合规文件只显示用户可读 warning，不进入 `_load_preview()`、`read_price_curve()` 或技术仿真；
+- 技术仿真 `config_snapshot` 新增 `upload_file_metadata` 和 `upload_file_policy`，记录上传文件安全 metadata 和本次策略。
+
+边界说明：
+- 本轮没有保存原始上传文件，也没有实现原始文件/逐小时明细/导出文件的过期清理；
+- `_LocalSampleFile` 示例数据不走上传门禁，仍作为本地 Demo 数据；
+- 后续如接入 FastAPI、对象存储或后台 worker，应复用 `UploadPolicy`，并把原始上传文件保存到仓库外用户/项目/Run 隔离路径。
+
+验证：
+- `python -m pytest tests/test_upload_policy.py tests/test_ui_import.py -q` 通过，61 项通过；
+- `python -m compileall -q src` 通过；
+- `python -m pytest -q` 通过，266 项通过。

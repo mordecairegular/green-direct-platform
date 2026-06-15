@@ -54,6 +54,7 @@
 - Streamlit 主 UI 已新增最小“平台管理”页：平台管理员可创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并在“项目和成员”中维护项目成员角色；普通用户看不到该入口。
 - Streamlit 主 UI 已新增项目工作区门禁：启用 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，登录用户必须先创建或选择有效项目才能进入六步业务工作流；切换项目会清理当前测算结果和下载缓存。
 - `ProjectMembership.can_export_artifacts` 已作为第一版独立导出授权位；平台管理页可维护“允许下载/导出项目结果”，历史 artifact payload 读取和 06 导出页会按该字段拦截，成功和拒绝下载都会写入审计。
+- 上传入口已新增第一版文件门禁：技术曲线只允许 CSV，下网电价曲线允许 CSV/XLSX/XLSM，默认单文件上限 20MB，可通过 `GREEN_DIRECT_MAX_UPLOAD_MB` 调整；合法上传文件的文件名、后缀、大小和 SHA256 会写入技术仿真配置快照。
 - 服务层已新增 `LocalJobStore`，支持本地 JSON 任务提交、读取、项目/研究列表、状态筛选、进度更新、成功/失败/取消状态持久化，暂未包含 worker 调度、认证、管理员页面或数据库锁。
 - 服务层已新增 `PilotAccessService`，把项目角色权限、可见项目列表、任务提交/取消、产物读取和审计日志统一成可测试服务门面，暂未包含 worker 调度、数据库事务或并发锁。
 - 技术仿真完成后已能在启用内部试用登录和当前项目时登记项目级同步 `Job`，并把 `technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord` 写入 `LocalResultStore`；经济性 summary 和推荐 portfolio 也已接入第一阶段项目级写入；年度现金流、逐小时明细和导出产物仍待迁移。
@@ -80,7 +81,7 @@
 - 先用受控内网/VPN/反向代理做内部试用；
 - 如果开放公网访问，只按“受控公网内测 Route A”推进：关闭开放注册，用户由管理员创建或邀请，保留不接真实电力控制系统的边界说明；
 - 继续收口导出授权：已完成 membership 级 `can_export_artifacts` 第一版，下一步需要让未来 API、图表/报告项目级 artifacts、反向代理下载路径和数据库适配全部复用同一后端策略；
-- 补文件安全和留存策略：限制上传类型/大小/schema，输入文件和 artifacts 存在仓库外受控目录，保存 hash，支持原始文件、逐小时明细、导出文件按期限清理；
+- 继续补文件安全和留存策略：已完成上传类型/大小第一层门禁和 hash 记录；下一步让原始上传文件和 artifacts 存在仓库外受控目录，支持原始文件、逐小时明细、导出文件按期限清理；
 - 补部署材料：`.env.example`、Docker/compose 或等效服务化说明、HTTPS/反向代理、数据卷、备份、恢复和回滚 runbook；
 - 下一阶段把 `pilot_backend` 模型、`LocalPilotRegistry`、`LocalPilotAuth`、`LocalPilotAdminService`、`LocalJobStore`、`LocalResultStore` 和 `PilotAccessService` 接入轻量 SQLite/Postgres、完整后台任务状态页和正式项目结果存储；
 - 下一阶段把技术仿真、经济性测算和图表导出提交为项目级 `Job`，并把产物写入 `ResultStore`；

@@ -42,6 +42,14 @@ PNG 图表包后台任务也按会话隔离：
 - PNG ZIP 缓存签名包含 `summary`、所选方案 `hourly_detail` 和对比方案表的数据指纹；
 - 新技术仿真完成后清空旧 PNG 导出缓存，避免同名方案和同时间范围复用旧图。
 
+上传文件也已先加第一层门禁：
+
+- `UploadPolicy` 对 Streamlit 上传文件做后缀和大小检查；
+- 默认单文件上限 20MB，可用 `GREEN_DIRECT_MAX_UPLOAD_MB` 调整；
+- 技术曲线只允许 CSV，下网电价曲线允许 CSV/XLSX/XLSM；
+- 合法上传文件的文件名、后缀、大小和 SHA256 会写入技术仿真的 `config_snapshot["upload_file_metadata"]`；
+- 非法文件只显示拒绝原因，不进入预览、曲线读取或价格曲线解析。
+
 2026-06-15 起，Streamlit 主界面已新增可选内部试用登录门禁：
 
 - 默认不启用，避免影响本地开发和桌面单机体验；

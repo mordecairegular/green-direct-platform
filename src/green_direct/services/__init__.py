@@ -33,6 +33,14 @@ from green_direct.services.study_runner import (
     run_economic_study,
     run_technical_study,
 )
+from green_direct.services.upload_policy import (
+    DEFAULT_MAX_UPLOAD_BYTES,
+    UploadFileInfo,
+    UploadPolicy,
+    UploadValidationError,
+    filter_uploads,
+    inspect_upload,
+)
 
 __all__ = [
     "EconomicStudyResult",
@@ -55,8 +63,14 @@ __all__ = [
     "StudyResult",
     "TechnicalStudyInput",
     "TechnicalStudyResult",
+    "DEFAULT_MAX_UPLOAD_BYTES",
+    "UploadFileInfo",
+    "UploadPolicy",
+    "UploadValidationError",
     "build_recommendation_study",
     "economic_input_fingerprint",
+    "filter_uploads",
+    "inspect_upload",
     "persist_economic_study_result",
     "persist_recommendation_study_result",
     "persist_technical_study_result",

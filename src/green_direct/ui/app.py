@@ -61,7 +61,12 @@ from green_direct.services import (
     StudyResult,
     TechnicalStudyInput,
     TechnicalStudyResult,
+    UploadFileInfo,
+    UploadPolicy,
+    UploadValidationError,
     build_recommendation_study,
+    filter_uploads,
+    inspect_upload,
     persist_economic_study_result,
     persist_recommendation_study_result,
     persist_technical_study_result,
@@ -133,6 +138,7 @@ PROJECT_PRICE_CURVE_SESSION_UPLOAD_KEY = "_project_price_curve_uploaded_current_
 RUNTIME_STATE_DIR = PROJECT_ROOT / ".runtime"
 LATEST_SESSION_SNAPSHOT_PATH = RUNTIME_STATE_DIR / "latest_session_snapshot.pkl"
 RUNTIME_SNAPSHOT_ENV = "GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT"
+MAX_UPLOAD_MB_ENV = "GREEN_DIRECT_MAX_UPLOAD_MB"
 PILOT_AUTH_ENV = "GREEN_DIRECT_ENABLE_PILOT_AUTH"
 PILOT_STORE_DIR_ENV = "GREEN_DIRECT_PILOT_STORE_DIR"
 PILOT_DEFAULT_STORE_DIR = RUNTIME_STATE_DIR / "pilot_store"
@@ -3568,6 +3574,49 @@ def _load_preview(uploaded_file):
     return df, encoding
 
 
+def _max_upload_bytes() -> int:
+    raw_value = os.getenv(MAX_UPLOAD_MB_ENV, "").strip()
+    if not raw_value:
+        return 20 * 1024 * 1024
+    try:
+        megabytes = float(raw_value)
+    except ValueError:
+        return 20 * 1024 * 1024
+    if megabytes <= 0:
+        return 20 * 1024 * 1024
+    return int(megabytes * 1024 * 1024)
+
+
+def _upload_policy(*suffixes: str) -> UploadPolicy:
+    return UploadPolicy(frozenset(suffixes), max_bytes=_max_upload_bytes())
+
+
+def _upload_limit_caption() -> str:
+    return f"当前单文件上传上限：{_max_upload_bytes() / 1024 / 1024:.0f}MB。"
+
+
+def _validate_single_upload(st, uploaded_file, policy: UploadPolicy, *, label: str):
+    if uploaded_file is None:
+        return None, None
+    try:
+        return uploaded_file, inspect_upload(uploaded_file, policy, label=label)
+    except UploadValidationError as exc:
+        st.warning(str(exc))
+        return None, None
+
+
+def _filter_uploads_for_ui(st, uploaded_files, policy: UploadPolicy, *, label: str):
+    valid_files, infos, messages = filter_uploads(uploaded_files, policy, label=label)
+    for message in messages:
+        st.warning(message)
+    return valid_files, infos
+
+
+def _upload_info_metadata(uploaded_file, infos: dict[int, UploadFileInfo]) -> dict[str, object] | None:
+    info = infos.get(id(uploaded_file)) if uploaded_file is not None else None
+    return info.to_dict() if info is not None else None
+
+
 def _match_curve_from_filename(filename: str) -> str | None:
     normalized = filename.lower()
     for curve_name, keywords in FILE_KEYWORDS.items():
@@ -6924,9 +6973,15 @@ def _render_simulation_page(st) -> None:
                 help=(
                     "一次选择负荷、光伏、风电 CSV，并可同时加入下网电价曲线 CSV/XLSX；"
                     "技术曲线文件名包含 load、pv/solar、wind 或中文关键词时自动识别，"
-                    "电价曲线文件名建议包含“电价/价格/下网/price”。"
+                    f"电价曲线文件名建议包含“电价/价格/下网/price”。{_upload_limit_caption()}"
                 ),
                 key="simulation_batch_curve_csv",
+            )
+            batch_files, batch_upload_infos = _filter_uploads_for_ui(
+                st,
+                batch_files,
+                _upload_policy(".csv", ".xlsx", ".xlsm"),
+                label="批量上传项目曲线",
             )
             assigned_files, batch_price_curve_file, assign_messages = _auto_assign_curve_files(batch_files)
             for message in assign_messages:
@@ -6943,10 +6998,37 @@ def _render_simulation_page(st) -> None:
                 load_file_manual = c1.file_uploader("负荷 CSV", type=["csv"], key="load_csv_manual")
                 pv_file_manual = c2.file_uploader("光伏 CSV", type=["csv"], key="pv_csv_manual")
                 wind_file_manual = c3.file_uploader("风电 CSV", type=["csv"], key="wind_csv_manual")
+                manual_upload_infos: dict[int, UploadFileInfo] = {}
+                load_file_manual, load_file_manual_info = _validate_single_upload(
+                    st,
+                    load_file_manual,
+                    _upload_policy(".csv"),
+                    label="负荷曲线",
+                )
+                pv_file_manual, pv_file_manual_info = _validate_single_upload(
+                    st,
+                    pv_file_manual,
+                    _upload_policy(".csv"),
+                    label="光伏曲线",
+                )
+                wind_file_manual, wind_file_manual_info = _validate_single_upload(
+                    st,
+                    wind_file_manual,
+                    _upload_policy(".csv"),
+                    label="风电曲线",
+                )
+                for file_obj, info in [
+                    (load_file_manual, load_file_manual_info),
+                    (pv_file_manual, pv_file_manual_info),
+                    (wind_file_manual, wind_file_manual_info),
+                ]:
+                    if file_obj is not None and info is not None:
+                        manual_upload_infos[id(file_obj)] = info
 
             load_file = load_file_manual or assigned_files.get("负荷") or sample_files.get("负荷")
             pv_file = pv_file_manual or assigned_files.get("光伏") or sample_files.get("光伏")
             wind_file = wind_file_manual or assigned_files.get("风电") or sample_files.get("风电")
+            curve_upload_infos = {**batch_upload_infos, **manual_upload_infos}
 
             try:
                 load_df, load_encoding = _load_preview(load_file)
@@ -7049,8 +7131,16 @@ def _render_simulation_page(st) -> None:
                     "上传下网电价曲线（CSV / XLSX）",
                     type=["csv", "xlsx", "xlsm"],
                     key="simulation_price_curve_upload",
-                    help="可选经济性输入，只影响经济性测算和推荐排序，不改变技术仿真。未上传时使用固定价/网页组价模式。",
+                    help=f"可选经济性输入，只影响经济性测算和推荐排序，不改变技术仿真。未上传时使用固定价/网页组价模式。{_upload_limit_caption()}",
                 )
+                price_curve_upload, price_curve_upload_info = _validate_single_upload(
+                    st,
+                    price_curve_upload,
+                    _upload_policy(".csv", ".xlsx", ".xlsm"),
+                    label="下网电价曲线",
+                )
+                if price_curve_upload is not None and price_curve_upload_info is not None:
+                    curve_upload_infos[id(price_curve_upload)] = price_curve_upload_info
                 if price_curve_upload is not None:
                     _remember_uploaded_price_curve(st, price_curve_upload)
                 if _project_price_curve_data(st) is not None:
@@ -7572,6 +7662,20 @@ def _render_simulation_page(st) -> None:
                 progress.progress(done / total if total else 1.0)
                 progress_text.caption(f"正在计算 {done}/{total}：{scenario.scenario_id}")
 
+            upload_file_metadata = {
+                key: value
+                for key, value in {
+                    "load_curve": _upload_info_metadata(load_file, curve_upload_infos),
+                    "pv_curve": _upload_info_metadata(pv_file, curve_upload_infos),
+                    "wind_curve": _upload_info_metadata(wind_file, curve_upload_infos),
+                    "price_curve": _upload_info_metadata(
+                        price_curve_upload or batch_price_curve_file,
+                        curve_upload_infos,
+                    ),
+                }.items()
+                if value is not None
+            }
+
             technical_result = run_technical_study(
                 TechnicalStudyInput(
                     load_source=load_file.getvalue(),
@@ -7597,6 +7701,12 @@ def _render_simulation_page(st) -> None:
                         "bess_calendar_life_years": bess_calendar_life,
                         "ui_detail_retention_mode": detail_retention_plan["mode"],
                         "ui_detail_retention_message": detail_retention_plan["message"],
+                        "upload_file_metadata": upload_file_metadata,
+                        "upload_file_policy": {
+                            "max_bytes": _max_upload_bytes(),
+                            "technical_curve_suffixes": sorted(_upload_policy(".csv").allowed_suffixes),
+                            "price_curve_suffixes": sorted(_upload_policy(".csv", ".xlsx", ".xlsm").allowed_suffixes),
+                        },
                     },
                 ),
                 progress_callback=update_progress,

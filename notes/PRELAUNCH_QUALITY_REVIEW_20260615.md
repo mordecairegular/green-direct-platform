@@ -33,7 +33,7 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 
 结果：
 
-- 全量测试通过：263 项通过；
+- 全量测试通过：266 项通过；
 - `src` 编译检查通过；
 - 源码树下 CLI 启动口径验证通过；
 - `git diff --check` 没有实际空白错误，仅有 Windows 换行转换提示；
@@ -69,8 +69,8 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 4. 本地 JSON 文件 store 没有事务、锁和备份策略。
    账号、会话、任务和结果服务适合作为 pilot 语义骨架，但不是正式数据库。并发写入、磁盘损坏、机器迁移和权限隔离都需要 SQLite/Postgres 或对象存储适配器解决。
 
-5. 上传文件、产物留存和日志脱敏仍缺少公网内测级闭环。
-   需要限制文件类型和大小、保存输入文件 hash、按用户/项目/Run 隔离仓库外路径、避免普通日志记录原始曲线或服务器内部路径，并实现原始上传文件、逐小时明细、导出文件的过期清理与关键 Run 保留机制。
+5. 上传文件已有第一层类型/大小门禁，但产物留存和清理仍缺少公网内测级闭环。
+   Streamlit 上传入口已限制允许后缀和默认 20MB 单文件大小，技术仿真配置快照会记录上传文件名、大小和 SHA256；但仍需要按用户/项目/Run 保存或选择性清理原始上传文件、逐小时明细和导出文件，避免普通日志记录原始曲线或服务器内部路径，并实现关键 Run 保留机制。
 
 6. 部署策略仍是本地/桌面优先。
    当前启动脚本更适合 Windows 本机或演示机，缺少服务守护、日志、监控、HTTPS、反向代理、CI/CD、健康检查和恢复手册。
@@ -107,5 +107,5 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 2. 运行 `python -m pytest -q` 和 `python -m compileall -q src`；
 3. 重点审查 `src/green_direct/ui/app.py` 是否存在跨用户状态、旧结果复用、价格曲线误用、导出缓存串会话；
 4. 重点审查 `src/green_direct/services/` 下本地后台服务的权限边界、路径校验、审计记录和失败场景；
-5. 重点审查受控公网内测 Route A 缺口：不可导出用户是否还能通过未来 API、项目级报告 artifact、缓存或反向代理路径绕过下载，普通用户是否能猜测他人 project/run/artifact，上传文件是否限制大小/类型/路径，日志是否可能泄露原始曲线；
+5. 重点审查受控公网内测 Route A 缺口：不可导出用户是否还能通过未来 API、项目级报告 artifact、缓存或反向代理路径绕过下载，普通用户是否能猜测他人 project/run/artifact，上传文件是否还能绕过大小/类型/schema 门禁，日志是否可能泄露原始曲线；
 6. 设计并实现下一阶段最小闭环：完整任务状态页 + 历史结果恢复/下载/删除 + 代表方案按需逐小时明细 + 图表/报告项目级 artifacts + 部署 runbook。
