@@ -56,9 +56,9 @@
 
 如果本次任务涉及追溯早期 AI 构建提示词、V0.1 验收记录或旧状态快照，请到 `archive/20260522_historical_build_materials/` 查看。该目录是历史归档，不是当前活跃开发入口。
 
-### 2.1 内部试用上线前 Claude Code 提示词
+### 2.1 内部试用 / 受控公网内测上线前 Claude Code 提示词
 
-如果目标是 10-20 人内部试用上线，请优先使用 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`。
+如果目标是 10-20 人内部试用上线，或从内网 pilot 升级到邀请制受控公网内测 Route A，请优先使用 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`。
 
 该文档把 Claude Code 任务拆成四类可复制提示词：
 - 上下文读取；
@@ -67,6 +67,8 @@
 - 后台账户、Job 和 `ResultStore` 架构设计。
 
 不要把 review/debug 和 UI 提升合并到同一轮。前者用于清 P0/P1 风险，后者用于提升六步工作流体验；两者的判断标准不同，混在一起容易漏掉上线风险。
+
+受控公网内测 Route A 不是正式公网 SaaS：应关闭开放注册，用户由管理员创建或邀请；软件不得接入 EMS、SCADA、调度自动化、真实电力设备或生产控制网络；公网访问前必须补独立导出权限、上传文件安全、项目/Run/Artifact 留存、审计日志、HTTPS/反向代理、备份恢复和回滚说明。
 
 ## 3. 当前项目定位
 
@@ -401,7 +403,7 @@ git status --short
 - 2026-06-10 已新增 Streamlit 重启后的本地结果恢复机制；2026-06-15 已按内部多人试用要求加安全边界：默认直接 `streamlit run src/green_direct/ui/app.py` 不保存、不恢复 `.runtime/latest_session_snapshot.pkl`，只有本地启动器 / PyInstaller 入口显式设置 `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=1` 时才启用。多人部署、内网服务器、容器或反向代理环境不得开启该变量；长期仍应实现正式 `ResultStore`；`.runtime/` 已加入 `.gitignore`。
 - 2026-06-10 已修正图表网页端和 ZIP 导出一致性：新增共享能源色板 `src/green_direct/visualization/style.py`，网页 24H 运行策略图和 HTML/PNG 导出复用同一构图；PNG/HTML 图表包补充五类关键运行日和全年 8760/8784 曲线；季节典型日文件名不再嵌入日期，真实选中日期写入 meta。后续改图表颜色或 24H 运行图时优先改共享色板和 `build_operation_day_figure()`，不要单独给 PNG 另起一套样式。
 - 2026-06-10 PNG ZIP 已改为后台生成；2026-06-15 已加多人试用安全修正：后台任务 key 包含 Streamlit 会话 ID，PNG ZIP 签名包含 `summary`、所选方案 `hourly_detail` 和对比方案表的数据指纹，新技术仿真会清空旧 PNG 导出缓存，快照也不再持久化 PNG ZIP 二进制。06 页提交后台线程任务，用户可切换页面，返回后自动收割结果；底层优先用 Plotly `write_images()` 批量渲染，失败再逐张回退。经济参数页默认风电造价 5000、光伏造价 2800，常调单位造价和运维单价使用 Streamlit 原生 `number_input` 内置步进微调，步长按字段内部定义（单位造价 100、运维 1），不要再用自定义按钮修改 `session_state` 后强制整页 rerun。顶部重复状态条已停止渲染，保留侧栏导航/状态和页面标题。PNG 图表包区域使用局部刷新显示运行中/完成/失败状态。S09 图中净交换显式按 `grid_export_power - grid_import_power` 展示，S10 全年曲线分为供需/上网弃电/SOC 三行，S02 政策阈值使用水平阈值线。
-- 2026-06-15 已开始经济性测算性能优化：批量经济评价去除 `iterrows()`，年度折现因子按年限和折现率缓存，NPV 改用等价 Horner 形式，同一主体批量评价减少重复参数校验。该优化不改变年度现金流、FNPV、FIRR、回收期或推荐排序口径；后续仍需继续做 DataFrame/NumPy 批量化、后台 Job 和 `ResultStore`。
+- 2026-06-15 已开始经济性测算性能优化：批量经济评价去除 `iterrows()`，年度折现因子按年限和折现率缓存，NPV 改用等价 Horner 形式，同一主体批量评价减少重复参数校验；常规单符号变化现金流的 IRR 直接走二分快路径，多符号变化仍走原候选率扫描和多根判断。该优化不改变年度现金流、FNPV、FIRR、回收期或推荐排序口径；后续仍需继续做 DataFrame/NumPy 批量化、后台 Job 和 `ResultStore`。
 - 2026-06-15 已新增内部试用后台模型骨架：`src/green_direct/models/pilot_backend.py` 定义 `User`、`Project`、`ProjectMembership`、`ProjectStudy`、`Job`、`JobArtifact`、`StudyResultRecord`、`AuditLog` 及角色/任务/产物状态枚举。该骨架暂未接入登录页、数据库、任务队列或 Streamlit 管理页；下一步应基于它实现轻量 SQLite/Postgres 存储、管理员账户页和 `ResultStore`。
 - 2026-06-15 已新增本地文件版 `LocalResultStore`：`src/green_direct/services/result_store.py` 可按项目/研究保存 `JobArtifact` payload、`StudyResultRecord` 和项目/全局 `AuditLog`，写入产物时自动记录 `storage_uri`、`sha256`、`size_bytes`，并校验路径片段防止路径穿越。该 store 暂未接管现有 Streamlit 工作流，后续应先让技术汇总、经济汇总、推荐组合和导出文件逐步写入 store。
 - 2026-06-15 已新增本地账户与项目注册表：`src/green_direct/services/pilot_registry.py` 提供 `LocalPilotRegistry`，支持本地 JSON 用户/项目保存、停用、项目归档、项目成员角色授予和停用；`src/green_direct/services/local_store_utils.py` 抽出本地存储路径校验和 JSON 序列化。该 registry 不存密码、不处理登录会话，后续管理员页和 SQLite/Postgres 存储应基于它继续推进。
@@ -417,6 +419,7 @@ git status --short
 - 2026-06-15 已新增项目任务与结果索引面板：`LocalResultStore` 和 `PilotAccessService` 可按项目/研究列出 `StudyResultRecord`，Streamlit 欢迎页在启用内部试用登录且选中项目后显示“项目任务与结果”，列出当前项目任务数、已保存结果数、最近任务和最近结果索引。随后已补“历史结果产物”区，可加载并下载已落盘的技术 summary、经济 summary、推荐 portfolio/detail 等 artifact；技术 summary 可 summary-only 恢复到当前会话，写回 `batch_result.summary` / `study_result` / `config_snapshot`，但 `hourly_details` 为空。加载 payload 走 `PilotAccessService.read_artifact_payload()` 并写下载审计。该面板仍不支持完整历史 `StudyResult` 恢复、删除、标记、完整历史页或跨项目搜索。
 - 2026-06-15 已新增经济性与推荐结果持久化第一阶段：`persist_economic_study_result()` 会登记项目级同步 `economic_study` Job，写入 `power_economy_summary.csv`、`single_entity_summary.csv` 和 `StudyResultRecord(result_id="economy_result_<job_id>")`；`persist_recommendation_study_result()` 会登记 `recommendation` Job，写入 `recommendation_portfolio.csv`、`recommendation_load_side_detail.csv` 和 `StudyResultRecord(result_id="recommendation_result_<job_id>")`。Streamlit 03 页经济性测算成功后会写经济 summary，推荐页会按 fingerprint 去重写推荐组合。年度现金流、逐小时明细、图表包、报告和真正后台 worker 仍待迁移。
 - 2026-06-15 已把大批量“汇总优先”接入 02 页：`simulation_large_run_hourly_detail_limit` 默认 20；当候选方案数超过 `simulation_warn_threshold` 时，`TechnicalStudyInput` 会传 `retain_hourly_details=False` 和前 N 个 `S0001...` 方案 ID，只常驻保存方案汇总和少量逐小时明细。该策略不改变调度口径；若当前有项目级下网电价曲线，会清除并切回固定价/网页组价，避免价格曲线经济性缺少全量逐小时明细。后续仍需做代表方案按需补算、后台任务进度和取消入口。
+- 2026-06-15 已吸收受控公网内测 Route A 讨论稿方向：近期上线仍优先是内部 10-20 人 pilot；若开放公网访问，必须保持邀请制账号、不接真实电力控制系统、补独立可导出/不可导出权限、上传文件安全、仓库外产物存储、审计日志、留存清理、HTTPS/反向代理、备份恢复和回滚说明。当前 `viewer` / `analyst` / `admin` 项目角色不能直接等同于公网内测的导出授权角色。
 - 2026-06-10 02 页“指定单方案”输入已做去冗和排版修正：模式入口保留“指定单方案”，但字段标签只写“光伏容量、风电容量、储能功率、储能容量”；四个输入采用两行两列，不再一行四列挤压中文标签。03 页经济性参数工作台也继续压紧：基本参数行改为四列节奏，Year 0 建设投资六个输入放到同一行，减少大块空白。后续新增参数控件时，优先让入口表达模式、字段表达名词，避免每个控件重复解释当前模式，也不要让少量字段横向撑满全屏。
 - 2026-06-10 已进一步确认 UI 改造不能过度守旧：保留计算口径不等于保留旧页面结构。03 页经济参数已从单一“经济性参数工作台”大框拆为运行口径、建设投资、运维成本、收入和税金、到户电价展示、高级参数六个小工作卡；参数被放入 `st.form("economy_v1_params_form")`，顶部和底部都有“计算经济性 V1”提交按钮。表单内编辑常调参数时不再触发整页 rerun，浏览器测得风电单位造价输入改动前端响应约 82ms。后续 UI 工作应围绕“快速完成方案策划、经济测算、推荐和交付”主目标，不要为了沿用旧大表单而牺牲交互流畅性。
 - 2026-05-25 已新增独立方案遍历试用程序入口：`src/green_direct/services/batch_trial_runner.py`、`src/green_direct/ui/batch_trial_gui.py`、`packaging/pyinstaller/run_batch_trial_tool.py`、`GreenDirectBatchTrial.spec` 和 `scripts/build_batch_trial_exe.ps1`。该入口只包装三条 CSV 读取、风光储容量枚举、逐小时技术仿真、方案概览 Excel 和全部方案逐小时详表 ZIP，不代表长期主产品要回到全量枚举表优先；配套说明见 `docs/BATCH_TRIAL_TOOL_USER_GUIDE.md` 和 `docs/BATCH_TRIAL_DISPATCH_AND_CALCULATION.md`；

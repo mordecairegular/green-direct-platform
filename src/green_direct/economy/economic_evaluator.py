@@ -238,6 +238,11 @@ def _deduplicate_roots(roots: list[float]) -> list[float]:
     return unique
 
 
+def _sign_change_count(values: list[float]) -> int:
+    signs = [1 if value > 0 else -1 for value in values if abs(value) > 1e-9]
+    return sum(1 for previous, current in zip(signs, signs[1:]) if previous != current)
+
+
 def _calculate_irr(cashflows: list[float]) -> tuple[float | None, str]:
     nonzero = [value for value in cashflows if abs(value) > 1e-9]
     if not nonzero:
@@ -246,6 +251,11 @@ def _calculate_irr(cashflows: list[float]) -> tuple[float | None, str]:
         return None, "IRR 无法可靠计算：现金流全为非正值，项目没有形成正向净现金流。"
     if not any(value < 0 for value in nonzero):
         return None, "IRR 无法可靠计算：现金流全为非负值，项目缺少初始投资流出。"
+
+    if _sign_change_count(nonzero) == 1:
+        root = _bisect_irr_root(cashflows, -0.9999, 10.0)
+        if root is not None:
+            return root, "ok"
 
     roots: list[float] = []
     previous: tuple[float, float] | None = None

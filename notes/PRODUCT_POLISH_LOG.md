@@ -3529,3 +3529,47 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_ui_import.py::test_pilot_history_artifact_refs_and_download_use_access_service tests/test_ui_import.py::test_pilot_restore_technical_summary_rebuilds_summary_only_session -q` 通过，2 项通过；
 - `python -m compileall -q src` 通过；
 - `python -m pytest -q` 通过，260 项通过。
+
+### 2026-06-15 经济性 IRR 单符号变化快路径
+
+本轮回到大批量经济性测算性能问题。电源侧和同一主体经济性都会为每个方案计算 FIRR；多数常规项目现金流是 Year 0 投资为负、运营期现金流为正，即非零现金流只有一次符号变化。原实现为了覆盖多重 IRR 风险，会扫描 2000 多个候选折现率，再做二分求根；这对成千上万个方案会放大等待时间。
+
+本轮判断：
+- 单符号变化现金流只可能有一个稳定 IRR 根，可以直接在原有求解边界 `[-0.9999, 10.0]` 内做二分；
+- 如果快路径无法找到根，或现金流存在多次符号变化，仍回到原有候选率扫描逻辑；
+- 该优化不改变 FIRR、FNPV、回收期、年度现金流字段或推荐排序口径，只减少常规现金流的求解开销。
+
+本轮实现：
+- `_calculate_irr()` 新增 `_sign_change_count()` 判断；
+- 非零现金流只有一次正负变号时，直接调用 `_bisect_irr_root()`；
+- 多符号变化现金流继续用原有候选率扫描和多根去重判断；
+- 新增测试通过 monkeypatch 阻断候选率扫描，确认单符号变化现金流不再进入扫描路径，同时保留替换现金流唯一根和真实多 IRR 根测试。
+
+验证：
+- `python -m pytest tests/test_economy_v1.py::test_irr_uses_fast_path_for_single_sign_change_cashflow tests/test_economy_v1.py::test_irr_returns_unique_root_when_replacement_creates_temporary_cashflow_dip tests/test_economy_v1.py::test_irr_rejects_true_multiple_irr_roots -q` 通过，3 项通过；
+- `python -m pytest tests/test_economy_v1.py tests/test_single_entity_economy.py tests/test_study_runner.py tests/test_recommendation_v1.py -q` 通过，44 项通过；
+- `python -m compileall -q src` 通过；
+- `python -m pytest -q` 通过，261 项通过。
+
+### 2026-06-15 受控公网内测 Route A 边界吸收
+
+本轮用户补充了一份“公网内测版准备方案”讨论稿。该稿的核心价值不是让项目立即转成完整 SaaS，而是把“可以公网访问”重新定义为邀请制、可追溯、可管理、可恢复的受控 Beta。
+
+本轮判断：
+- 近期仍优先按内部 10-20 人 pilot 做稳；如果开放公网访问，只能按 Route A 受控内测推进，不等于正式公网生产发布；
+- 软件必须继续定位为绿电直连 / 源网荷储前期方案测算和政策指标初判工具，不接 EMS、SCADA、调度自动化、真实电力设备或生产控制网络；
+- 现有 `is_platform_admin` 与项目 `admin` / `analyst` / `viewer` 只解决平台管理和项目协作的一部分问题，不能直接等同于公网内测角色；
+- 受控公网内测必须新增独立导出授权：可上传/可计算/可查看但不可导出的用户，不得通过 UI、直接 URL、缓存或未来 API 下载结果文件；
+- 项目、Run、Artifact、AuditLog、参数快照、输入文件 hash、结果摘要和脱敏错误信息应成为公网内测的追溯底座；
+- 上传文件安全、仓库外 artifact 存储、日志脱敏、留存清理、HTTPS/反向代理、数据卷、备份恢复和回滚说明，属于公网内测前的 P0/P1 准备项。
+
+本轮落地：
+- `docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md` 增补 Route A 边界和 Phase D；
+- `docs/SOFTWARE_OVERVIEW_AND_INTERFACE.md` 明确项目角色不等于导出授权；
+- `notes/PRELAUNCH_QUALITY_REVIEW_20260615.md` 增补公网内测 P0 风险和 Claude Code 审查重点；
+- `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md` 增补 Route A 专项 review/debug 检查项；
+- `notes/TODO.md` 和 `notes/HANDOFF_FOR_NEW_MACHINE.md` 同步下一步优先级与换机交接口径。
+
+边界说明：
+- 本轮只吸收方向和审查口径，没有实现正式数据库、后端导出权限、Docker/compose、部署 runbook 或文件清理任务；
+- 现有本地 JSON store 和 Streamlit 门禁仍只适合受控内部 pilot 或开发演示，公网可访问内测前仍需按质量审查记录补齐 P0。

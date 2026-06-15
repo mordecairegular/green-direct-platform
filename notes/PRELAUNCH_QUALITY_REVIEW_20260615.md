@@ -5,7 +5,7 @@
 - 当前分支：`codex/UI`
 - 对比基线：`origin/codex/UI`
 - 当前状态：本地已有连续 checkpoint；本记录随 Streamlit 项目工作区、项目成员管理、项目级结果持久化和最小任务/结果索引/下载/summary-only 恢复面板补充更新。
-- 目标口径：近期上线应理解为受控内部试用 / pilot，不应理解为公网生产 SaaS。
+- 目标口径：近期上线应理解为受控内部试用 / pilot；若开放公网访问，也只能按邀请制“受控公网内测 Route A”推进，不应理解为公网生产 SaaS。
 
 ## 本轮 checkpoint 概览
 
@@ -16,7 +16,8 @@
 - 经济性批量评价性能优化；
 - 内部试用后台模型、结果存储、账号注册表、认证、可选 Streamlit 登录门禁、项目工作区门禁、最小平台账号/项目成员管理页、管理员服务、任务状态存储、权限审计门面，技术/经济 summary/推荐 portfolio 持久化第一阶段，以及欢迎页任务/结果索引、已落盘 artifact 下载和技术 summary-only 恢复面板；
 - `pilot-admin` 命令行账号管理入口；
-- 面向 Claude Code 的内部试用审查 / 后台架构 prompt 和跨机器 handoff 文档。
+- 面向 Claude Code 的内部试用审查 / 后台架构 prompt 和跨机器 handoff 文档；
+- 已吸收用户补充的受控公网内测讨论稿方向：不接真实电力控制系统、不开放社会化注册、保留项目/Run/Artifact/AuditLog、后端控制导出权限、补文件安全和部署恢复边界。
 
 近期 checkpoint 已覆盖 CLI、认证、平台管理、项目工作区、大批量汇总优先模式，技术仿真 summary/config、经济性 summary、推荐 portfolio 写入项目级 `ResultStore`，以及项目内最近任务/结果索引、已落盘 artifact 下载和技术 summary-only 恢复；具体提交以 `git log --oneline` 为准。
 
@@ -32,7 +33,7 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 
 结果：
 
-- 全量测试通过：260 项通过；
+- 全量测试通过：261 项通过；
 - `src` 编译检查通过；
 - 源码树下 CLI 启动口径验证通过；
 - `git diff --check` 没有实际空白错误，仅有 Windows 换行转换提示；
@@ -50,6 +51,8 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 - 服务器部署不要启用本地运行快照；
 - 大批量算例先按汇总优先试用，图表和报告只围绕已有逐小时明细的方案开展。
 
+若要从内网/VPN pilot 进一步开放为公网可访问内测，应先补齐 Route A 的 P0 条件：邀请制账号、可导出/不可导出用户权限、后端导出校验、文件上传限制、仓库外产物存储、日志脱敏、HTTPS/反向代理、数据卷备份和回滚说明。
+
 ## 主要风险
 
 ### P0：公网生产阻塞
@@ -57,13 +60,19 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 1. Streamlit 主 UI 已有可选登录门禁、最小项目工作区门禁和平台账号/项目成员管理页，但还不是正式权限系统。
    设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，未登录用户不能进入六步工作流；登录用户必须先创建或选择有效项目；切换项目会清理当前测算结果和下载缓存；平台管理员可在“平台管理”中创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并维护项目成员角色。技术仿真 summary/config snapshot、经济性 summary 和推荐 portfolio 已能写入项目级 `ResultStore`，欢迎页也能展示项目最近任务/结果索引、加载下载已落盘 artifact，并把技术 summary-only 恢复为当前会话结果；但正式上线前仍必须接入更正式的会话/数据库适配、CSRF/反向代理安全边界，并继续迁移年度现金流、逐小时明细、完整历史结果恢复和导出产物持久化。
 
-2. 没有正式后台任务队列和 worker。
+2. 可导出/不可导出用户权限尚未成为后端统一授权位。
+   当前项目角色主要控制项目查看、提交任务和成员管理，历史 artifact 下载也按项目查看权限处理；这不等同于 `BETA_USER_NO_EXPORT` / `BETA_USER_EXPORT`。受控公网内测前必须把导出权限显式落到用户或 membership 策略，并确保 UI 按钮、直接 URL、未来 API 和后台 artifact 读取都走同一后端校验与审计。
+
+3. 没有正式后台任务队列和 worker。
    当前重计算仍发生在 Streamlit 进程内，PNG ZIP 使用进程内后台线程，技术/经济/推荐 Job 也是计算完成后的同步状态登记。`LocalJobStore` 只是任务状态契约，不会真正调度 worker。多人同时大算例时缺少排队、取消、限流、重试和失败恢复。
 
-3. 本地 JSON 文件 store 没有事务、锁和备份策略。
+4. 本地 JSON 文件 store 没有事务、锁和备份策略。
    账号、会话、任务和结果服务适合作为 pilot 语义骨架，但不是正式数据库。并发写入、磁盘损坏、机器迁移和权限隔离都需要 SQLite/Postgres 或对象存储适配器解决。
 
-4. 部署策略仍是本地/桌面优先。
+5. 上传文件、产物留存和日志脱敏仍缺少公网内测级闭环。
+   需要限制文件类型和大小、保存输入文件 hash、按用户/项目/Run 隔离仓库外路径、避免普通日志记录原始曲线或服务器内部路径，并实现原始上传文件、逐小时明细、导出文件的过期清理与关键 Run 保留机制。
+
+6. 部署策略仍是本地/桌面优先。
    当前启动脚本更适合 Windows 本机或演示机，缺少服务守护、日志、监控、HTTPS、反向代理、CI/CD、健康检查和恢复手册。
 
 ### P1：内部试用前应重点观察
@@ -98,4 +107,5 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 2. 运行 `python -m pytest -q` 和 `python -m compileall -q src`；
 3. 重点审查 `src/green_direct/ui/app.py` 是否存在跨用户状态、旧结果复用、价格曲线误用、导出缓存串会话；
 4. 重点审查 `src/green_direct/services/` 下本地后台服务的权限边界、路径校验、审计记录和失败场景；
-5. 设计并实现下一阶段最小闭环：完整任务状态页 + 历史结果恢复/下载/删除 + 代表方案按需逐小时明细 + 图表/报告项目级 artifacts + 部署 runbook。
+5. 重点审查受控公网内测 Route A 缺口：不可导出用户是否能绕过下载、普通用户是否能猜测他人 project/run/artifact、上传文件是否限制大小/类型/路径、日志是否可能泄露原始曲线；
+6. 设计并实现下一阶段最小闭环：导出权限后端策略 + 完整任务状态页 + 历史结果恢复/下载/删除 + 代表方案按需逐小时明细 + 图表/报告项目级 artifacts + 部署 runbook。

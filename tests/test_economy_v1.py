@@ -208,6 +208,20 @@ def test_npv_matches_discounted_cashflow_sum():
     )
 
 
+def test_irr_uses_fast_path_for_single_sign_change_cashflow(monkeypatch):
+    import green_direct.economy.economic_evaluator as evaluator
+
+    def fail_candidate_scan():
+        raise AssertionError("single-sign-change IRR should not scan candidate rates")
+
+    monkeypatch.setattr(evaluator, "_irr_candidate_rates", fail_candidate_scan)
+
+    firr, status = evaluator._calculate_irr([-100.0, 30.0, 40.0, 50.0])
+
+    assert status == "ok"
+    assert firr == pytest.approx(0.0889633947, rel=1e-7)
+
+
 def test_irr_returns_unique_root_when_replacement_creates_temporary_cashflow_dip():
     cashflows = [-73400.0] + [7000.0] * 21 + [-1000.0] + [7000.0] * 3
 

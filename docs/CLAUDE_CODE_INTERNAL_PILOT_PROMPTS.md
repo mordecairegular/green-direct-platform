@@ -35,7 +35,7 @@
 读完后请用中文简要说明：
 1. 当前项目定位；
 2. V0.1 风光储技术仿真基线；
-3. 内部 10-20 人试用上线边界；
+3. 内部 10-20 人试用上线边界，以及受控公网内测 Route A 与正式公网 SaaS 的区别；
 4. 当前已做的多用户隔离和性能优化；
 5. 后续开发时你会如何避免破坏计算口径。
 
@@ -89,6 +89,14 @@ python -m pytest -q
    - 错误提示是否能让内部试用用户知道下一步；
    - raw scenario enumeration 是否被放回主入口；
    - 图表模块是否被过度当成稳定架构锚点。
+6. 受控公网内测 Route A 风险：
+   - 是否关闭开放注册，或只允许管理员创建/邀请用户；
+   - 是否明确不接 EMS、SCADA、调度自动化、真实电表或生产控制网络；
+   - 项目角色是否被误当作完整公网内测角色体系，尤其是否缺少可导出/不可导出用户授权；
+   - BETA_USER_NO_EXPORT 是否能通过直接 URL、缓存、artifact 读取或未来 API 绕过导出限制；
+   - 上传文件是否限制类型、大小和 schema，文件路径是否按用户/项目/Run 隔离且不落入 Git 仓库；
+   - 日志和错误提示是否可能包含原始曲线、明文 token、服务器绝对路径或敏感项目名；
+   - 是否已有 `.env.example`、部署说明、HTTPS/反向代理、数据卷、备份、恢复和回滚说明。
 
 输出要求：
 1. 先列 Findings，按 P0/P1/P2 排序；
@@ -154,7 +162,8 @@ python -m pytest -q
 4. AuditLog；
 5. 技术仿真、经济性测算、推荐组合、PNG/HTML/Excel/Markdown 导出的后台任务化；
 6. 输入文件、结果文件和下载文件的隔离策略；
-7. 与现有 `run_technical_study()`、`run_economic_study()`、`build_recommendation_study()` 的衔接方式。
+7. 可导出/不可导出用户的后端授权策略；
+8. 与现有 `run_technical_study()`、`run_economic_study()`、`build_recommendation_study()` 的衔接方式。
 
 请输出：
 1. 最小数据模型；
