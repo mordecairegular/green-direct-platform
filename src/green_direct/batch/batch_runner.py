@@ -37,6 +37,8 @@ _WORKER_CURVES: pd.DataFrame | None = None
 _WORKER_BESS_PARAMS: BessParams | None = None
 _WORKER_POLICY_PARAMS: PolicyParams | None = None
 _WORKER_DT_HOURS: float = 1.0
+_WORKER_RETAIN_HOURLY_DETAILS: bool = True
+_WORKER_RETAINED_HOURLY_IDS: set[str] = set()
 
 
 def estimate_scenario_count(raw_grid: dict) -> int:
@@ -60,6 +62,7 @@ def _scenario_run_record(
     bess_params: BessParams | None,
     policy_params: PolicyParams | None,
     dt_hours: float,
+    retain_hourly_detail: bool,
 ) -> _ScenarioRunRecord:
     try:
         result: ScenarioResult = run_single_scenario(
@@ -68,13 +71,14 @@ def _scenario_run_record(
             bess_params=bess_params,
             policy_params=policy_params,
             dt_hours=dt_hours,
+            retain_hourly_detail=retain_hourly_detail,
         )
     except Exception as exc:  # noqa: BLE001 - per-scenario failure must be recorded
         return _error_record(scenario, exc)
     return _ScenarioRunRecord(
         scenario=scenario,
         summary=result.summary,
-        hourly_detail=result.hourly_detail,
+        hourly_detail=result.hourly_detail if retain_hourly_detail else None,
         warnings=result.warnings,
         error=None,
     )
@@ -85,12 +89,17 @@ def _init_parallel_worker(
     bess_params: BessParams | None,
     policy_params: PolicyParams | None,
     dt_hours: float,
+    retain_hourly_details: bool,
+    retained_hourly_ids: set[str],
 ) -> None:
     global _WORKER_CURVES, _WORKER_BESS_PARAMS, _WORKER_POLICY_PARAMS, _WORKER_DT_HOURS
+    global _WORKER_RETAIN_HOURLY_DETAILS, _WORKER_RETAINED_HOURLY_IDS
     _WORKER_CURVES = curves
     _WORKER_BESS_PARAMS = bess_params
     _WORKER_POLICY_PARAMS = policy_params
     _WORKER_DT_HOURS = dt_hours
+    _WORKER_RETAIN_HOURLY_DETAILS = retain_hourly_details
+    _WORKER_RETAINED_HOURLY_IDS = retained_hourly_ids
 
 
 def _scenario_run_record_from_worker(scenario: Scenario) -> _ScenarioRunRecord:
@@ -102,6 +111,9 @@ def _scenario_run_record_from_worker(scenario: Scenario) -> _ScenarioRunRecord:
         bess_params=_WORKER_BESS_PARAMS,
         policy_params=_WORKER_POLICY_PARAMS,
         dt_hours=_WORKER_DT_HOURS,
+        retain_hourly_detail=(
+            _WORKER_RETAIN_HOURLY_DETAILS or scenario.scenario_id in _WORKER_RETAINED_HOURLY_IDS
+        ),
     )
 
 
@@ -113,6 +125,8 @@ def _scenario_records(
     policy_params: PolicyParams | None,
     dt_hours: float,
     parallel_workers: int,
+    retain_hourly_details: bool,
+    retained_hourly_ids: set[str],
 ) -> Iterable[_ScenarioRunRecord]:
     if parallel_workers <= 1 or len(scenarios) <= 1:
         for scenario in scenarios:
@@ -122,13 +136,14 @@ def _scenario_records(
                 bess_params=bess_params,
                 policy_params=policy_params,
                 dt_hours=dt_hours,
+                retain_hourly_detail=retain_hourly_details or scenario.scenario_id in retained_hourly_ids,
             )
         return
 
     with ProcessPoolExecutor(
         max_workers=parallel_workers,
         initializer=_init_parallel_worker,
-        initargs=(curves, bess_params, policy_params, dt_hours),
+        initargs=(curves, bess_params, policy_params, dt_hours, retain_hourly_details, retained_hourly_ids),
     ) as executor:
         yield from executor.map(_scenario_run_record_from_worker, scenarios)
 
@@ -156,6 +171,11 @@ def run_batch(
         )
     if not retain_hourly_details and not retained_hourly_ids:
         warnings.append("本次批量测算仅保留方案汇总，未常驻保存逐小时明细；如需制图或导出，请对代表方案按需生成明细。")
+    elif not retain_hourly_details:
+        warnings.append(
+            f"本次批量测算采用汇总优先模式，仅为 {len(retained_hourly_ids)} 个指定方案生成逐小时明细；"
+            "其余方案只计算汇总指标。"
+        )
 
     summaries: list[dict] = []
     hourly_details: dict[str, pd.DataFrame] = {}
@@ -169,6 +189,8 @@ def run_batch(
             policy_params=policy_params,
             dt_hours=dt_hours,
             parallel_workers=parallel_workers,
+            retain_hourly_details=retain_hourly_details,
+            retained_hourly_ids=retained_hourly_ids,
         ),
         start=1,
     ):

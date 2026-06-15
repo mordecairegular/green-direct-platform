@@ -1,5 +1,6 @@
 import pandas as pd
 
+import green_direct.batch.batch_runner as batch_runner
 from green_direct.batch.batch_runner import run_batch
 from green_direct.batch.scenario_generator import RangeSpec, ScenarioGrid, generate_scenarios
 from green_direct.models.params import PerformanceParams, PolicyParams
@@ -88,6 +89,41 @@ def test_batch_runner_can_keep_selected_hourly_details_only():
     )
 
     assert set(result.hourly_details) == {"S0003"}
+
+
+def test_batch_runner_uses_summary_only_mode_for_non_retained_details(monkeypatch):
+    grid = {
+        "pv_capacity": {"start": 0, "end": 1, "step": 1},
+        "wind_capacity": {"start": 0, "end": 1, "step": 1},
+        "bess_power": {"start": 0, "end": 1, "step": 1},
+        "bess_duration_hours": [0, 2],
+    }
+    calls: list[tuple[str, bool]] = []
+    original = batch_runner.run_single_scenario
+
+    def wrapped_run_single_scenario(curves, scenario, **kwargs):
+        calls.append((scenario.scenario_id, bool(kwargs.get("retain_hourly_detail", True))))
+        return original(curves, scenario, **kwargs)
+
+    monkeypatch.setattr(batch_runner, "run_single_scenario", wrapped_run_single_scenario)
+
+    result = batch_runner.run_batch(
+        _curves(),
+        grid,
+        policy_params=PolicyParams(allow_export=False),
+        retain_hourly_details=False,
+        hourly_detail_scenario_ids=["S0003"],
+    )
+
+    assert set(result.hourly_details) == {"S0003"}
+    assert calls == [
+        ("S0001", False),
+        ("S0002", False),
+        ("S0003", True),
+        ("S0004", False),
+        ("S0005", False),
+        ("S0006", False),
+    ]
 
 
 def test_batch_runner_warns_when_scenario_count_exceeds_threshold():

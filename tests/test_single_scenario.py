@@ -164,6 +164,32 @@ def test_case_9_efficiency_loss_and_balance():
     assert balance.tolist() == pytest.approx(result.hourly_detail["load_power"].tolist())
 
 
+def test_summary_only_mode_matches_full_hourly_summary_without_ledger_retention():
+    curves = _curves([10, 20, 10, 15], [20, 5, 15, 0])
+    scenario = Scenario("S001", 1, 0, 10, 20)
+    bess_params = BessParams(soc_initial=0.5, soc_min=0.1, soc_max=0.9, eta_charge=0.9, eta_discharge=0.92)
+    policy_params = PolicyParams(allow_export=True, export_rate_max=0.2, grid_exchange_power_limit=12)
+
+    full = run_single_scenario(curves, scenario, bess_params=bess_params, policy_params=policy_params)
+    summary_only = run_single_scenario(
+        curves,
+        scenario,
+        bess_params=bess_params,
+        policy_params=policy_params,
+        retain_hourly_detail=False,
+    )
+
+    assert summary_only.hourly_detail.empty
+    assert list(summary_only.hourly_detail.columns) == HOURLY_LEDGER_COLUMNS
+    assert summary_only.summary.keys() == full.summary.keys()
+    for key, expected in full.summary.items():
+        actual = summary_only.summary[key]
+        if isinstance(expected, float):
+            assert actual == pytest.approx(expected), key
+        else:
+            assert actual == expected, key
+
+
 def test_case_11_load_side_self_use_consistency():
     result = _run(
         [10, 20, 10],

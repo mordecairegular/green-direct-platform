@@ -262,7 +262,7 @@ PerformanceParams(
 
 用于批量测算时给出大方案数量提醒，并控制技术仿真的可选并行 worker 数。`parallel_workers=1` 为默认串行口径；设置为大于 1 时，`run_batch()` 会使用 `ProcessPoolExecutor` 按方案并行执行单方案调度，结果聚合仍保持 `scenario_id`、warning、error 和进度回调顺序稳定。
 
-02 页 UI 还基于 `warn_if_scenarios_exceed` 做大批量保留策略：候选方案数未超过阈值时保留全部逐小时明细；超过阈值时进入汇总优先模式，只常驻方案汇总和前 N 个方案逐小时明细。N 由 02 页“大批量保留明细数”控制，默认 20。该策略只影响结果常驻内存和后续图表/导出可用明细，不改变任何方案的逐小时调度计算口径。
+02 页 UI 还基于 `warn_if_scenarios_exceed` 做大批量保留策略：候选方案数未超过阈值时保留全部逐小时明细；超过阈值时进入汇总优先模式，只常驻方案汇总和前 N 个方案逐小时明细。N 由 02 页“大批量保留明细数”控制，默认 20。未保留明细的方案会走 `run_single_scenario(..., retain_hourly_detail=False)` summary-only 路径：仍逐小时执行同一 dispatch/SOC 逻辑并累计 summary，但不构造完整 `hourly_detail` DataFrame。该策略会影响后续图表/导出可用明细，不改变任何方案的逐小时调度计算口径。
 
 ## 8. 方案模型接口
 
@@ -611,9 +611,10 @@ BatchResult(
 
 大批量性能注意：
 
-- 当前 `BatchResult.hourly_details` 会保存所有成功方案的逐小时明细；
-- 当方案数量达到上万时，内存和 UI 交互可能成为瓶颈；
+- 默认小规模测算仍会在 `BatchResult.hourly_details` 保存所有成功方案的逐小时明细；
+- 当方案数量达到上万时，内存、DataFrame 构造和 UI 交互都可能成为瓶颈；
 - 02 页已接入第一版“汇总优先”大批量模式，超过方案数提醒阈值时不再默认常驻全部逐小时明细；
+- 未保留明细的方案只生成技术 summary，不构造完整 `hourly_detail` DataFrame；
 - 后续建议继续增加代表方案按需补算明细，并把技术仿真、经济性测算和图表导出逐步改为后台任务；
 - 多人内部试用时，计算任务应通过 `Job` / `ResultStore` 隔离到项目和用户，不能依赖全局 `session_state` 或项目级运行快照；
 - 图表模块若只展示 1 到 5 个方案，不应强制依赖所有方案的逐小时明细都已保存在内存中。

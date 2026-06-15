@@ -62,12 +62,9 @@ def calculate_summary(
     wind_station_use_energy = (
         float(hourly["wind_station_use_power"].sum() * dt_hours) if "wind_station_use_power" in hourly else 0.0
     )
-    station_use_energy = pv_station_use_energy + wind_station_use_energy
     direct_self_use_energy = float(hourly["direct_self_use_power"].sum() * dt_hours)
     bess_discharge_to_load = float(hourly["bess_discharge_power"].sum() * dt_hours)
-    self_use_energy = direct_self_use_energy + bess_discharge_to_load
     grid_import_energy = float(hourly["grid_import_power"].sum() * dt_hours)
-    grid_import_rate = safe_divide(grid_import_energy, total_load_energy)
     grid_export_energy = float(hourly["grid_export_power"].sum() * dt_hours)
     curtail_energy = float(hourly["curtail_power"].sum() * dt_hours)
     curtail_due_to_export_cap_energy = float(hourly["curtail_due_to_export_cap_power"].sum() * dt_hours)
@@ -83,6 +80,62 @@ def calculate_summary(
     )
     bess_charge_energy = float(hourly["bess_charge_power"].sum() * dt_hours)
     final_bess_energy = float(hourly["bess_energy_end"].iloc[-1]) if len(hourly) else initial_bess_energy
+    max_grid_import_power = float(hourly["grid_import_power"].max()) if len(hourly) else 0.0
+    max_grid_export_power = float(hourly["grid_export_power"].max()) if len(hourly) else 0.0
+    final_soc = float(hourly["soc_end"].iloc[-1]) if len(hourly) else 0.0
+
+    return calculate_summary_from_values(
+        scenario,
+        bess_params,
+        policy,
+        total_load_energy=total_load_energy,
+        total_renewable_generation=total_renewable_generation,
+        pv_station_use_energy=pv_station_use_energy,
+        wind_station_use_energy=wind_station_use_energy,
+        direct_self_use_energy=direct_self_use_energy,
+        bess_discharge_to_load=bess_discharge_to_load,
+        grid_import_energy=grid_import_energy,
+        grid_export_energy=grid_export_energy,
+        curtail_energy=curtail_energy,
+        curtail_due_to_export_cap_energy=curtail_due_to_export_cap_energy,
+        curtail_due_to_exchange_limit_energy=curtail_due_to_exchange_limit_energy,
+        exchange_import_shortfall_energy=exchange_import_shortfall_energy,
+        bess_charge_energy=bess_charge_energy,
+        final_bess_energy=final_bess_energy,
+        initial_bess_energy=initial_bess_energy,
+        max_grid_import_power=max_grid_import_power,
+        max_grid_export_power=max_grid_export_power,
+        final_soc=final_soc,
+    )
+
+
+def calculate_summary_from_values(
+    scenario: Scenario,
+    bess_params: BessParams,
+    policy: PolicyParams,
+    *,
+    total_load_energy: float,
+    total_renewable_generation: float,
+    pv_station_use_energy: float,
+    wind_station_use_energy: float,
+    direct_self_use_energy: float,
+    bess_discharge_to_load: float,
+    grid_import_energy: float,
+    grid_export_energy: float,
+    curtail_energy: float,
+    curtail_due_to_export_cap_energy: float,
+    curtail_due_to_exchange_limit_energy: float,
+    exchange_import_shortfall_energy: float,
+    bess_charge_energy: float,
+    final_bess_energy: float,
+    initial_bess_energy: float,
+    max_grid_import_power: float,
+    max_grid_export_power: float,
+    final_soc: float,
+) -> dict[str, Any]:
+    station_use_energy = pv_station_use_energy + wind_station_use_energy
+    self_use_energy = direct_self_use_energy + bess_discharge_to_load
+    grid_import_rate = safe_divide(grid_import_energy, total_load_energy)
     bess_loss_energy = bess_charge_energy - bess_discharge_to_load - (final_bess_energy - initial_bess_energy)
     if abs(bess_loss_energy) < 1e-9:
         bess_loss_energy = 0.0
@@ -93,12 +146,7 @@ def calculate_summary(
     curtail_rate = safe_divide(curtail_energy, total_renewable_generation)
     export_cap_energy = total_renewable_generation * policy.export_rate_max
     annual_equivalent_cycles = safe_divide(bess_discharge_to_load, scenario.bess_energy)
-    replacement_year = (
-        bess_params.cycle_life / annual_equivalent_cycles if annual_equivalent_cycles > 0 else math.inf
-    )
-    max_grid_import_power = float(hourly["grid_import_power"].max()) if len(hourly) else 0.0
-    max_grid_export_power = float(hourly["grid_export_power"].max()) if len(hourly) else 0.0
-    final_soc = float(hourly["soc_end"].iloc[-1]) if len(hourly) else 0.0
+    replacement_year = bess_params.cycle_life / annual_equivalent_cycles if annual_equivalent_cycles > 0 else math.inf
 
     pass_policy, fail_reasons = evaluate_policy(
         self_use_rate=self_use_rate,

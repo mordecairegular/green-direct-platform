@@ -3689,3 +3689,31 @@ exchange_import_shortfall_energy == 0
 - 临时测试目录已安全清理；
 - `python -m pytest -q` 通过，269 项通过；
 - `git diff --check` 无实际空白错误，仅 Windows 换行转换提示。
+
+### 2026-06-16 技术仿真 summary-only 执行路径
+
+本轮回到用户一直关心的方案遍历速度问题。此前“汇总优先”已经能避免在结果中常驻保存所有方案的逐小时明细，但底层 `run_single_scenario()` 仍然会先构造完整 8760/8784 行 `hourly_detail` DataFrame，再由 `run_batch()` 决定是否丢弃。也就是说，它主要节省内存和快照压力，对计算等待时间的帮助不够。
+
+本轮判断：
+- 大批量筛选阶段真正需要的是 summary 指标；完整 hourly ledger 只对图表、报告、价格曲线经济性和人工复核有必要；
+- summary-only 不能改变调度口径，仍必须逐小时调用同一 dispatch/SOC 逻辑，只是把每小时结果累计成指标而不是写入 DataFrame；
+- 默认小规模行为必须保持不变，仍保留完整 `hourly_detail`；
+- 指定保留的方案仍应生成完整 ledger，其余方案才走 summary-only。
+
+本轮实现：
+- `calculate_summary()` 的公共公式抽出为 `calculate_summary_from_values()`，避免 summary-only 路径复制一套指标口径；
+- `run_single_scenario(..., retain_hourly_detail=False)` 新增 summary-only 路径：逐小时滚动 dispatch/SOC、累计电量和最大功率指标，不构造完整 `hourly_detail` DataFrame；
+- `run_batch()` 根据 `retain_hourly_details` 和 `hourly_detail_scenario_ids` 决定每个方案是否生成完整 ledger；
+- 大批量部分保留时新增 warning：仅指定方案生成逐小时明细，其余方案只计算汇总指标。
+
+边界说明：
+- 这不是数学规划或向量化调度内核，仍然是逐方案、逐小时计算；
+- 图表、报告、逐小时 CSV/ZIP 和价格曲线经济性仍需要完整 hourly ledger；
+- 大批量模式仍需要下一步“代表方案按需补算明细”，否则推荐方案可能没有逐小时明细可出图；
+- 后续仍应继续做后台 Job、取消/进度、性能基准固化和经济性 DataFrame/NumPy 批量化。
+
+验证：
+- `python -m pytest tests/test_single_scenario.py tests/test_batch_runner.py tests/test_study_runner.py -q` 通过，49 项通过；
+- `python -m pytest tests/test_batch_runner.py tests/test_single_scenario.py -q` 通过，40 项通过；
+- `python -m pytest -q` 通过，271 项通过；
+- 小基准：120 个 8760 小时方案，完整保留明细约 7.822s，summary-only 约 4.941s，约 1.58x；完整保留 120 个 hourly，summary-only 保留 0 个 hourly。

@@ -10,7 +10,7 @@ from green_direct.core.bess_dispatch import (
     dispatch_hour_with_strategy,
     normalize_dispatch_strategy,
 )
-from green_direct.core.metrics import calculate_summary
+from green_direct.core.metrics import calculate_summary, calculate_summary_from_values
 from green_direct.models.diagnostics import DiagnosticSeverity, InputDiagnostics
 from green_direct.models.params import BessParams, PolicyParams
 from green_direct.models.results import ScenarioResult
@@ -164,6 +164,7 @@ def run_single_scenario(
     policy_params: PolicyParams | None = None,
     strategy: DispatchStrategy | str | None = DispatchStrategy.GRID_CONNECTED_RENEWABLE_FIRST_GREEDY,
     dt_hours: float = 1.0,
+    retain_hourly_detail: bool = True,
 ) -> ScenarioResult:
     """Run hourly energy-balance simulation for one scenario."""
 
@@ -202,35 +203,52 @@ def run_single_scenario(
     load_values = curves["load_power"].to_numpy(dtype=float)
     pv_pu_values = curves["pv_pu"].to_numpy(dtype=float)
     wind_pu_values = curves["wind_pu"].to_numpy(dtype=float)
-    data: dict[str, object] = {
-        "scenario_id": np.full(n, scenario.scenario_id, dtype=object),
-        "timestamp": timestamps,
-        "hour_index": np.arange(n),
-        "load_power": load_values.copy(),
-        "pv_power": np.zeros(n),
-        "wind_power": np.zeros(n),
-        "pv_generation_power": np.zeros(n),
-        "wind_generation_power": np.zeros(n),
-        "renewable_generation_power": np.zeros(n),
-        "pv_station_use_power": np.zeros(n),
-        "wind_station_use_power": np.zeros(n),
-        "station_use_power": np.zeros(n),
-        "renewable_power": np.zeros(n),
-        "direct_self_use_power": np.zeros(n),
-        "bess_charge_power": np.zeros(n),
-        "bess_discharge_power": np.zeros(n),
-        "grid_import_power": np.zeros(n),
-        "grid_export_power": np.zeros(n),
-        "curtail_power": np.zeros(n),
-        "curtail_due_to_export_cap_power": np.zeros(n),
-        "curtail_due_to_exchange_limit_power": np.zeros(n),
-        "exchange_import_shortfall_power": np.zeros(n),
-        "soc_start": np.zeros(n),
-        "soc_end": np.zeros(n),
-        "bess_energy_start": np.zeros(n),
-        "bess_energy_end": np.zeros(n),
-        "hour_case": np.empty(n, dtype=object),
-    }
+    data: dict[str, object] | None = None
+    if retain_hourly_detail:
+        data = {
+            "scenario_id": np.full(n, scenario.scenario_id, dtype=object),
+            "timestamp": timestamps,
+            "hour_index": np.arange(n),
+            "load_power": load_values.copy(),
+            "pv_power": np.zeros(n),
+            "wind_power": np.zeros(n),
+            "pv_generation_power": np.zeros(n),
+            "wind_generation_power": np.zeros(n),
+            "renewable_generation_power": np.zeros(n),
+            "pv_station_use_power": np.zeros(n),
+            "wind_station_use_power": np.zeros(n),
+            "station_use_power": np.zeros(n),
+            "renewable_power": np.zeros(n),
+            "direct_self_use_power": np.zeros(n),
+            "bess_charge_power": np.zeros(n),
+            "bess_discharge_power": np.zeros(n),
+            "grid_import_power": np.zeros(n),
+            "grid_export_power": np.zeros(n),
+            "curtail_power": np.zeros(n),
+            "curtail_due_to_export_cap_power": np.zeros(n),
+            "curtail_due_to_exchange_limit_power": np.zeros(n),
+            "exchange_import_shortfall_power": np.zeros(n),
+            "soc_start": np.zeros(n),
+            "soc_end": np.zeros(n),
+            "bess_energy_start": np.zeros(n),
+            "bess_energy_end": np.zeros(n),
+            "hour_case": np.empty(n, dtype=object),
+        }
+
+    total_load_energy = 0.0
+    pv_station_use_energy = 0.0
+    wind_station_use_energy = 0.0
+    direct_self_use_energy = 0.0
+    bess_discharge_to_load = 0.0
+    grid_import_energy = 0.0
+    grid_export_energy = 0.0
+    curtail_energy = 0.0
+    curtail_due_to_export_cap_energy = 0.0
+    curtail_due_to_exchange_limit_energy = 0.0
+    exchange_import_shortfall_energy = 0.0
+    bess_charge_energy = 0.0
+    max_grid_import_power = 0.0
+    max_grid_export_power = 0.0
 
     for idx in range(n):
         load_power = load_values[idx]
@@ -276,67 +294,110 @@ def run_single_scenario(
             soc = 0.0
         cumulative_export += step.grid_export
 
-        data["pv_power"][idx] = pv_power
-        data["wind_power"][idx] = wind_power
-        data["pv_generation_power"][idx] = pv_generation_power
-        data["wind_generation_power"][idx] = wind_generation_power
-        data["renewable_generation_power"][idx] = renewable_generation_power
-        data["pv_station_use_power"][idx] = pv_station_use_power
-        data["wind_station_use_power"][idx] = wind_station_use_power
-        data["station_use_power"][idx] = station_use_power
-        data["renewable_power"][idx] = renewable_energy / dt_hours
-        data["direct_self_use_power"][idx] = step.direct_self_use / dt_hours
-        data["bess_charge_power"][idx] = step.bess_charge / dt_hours
-        data["bess_discharge_power"][idx] = step.bess_discharge / dt_hours
-        data["grid_import_power"][idx] = step.grid_import / dt_hours
-        data["grid_export_power"][idx] = step.grid_export / dt_hours
-        data["curtail_power"][idx] = step.curtail / dt_hours
-        data["curtail_due_to_export_cap_power"][idx] = step.curtail_due_to_export_cap / dt_hours
-        data["curtail_due_to_exchange_limit_power"][idx] = step.curtail_due_to_exchange_limit / dt_hours
-        data["exchange_import_shortfall_power"][idx] = step.exchange_import_shortfall / dt_hours
-        data["soc_start"][idx] = soc_start
-        data["soc_end"][idx] = soc
-        data["bess_energy_start"][idx] = bess_energy_start
-        data["bess_energy_end"][idx] = bess_energy
-        data["hour_case"][idx] = step.hour_case
+        if data is None:
+            total_load_energy += load_energy
+            pv_station_use_energy += pv_station_use_power * dt_hours
+            wind_station_use_energy += wind_station_use_power * dt_hours
+            direct_self_use_energy += step.direct_self_use
+            bess_discharge_to_load += step.bess_discharge
+            grid_import_energy += step.grid_import
+            grid_export_energy += step.grid_export
+            curtail_energy += step.curtail
+            curtail_due_to_export_cap_energy += step.curtail_due_to_export_cap
+            curtail_due_to_exchange_limit_energy += step.curtail_due_to_exchange_limit
+            exchange_import_shortfall_energy += step.exchange_import_shortfall
+            bess_charge_energy += step.bess_charge
+            max_grid_import_power = max(max_grid_import_power, step.grid_import / dt_hours)
+            max_grid_export_power = max(max_grid_export_power, step.grid_export / dt_hours)
 
-    hourly = pd.DataFrame(data, columns=HOURLY_LEDGER_COLUMNS)
-    if not hourly.empty:
-        numeric_columns = [
-            "load_power",
-            "pv_power",
-            "wind_power",
-            "pv_generation_power",
-            "wind_generation_power",
-            "renewable_generation_power",
-            "pv_station_use_power",
-            "wind_station_use_power",
-            "station_use_power",
-            "renewable_power",
-            "direct_self_use_power",
-            "bess_charge_power",
-            "bess_discharge_power",
-            "grid_import_power",
-            "grid_export_power",
-            "curtail_power",
-            "curtail_due_to_export_cap_power",
-            "curtail_due_to_exchange_limit_power",
-            "exchange_import_shortfall_power",
-            "soc_start",
-            "soc_end",
-            "bess_energy_start",
-            "bess_energy_end",
-        ]
-        hourly[numeric_columns] = hourly[numeric_columns].replace({-0.0: 0.0})
-        hourly[numeric_columns] = hourly[numeric_columns].mask(np.isclose(hourly[numeric_columns], 0), 0.0)
+        if data is not None:
+            data["pv_power"][idx] = pv_power
+            data["wind_power"][idx] = wind_power
+            data["pv_generation_power"][idx] = pv_generation_power
+            data["wind_generation_power"][idx] = wind_generation_power
+            data["renewable_generation_power"][idx] = renewable_generation_power
+            data["pv_station_use_power"][idx] = pv_station_use_power
+            data["wind_station_use_power"][idx] = wind_station_use_power
+            data["station_use_power"][idx] = station_use_power
+            data["renewable_power"][idx] = renewable_energy / dt_hours
+            data["direct_self_use_power"][idx] = step.direct_self_use / dt_hours
+            data["bess_charge_power"][idx] = step.bess_charge / dt_hours
+            data["bess_discharge_power"][idx] = step.bess_discharge / dt_hours
+            data["grid_import_power"][idx] = step.grid_import / dt_hours
+            data["grid_export_power"][idx] = step.grid_export / dt_hours
+            data["curtail_power"][idx] = step.curtail / dt_hours
+            data["curtail_due_to_export_cap_power"][idx] = step.curtail_due_to_export_cap / dt_hours
+            data["curtail_due_to_exchange_limit_power"][idx] = step.curtail_due_to_exchange_limit / dt_hours
+            data["exchange_import_shortfall_power"][idx] = step.exchange_import_shortfall / dt_hours
+            data["soc_start"][idx] = soc_start
+            data["soc_end"][idx] = soc
+            data["bess_energy_start"][idx] = bess_energy_start
+            data["bess_energy_end"][idx] = bess_energy
+            data["hour_case"][idx] = step.hour_case
 
-    summary = calculate_summary(
-        hourly,
-        scenario,
-        bess,
-        policy,
-        initial_bess_energy=initial_bess_energy,
-        dt_hours=dt_hours,
-    )
+    if data is not None:
+        hourly = pd.DataFrame(data, columns=HOURLY_LEDGER_COLUMNS)
+        if not hourly.empty:
+            numeric_columns = [
+                "load_power",
+                "pv_power",
+                "wind_power",
+                "pv_generation_power",
+                "wind_generation_power",
+                "renewable_generation_power",
+                "pv_station_use_power",
+                "wind_station_use_power",
+                "station_use_power",
+                "renewable_power",
+                "direct_self_use_power",
+                "bess_charge_power",
+                "bess_discharge_power",
+                "grid_import_power",
+                "grid_export_power",
+                "curtail_power",
+                "curtail_due_to_export_cap_power",
+                "curtail_due_to_exchange_limit_power",
+                "exchange_import_shortfall_power",
+                "soc_start",
+                "soc_end",
+                "bess_energy_start",
+                "bess_energy_end",
+            ]
+            hourly[numeric_columns] = hourly[numeric_columns].replace({-0.0: 0.0})
+            hourly[numeric_columns] = hourly[numeric_columns].mask(np.isclose(hourly[numeric_columns], 0), 0.0)
+
+        summary = calculate_summary(
+            hourly,
+            scenario,
+            bess,
+            policy,
+            initial_bess_energy=initial_bess_energy,
+            dt_hours=dt_hours,
+        )
+    else:
+        hourly = pd.DataFrame(columns=HOURLY_LEDGER_COLUMNS)
+        summary = calculate_summary_from_values(
+            scenario,
+            bess,
+            policy,
+            total_load_energy=total_load_energy,
+            total_renewable_generation=total_renewable_generation,
+            pv_station_use_energy=pv_station_use_energy,
+            wind_station_use_energy=wind_station_use_energy,
+            direct_self_use_energy=direct_self_use_energy,
+            bess_discharge_to_load=bess_discharge_to_load,
+            grid_import_energy=grid_import_energy,
+            grid_export_energy=grid_export_energy,
+            curtail_energy=curtail_energy,
+            curtail_due_to_export_cap_energy=curtail_due_to_export_cap_energy,
+            curtail_due_to_exchange_limit_energy=curtail_due_to_exchange_limit_energy,
+            exchange_import_shortfall_energy=exchange_import_shortfall_energy,
+            bess_charge_energy=bess_charge_energy,
+            final_bess_energy=bess_energy,
+            initial_bess_energy=initial_bess_energy,
+            max_grid_import_power=max_grid_import_power,
+            max_grid_export_power=max_grid_export_power,
+            final_soc=soc,
+        )
     summary["dispatch_strategy"] = dispatch_strategy.value
     return ScenarioResult(summary=summary, hourly_detail=hourly, warnings=[], diagnostics=diagnostics)
