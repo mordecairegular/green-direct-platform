@@ -89,6 +89,14 @@ git push origin codex/UI
 python scripts\preflight_internal_pilot_deploy.py --require-git-sync
 ```
 
+确认 GitHub 仓库不是公开仓库。若本机已安装并登录 GitHub CLI，可以运行：
+
+```powershell
+python scripts\preflight_internal_pilot_deploy.py --require-github-private
+```
+
+如果该命令因为未安装 `gh` 失败，请在 GitHub 仓库 Settings / General / Danger Zone 上方的仓库可见性位置人工确认 visibility 为 Private，再继续 Render 部署。
+
 该命令必须通过后再让 Render 部署。若失败：
 
 - `git-tracked:*` 失败：Git 已跟踪文件中出现本地状态、密钥环境文件、运行 payload 或超大文件，先从 Git 清单中移除并确认 `.gitignore`；
@@ -96,6 +104,7 @@ python scripts\preflight_internal_pilot_deploy.py --require-git-sync
 - `git:branch` 失败：当前本地分支不是 `render.yaml` 配置的部署分支；
 - `git:upstream-branch` 失败：当前分支跟踪的 upstream 不是 Render 部署分支；
 - `git:sync` 失败：本地和 GitHub 仍不同步，先 push 或 pull。
+- `github:visibility` 失败：仓库不是 Private，或本机缺少 `gh`/GitHub 登录态；先改为私有仓库或完成人工私有性确认。
 
 等待 GitHub Actions `Internal Pilot Quality Gate` 通过。首次部署或重要回滚时，手动触发该 workflow 并勾选 `run_smoke`。
 

@@ -5943,3 +5943,25 @@ profile / benchmark：
 - 这是部署默认值和静态门槛对齐，不等于已经完成真实 Docker build、Render build 或云端 PNG 导出实测；
 - 真实首次发布后仍应在 Render 环境里下载一个含图表 PNG 的导出包，确认 Chromium/Kaleido 在目标镜像中可用；
 - 不改变图表语义、技术仿真、经济性 V1、推荐排序或权限口径。
+
+### 2026-06-17 GitHub 私有仓库可选 preflight
+
+本轮继续收紧“GitHub 私有仓库 -> Render -> Cloudflare”首发链路。此前文档要求 GitHub 仓库必须是 Private，但 preflight 只能检查本地 tracked 文件是否夹带 `.env`、runtime、日志、数据库或大文件，不能确认托管端仓库 visibility。如果仓库误设为 Public，Render 仍可能部署成功，但代码、文档和部署配置会过早公开。
+
+调整：
+- `preflight_internal_pilot_deploy.py` 新增 `--require-github-private`；
+- 该参数会读取 `remote.origin.url`，支持 `https://github.com/owner/repo.git` 和 `git@github.com:owner/repo.git`，再调用 `gh repo view <owner/repo> --json visibility --jq .visibility`；
+- 若 visibility 不是 `PRIVATE`、本机未安装 `gh`、未登录 GitHub，或 origin 不是支持的 GitHub URL，该检查失败并提示人工确认；
+- 默认 `--json` / `--run-smoke` / `--require-git-sync` 不依赖 `gh`，避免日常离线 preflight 被本机工具缺失卡住；
+- 首次发布作战单、移动网络试用清单、部署 README 和托管平台路线文档已同步，把仓库私有性核验放在 Render 部署前。
+
+验证：
+- `python -m pytest tests\test_deployment_artifacts.py -q` 通过，12 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `python scripts\preflight_internal_pilot_deploy.py --require-github-private --json` 在当前机器按预期失败，原因是未安装 `gh`，同时 `github:origin` 已识别当前 GitHub repo slug；
+- `python -m compileall -q scripts\preflight_internal_pilot_deploy.py tests\test_deployment_artifacts.py` 通过。
+
+边界：
+- 该能力不替代 GitHub 页面和组织权限的人工复核；首次发布前仍应确认仓库 Collaborators/Teams、Actions 权限和 Render 授权范围；
+- 当前实现只核验 GitHub visibility，不检查 Render 控制台是否选中了同一个仓库和分支；
+- 不改变部署拓扑、应用权限、技术仿真、经济性 V1 或推荐排序。

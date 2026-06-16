@@ -8,6 +8,26 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _load_preflight_module():
+    import importlib.util
+
+    path = ROOT / "scripts" / "preflight_internal_pilot_deploy.py"
+    spec = importlib.util.spec_from_file_location("preflight_internal_pilot_deploy", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_preflight_parses_github_remote_slug():
+    preflight = _load_preflight_module()
+
+    assert preflight._github_repo_slug_from_remote("https://github.com/acme/green-direct.git") == "acme/green-direct"
+    assert preflight._github_repo_slug_from_remote("git@github.com:acme/green-direct.git") == "acme/green-direct"
+    assert preflight._github_repo_slug_from_remote("https://gitlab.com/acme/green-direct.git") is None
+
+
 def test_docker_compose_defaults_to_internal_pilot_safety():
     compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
     service = compose["services"]["green-direct"]
@@ -230,11 +250,14 @@ def test_internal_pilot_preflight_exposes_git_sync_check():
     )
 
     assert "--require-git-sync" in completed.stdout
+    assert "--require-github-private" in completed.stdout
     assert "--pilot-store-dir" in completed.stdout
     script = (ROOT / "scripts" / "preflight_internal_pilot_deploy.py").read_text(encoding="utf-8")
     assert "git:branch" in script
     assert "git:render-branch" in script
     assert "git:upstream-branch" in script
+    assert "github:origin" in script
+    assert "github:visibility" in script
     assert "git-tracked:env-files" in script
     assert "git-tracked:local-state" in script
     assert "git-tracked:secret-payloads" in script
@@ -247,6 +270,7 @@ def test_public_beta_first_launch_playbook_covers_handoff_steps():
     for needle in [
         "git push origin codex/UI",
         "preflight_internal_pilot_deploy.py --require-git-sync",
+        "preflight_internal_pilot_deploy.py --require-github-private",
         "Internal Pilot Quality Gate",
         "Render Web Service Shell",
         "pilot-admin doctor",

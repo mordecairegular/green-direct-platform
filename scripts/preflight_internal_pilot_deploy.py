@@ -356,6 +356,22 @@ def _git_output(args: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _github_repo_slug_from_remote(remote_url: str) -> str | None:
+    value = remote_url.strip()
+    if value.startswith("https://github.com/"):
+        slug = value.removeprefix("https://github.com/")
+    elif value.startswith("git@github.com:"):
+        slug = value.removeprefix("git@github.com:")
+    else:
+        return None
+    if slug.endswith(".git"):
+        slug = slug[:-4]
+    parts = [part for part in slug.split("/") if part]
+    if len(parts) != 2:
+        return None
+    return "/".join(parts)
+
+
 def _tracked_paths() -> tuple[list[str], str | None]:
     result = _git_output(["ls-files", "-z"])
     if result.returncode != 0:
@@ -535,6 +551,61 @@ def _git_sync_checks(checks: list[dict[str, str]]) -> None:
     )
 
 
+def _github_private_checks(checks: list[dict[str, str]]) -> None:
+    origin = _git_output(["config", "--get", "remote.origin.url"])
+    if origin.returncode != 0 or not origin.stdout.strip():
+        _check(False, checks, "github:origin", "remote.origin.url is not configured")
+        return
+    remote_url = origin.stdout.strip()
+    repo_slug = _github_repo_slug_from_remote(remote_url)
+    _record(
+        checks,
+        "github:origin",
+        "pass" if repo_slug is not None else "fail",
+        (
+            f"origin points to GitHub repository {repo_slug}"
+            if repo_slug is not None
+            else f"origin is not a supported GitHub URL: {remote_url}"
+        ),
+    )
+    if repo_slug is None:
+        return
+
+    try:
+        completed = subprocess.run(
+            ["gh", "repo", "view", repo_slug, "--json", "visibility", "--jq", ".visibility"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except FileNotFoundError:
+        _check(
+            False,
+            checks,
+            "github:visibility",
+            "GitHub CLI `gh` is required for --require-github-private; install gh or verify repository privacy manually",
+        )
+        return
+
+    visibility = completed.stdout.strip().upper()
+    _record(
+        checks,
+        "github:visibility",
+        "pass" if completed.returncode == 0 and visibility == "PRIVATE" else "fail",
+        (
+            f"GitHub repository {repo_slug} visibility is PRIVATE"
+            if completed.returncode == 0 and visibility == "PRIVATE"
+            else (
+                f"could not read GitHub repository visibility for {repo_slug}: {completed.stderr.strip()}"
+                if completed.returncode != 0
+                else f"GitHub repository {repo_slug} visibility is {visibility or '<empty>'}; use a private repository for pilot deploy"
+            )
+        ),
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-smoke", action="store_true", help="Start Streamlit and check health.")
@@ -542,6 +613,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--require-git-sync",
         action="store_true",
         help="Fail if the working tree is dirty or the current branch is not synchronized with its upstream.",
+    )
+    parser.add_argument(
+        "--require-github-private",
+        action="store_true",
+        help="Fail unless remote.origin points to a GitHub repository whose gh-reported visibility is PRIVATE.",
     )
     parser.add_argument("--smoke-timeout-seconds", type=int, default=80)
     parser.add_argument(
@@ -564,6 +640,8 @@ def main(argv: list[str] | None = None) -> int:
     _git_tracked_safety_checks(checks)
     if args.require_git_sync:
         _git_sync_checks(checks)
+    if args.require_github_private:
+        _github_private_checks(checks)
     if args.pilot_store_dir:
         _pilot_store_doctor_checks(args.pilot_store_dir, checks)
     if args.run_smoke:

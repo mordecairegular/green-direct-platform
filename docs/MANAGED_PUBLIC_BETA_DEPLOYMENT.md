@@ -10,6 +10,7 @@
 - 本地部署 preflight 已通过，证明 Docker、Render、默认安全环境变量、持久盘路径和部署文件齐备；
 - `render.yaml` 已显式绑定 `codex/UI` pilot 分支，并设置 `autoDeployTrigger: checksPass`，避免 Render 部署默认分支或未通过质量门的提交；
 - `--require-git-sync` 当前仍失败，因为本地分支还领先 upstream，托管平台暂时拿不到这些本地 checkpoint；部署前应重新运行该命令获取实时 ahead/behind；
+- 发布前可运行 `python scripts\preflight_internal_pilot_deploy.py --require-github-private`，用 GitHub CLI 确认 `origin` 仓库 visibility 为 Private；若本机没有 `gh`，需要在 GitHub 页面人工确认；
 - 用户确认推送后，才进入 Render/Cloudflare 真实部署演练。
 
 ## 1. 推荐结论
@@ -94,13 +95,14 @@ Vercel 可以作为未来正式化后的前端托管平台：例如将前端改�
 1. 把当前分支推到 GitHub/GitLab。
 2. 推送前运行 `python scripts\preflight_internal_pilot_deploy.py --run-smoke`，确认部署配置、GitHub 推送源安全检查、本地服务器口径和 `/_stcore/health` 都通过；若在自有 VM 或本地服务器已有试用 store，可加 `--pilot-store-dir <pilot_store>` 把 store doctor 合入 preflight。
 3. 推送后运行 `python scripts\preflight_internal_pilot_deploy.py --require-git-sync`，确认当前分支与 `render.yaml` 的部署分支一致、upstream 分支也指向同一部署分支，并且本地分支与 upstream 同步。
-4. 等待 GitHub Actions `Internal Pilot Quality Gate` 通过；如需部署前冒烟，手动触发该 workflow 并勾选 `run_smoke`。
-5. 在 Render 新建 Blueprint，选择本仓库。
-6. Render 读取仓库根目录 `render.yaml`，创建 `green-direct-internal-pilot`。
+4. 运行 `python scripts\preflight_internal_pilot_deploy.py --require-github-private`，或在 GitHub 页面人工确认仓库 visibility 为 Private。
+5. 等待 GitHub Actions `Internal Pilot Quality Gate` 通过；如需部署前冒烟，手动触发该 workflow 并勾选 `run_smoke`。
+6. 在 Render 新建 Blueprint，选择本仓库。
+7. Render 读取仓库根目录 `render.yaml`，创建 `green-direct-internal-pilot`。
    - 确认部署分支是 `codex/UI`，不要误选默认分支；
    - 确认 `autoDeployTrigger` 为 `checksPass`，即 GitHub Actions 质量门通过后再自动部署；
    - 确认 `numInstances=1`，本地 file store + persistent disk 路线不要水平扩容。
-7. 确认环境变量：
+8. 确认环境变量：
    - `GREEN_DIRECT_ENABLE_PILOT_AUTH=1`
    - `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0`
    - `GREEN_DIRECT_PILOT_STORE_DIR=/data/pilot_store`
@@ -109,11 +111,11 @@ Vercel 可以作为未来正式化后的前端托管平台：例如将前端改�
    - `GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD=1000`
    - `GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT=20`
    - `PORT=8503`，或使用平台默认端口；Docker 启动命令会优先读取 `PORT`
-8. 确认 persistent disk 挂载：
+9. 确认 persistent disk 挂载：
    - mount path: `/data`
    - app store: `/data/pilot_store`
-9. 部署完成后访问 Render 默认域名，确认登录页出现。
-10. 用 Render Shell 检查 pilot store。不要用 Render One-Off Job 初始化本地 file store 版 pilot store；持久盘应在 Web Service 运行环境中访问。
+10. 部署完成后访问 Render 默认域名，确认登录页出现。
+11. 用 Render Shell 检查 pilot store。不要用 Render One-Off Job 初始化本地 file store 版 pilot store；持久盘应在 Web Service 运行环境中访问。
 
 ```bash
 python -m green_direct.cli pilot-admin doctor \
@@ -123,7 +125,7 @@ python -m green_direct.cli pilot-admin doctor \
 
 若返回 `status=fail`，先修复 persistent disk 挂载、目录权限或损坏 metadata，不要继续 bootstrap。
 
-11. 用 Render Shell 初始化平台管理员。
+12. 用 Render Shell 初始化平台管理员。
 
 ```bash
 GREEN_DIRECT_ADMIN_PASSWORD='replace-with-one-time-password' \
@@ -135,7 +137,7 @@ python -m green_direct.cli pilot-admin bootstrap \
   --password-env GREEN_DIRECT_ADMIN_PASSWORD
 ```
 
-12. 登录后立刻重置强密码，并创建第一批内测用户。
+13. 登录后立刻重置强密码，并创建第一批内测用户。
 
 若要在自有 VM 或 Docker Compose 环境中启用最小后台 worker，管理员初始化完成后启动：
 
