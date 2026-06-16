@@ -36,10 +36,45 @@
 
 如果目标是“让 Claude Code 对 UI 进行提升”，不要直接发送一句“请美化界面”。应先让它用截图和浏览器证据审查当前 01-06 页，再选择一个可验收小切片落地。首次 UI 提升优先考虑“窄屏/手机宽度可用性”和“经济性/推荐/导出页的任务状态反馈”，因为它们直接影响同事在移动网络下试用时是否能完成闭环。
 
+## 2.1 当前 checkpoint 交接摘要
+
+截至 2026-06-17，本地 `codex/UI` 分支的最近 checkpoint 为：
+
+- `725f465 chore(deploy): lock pilot runtime env checks`
+- `abe7936 fix(deploy): align streamlit upload limit`
+- `83e28d9 chore(deploy): check tracked files before pilot push`
+- `869ccc3 perf(core): specialize bess dispatch hot path`
+
+本地已验证：
+
+```powershell
+python -m pytest -q
+python scripts\preflight_internal_pilot_deploy.py --json
+python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json
+```
+
+当前已知状态：
+
+- 全量测试最近一次结果为 `387 passed`；
+- 部署静态 preflight 通过，已覆盖 Docker/Compose/Render 关键默认值、Web/worker 环境变量、`.dockerignore`、Git tracked 推送源安全和大文件检查；
+- `--require-git-sync` 只应在本地分支尚未推送时失败 `git:sync`，例如本地 `codex/UI` ahead `origin/codex/UI`；推送前不要把这个失败误判为配置错误；
+- 本项目已经具备 Render Blueprint / Docker / persistent disk / Cloudflare Access 的首发路线材料，但尚未完成目标托管平台实机部署演练；
+- 不要为了接入 Vercel 或 Cloudflare Pages/Workers 直接把当前 Streamlit 长进程改成 serverless/edge 应用。短期公网内测优先保持 Docker Web Service 路线。
+
+如果 Claude Code 接手时当前分支仍领先 upstream，先报告：
+
+```powershell
+git status --short --branch
+git log --oneline -8
+python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json
+```
+
+除非用户明确授权，不要擅自 `git push`、创建公网服务或修改托管平台配置。
+
 ## 3. 上下文读取提示词
 
 ```text
-请先不要改代码。请阅读 AGENTS.md、CLAUDE.md、notes/HANDOFF_FOR_NEW_MACHINE.md、notes/PRODUCT_POLISH_LOG.md、docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md、docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md、docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md、docs/PERFORMANCE_OPTIMIZATION_PLAN.md、docs/SOFTWARE_OVERVIEW_AND_INTERFACE.md、docs/ECONOMY_RECOMMENDATION_V1_MAP.md、docs/CHART_MODULE_CURRENT_LOGIC.md、docs/WEB_APP_WORKFLOW_AND_UI_RESTRUCTURE.md，以及 notes/architecture_reframe_20260519/ 下的文档。
+请先不要改代码。请阅读 AGENTS.md、CLAUDE.md、notes/HANDOFF_FOR_NEW_MACHINE.md、notes/PRODUCT_POLISH_LOG.md、docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md、docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md、docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md、docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md、docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md、docs/PERFORMANCE_OPTIMIZATION_PLAN.md、docs/SOFTWARE_OVERVIEW_AND_INTERFACE.md、docs/ECONOMY_RECOMMENDATION_V1_MAP.md、docs/CHART_MODULE_CURRENT_LOGIC.md、docs/WEB_APP_WORKFLOW_AND_UI_RESTRUCTURE.md，以及 notes/architecture_reframe_20260519/ 下的文档。
 
 读完后请用中文简要说明：
 1. 当前项目定位；
@@ -52,6 +87,7 @@
 git status --short --branch
 git log --oneline -8
 python -m pytest -q
+python scripts\preflight_internal_pilot_deploy.py --json
 
 请把当前分支和工作区视为既有工作，不要回滚用户或其他 agent 已经做出的改动。
 ```
@@ -176,7 +212,8 @@ streamlit run src/green_direct/ui/app.py
 3. 04 推荐页推荐理由是否被截断，`ok / warning / pending / no_candidate` 状态是否有清楚视觉分级；
 4. 05 图表页每张主图是否说明自己回答的问题，指定方案加入后用户是否知道影响哪些图；
 5. 06 下载报告页是否有“交付包/依赖状态”概念，能否说明哪些导出已准备好、哪些需要先补算；
-6. UI 是否仍把 raw scenario enumeration、逐小时大表或年度现金流大表放回主体验。
+6. 上传控件、错误提示和导出状态在窄屏下是否仍清楚，上传上限提示是否与 `GREEN_DIRECT_MAX_UPLOAD_MB` / Streamlit `server.maxUploadSize` 一致；
+7. UI 是否仍把 raw scenario enumeration、逐小时大表或年度现金流大表放回主体验。
 
 首轮可选小切片建议：
 1. 窄屏/手机宽度可用性：解决侧边导航或顶部状态条遮挡主内容，让同事移动网络访问时至少能完成登录、选择项目和 Demo 试算；
@@ -232,7 +269,8 @@ streamlit run src/green_direct/ui/app.py
 1. 桌面宽屏打开 01-06 页，确认主 CTA、状态提示和页面跳转没有明显异常；
 2. 窄屏/手机宽度打开至少 01 项目启动、02 方案仿真和本轮改动页，确认没有导航、状态条、按钮或卡片遮挡主内容；
 3. 如果改动涉及经济性、推荐或导出状态，至少用 Demo 跑到相关页面并记录计算前、计算中/排队、计算后的状态；
-4. 如果当前环境无法截图，必须说明不能截图的原因，并列出人工验收路径。
+4. 如果本轮改动涉及上传或部署提示，确认上传控件显示的大小上限与应用策略一致，默认应为 20MB；
+5. 如果当前环境无法截图，必须说明不能截图的原因，并列出人工验收路径。
 ```
 
 ## 6. 性能专项提示词

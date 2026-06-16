@@ -5705,3 +5705,18 @@ profile / benchmark：
 边界：
 - 这仍是静态部署闸，不替代真实 Render Shell doctor/bootstrap、Cloudflare Access 验收或手机公网访问演练；
 - worker 在 Render 单 Web Service + persistent disk 路线下仍不建议拆成独立服务，当前检查主要保护 Docker Compose / 自有 VM 共享卷路线。
+
+### 2026-06-17 Claude Code 上线审查提示词补当前 checkpoint 与移动验收
+
+本轮根据“让 Claude Code 再做一次全面 review/debug，并希望同时推动 UI 提升”的目标，继续收敛 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md` 和 handoff。
+
+调整：
+- 在 Claude Code 提示词中新增当前 checkpoint 交接摘要，记录最新部署/性能 checkpoint、最近全量测试 `387 passed`、preflight 已覆盖的部署闸口，以及 `--require-git-sync` 在本地 ahead 未推送时只应失败 `git:sync`；
+- 明确下一位 agent 在用户未授权前不要擅自 `git push`、创建公网服务或修改托管平台配置；
+- 上下文读取提示词补入首次发布作战单和移动网络试用清单，并要求运行部署静态 preflight；
+- UI 审查提示词新增上传控件大小提示与部署策略一致性的检查，避免再次出现 Streamlit 控件显示 200MB、应用策略默认 20MB 的口径不一致；
+- `HANDOFF_FOR_NEW_MACHINE.md` 同步最新 checkpoint、测试和部署 preflight 事实。
+
+边界：
+- 这不是新的代码能力，也不替代实际 Claude Code review/debug；
+- 真正公网内测仍需要推送 GitHub、等待 GitHub Actions 质量门、Render Blueprint 实机部署、Render Shell doctor/bootstrap、Cloudflare Access 和手机移动网络验收。
