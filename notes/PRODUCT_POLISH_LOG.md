@@ -4621,3 +4621,25 @@ exchange_import_shortfall_energy == 0
 - `pytest tests/test_economy_v1.py tests/test_single_entity_economy.py tests/test_study_runner.py tests/test_performance_benchmark_script.py -q` 通过，43 项通过；
 - `python -m compileall -q src/green_direct/economy tests/test_economy_v1.py scripts/benchmark_internal_pilot_performance.py` 通过；
 - `python scripts/benchmark_internal_pilot_performance.py --hours 168 --pv-count 4 --wind-count 4 --bess-power-count 2 --durations 0,2 --skip-full-retention --json` 通过：30 个方案，技术 summary-first 0.9735 秒，经济性 summary-only 0.1524 秒。
+
+### 2026-06-16 Streamlit 服务器口径冒烟脚本
+
+为支撑“推到 GitHub -> Render 托管 -> 同事移动网络试用”的上线路径，本轮新增本地可重复冒烟脚本，避免只跑单元测试却忽略 Streamlit 应用无法启动的问题。
+
+本轮实现：
+- 新增 `scripts/smoke_streamlit_app.py`；
+- 默认启用 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1`，关闭 `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0`；
+- 使用临时 `GREEN_DIRECT_PILOT_STORE_DIR`，启动 Streamlit 后轮询 `/_stcore/health`；
+- 成功或失败后自动停止进程，失败时打印 stdout/stderr 尾部日志；
+- `tests/test_deployment_artifacts.py` 增加 `--check-import-only` 测试，避免常规测试套件长时间启动服务；
+- 部署 README、移动网络试用清单、托管平台部署路线、Claude Code 提示词和 handoff 已同步。
+
+边界说明：
+- 该脚本证明本地服务器口径能导入和启动，不等于 Render/Cloudflare 已部署成功；
+- 托管平台仍需实际构建、持久盘、管理员初始化、Cloudflare Access 和手机移动网络访问验收。
+
+验证：
+- `python scripts/smoke_streamlit_app.py --timeout-seconds 80` 通过，`streamlit-smoke-ok url=http://127.0.0.1:8517`；
+- `pytest tests/test_deployment_artifacts.py -q` 通过，4 项通过；
+- `python -m compileall -q scripts/smoke_streamlit_app.py tests/test_deployment_artifacts.py` 通过；
+- `pytest -q` 通过，325 项通过。

@@ -251,6 +251,7 @@ python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/tes
 - Dockerfile
 - docker-compose.yml
 - .env.example
+- scripts/smoke_streamlit_app.py
 
 判断边界：
 1. 当前应用是长运行 Streamlit Python Web 进程，不适合直接部署到 Vercel Functions 或 Cloudflare Pages/Workers 作为主机；
@@ -267,6 +268,7 @@ python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/tes
 7. 备份/恢复、日志脱敏、上传文件大小、导出权限和不可导出用户是否有实测清单。
 
 如果你可以访问托管平台或本机 Docker，请实际执行：
+0. python scripts/smoke_streamlit_app.py
 1. docker compose build
 2. docker compose up -d
 3. 创建平台管理员

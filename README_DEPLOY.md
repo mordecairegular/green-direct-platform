@@ -78,6 +78,14 @@ Cloudflare DNS / HTTPS / Access
 
 如果目标是让同事用手机或移动网络尽快试用，请直接按 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 执行。
 
+推送到 GitHub 或触发托管平台部署前，建议先做一次本地服务器口径冒烟检查：
+
+```powershell
+python scripts\smoke_streamlit_app.py
+```
+
+该脚本会启用 pilot 登录门禁、关闭 runtime snapshot、使用临时 pilot store，启动 Streamlit 并检查 `/_stcore/health`，成功或失败后都会自动停止进程。
+
 ## 3. 默认安全设置
 
 `docker-compose.yml` 默认设置：

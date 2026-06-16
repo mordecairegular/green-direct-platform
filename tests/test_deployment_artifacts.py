@@ -1,4 +1,6 @@
 from pathlib import Path
+import subprocess
+import sys
 
 import yaml
 
@@ -38,3 +40,19 @@ def test_dockerignore_excludes_local_state_and_secrets():
     for pattern in [".env", ".env.*", ".runtime/", ".venv/", "outputs/", "*.log"]:
         assert pattern in ignored
     assert "!.env.example" in ignored
+
+
+def test_streamlit_smoke_script_import_check_runs():
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "smoke_streamlit_app.py"),
+            "--check-import-only",
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "import-ok" in completed.stdout

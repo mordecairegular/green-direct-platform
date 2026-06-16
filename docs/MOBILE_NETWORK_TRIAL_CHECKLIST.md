@@ -23,6 +23,7 @@ GitHub private repository
 - 当前分支已推送；
 - 仓库包含 `Dockerfile`、`render.yaml`、`requirements-runtime.txt`；
 - `.dockerignore` 已排除 `.runtime/`、日志、输出目录、历史归档、测试目录、docs/notes 等运行镜像不需要的内容；
+- 本地已运行 `python scripts\smoke_streamlit_app.py`，确认服务器口径能启动并通过健康检查；
 - Render 账户可访问该 GitHub 仓库；
 - Cloudflare 已接管或可管理试用域名；
 - 决定一个内测域名，例如 `green-direct.example.com`；
@@ -93,6 +94,7 @@ Cloudflare Access 是公网入口第一层门禁；应用内账号是第二层�
 - `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0`；
 - 数据目录不是 Git 仓库目录。
 - Render/Docker 构建日志中没有上传本地 `.runtime`、输出文件、历史归档或调试日志。
+- 本地 smoke、Render health check 和 Cloudflare 入口检查都通过后，再发给真实同事。
 
 ## 7. 发给同事的说明
 
