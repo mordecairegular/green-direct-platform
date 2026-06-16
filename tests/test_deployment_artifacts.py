@@ -48,9 +48,19 @@ def test_dockerfile_defaults_to_safe_server_mode():
 def test_dockerignore_excludes_local_state_and_secrets():
     ignored = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
 
-    for pattern in [".env", ".env.*", ".runtime/", ".venv/", "outputs/", "*.log"]:
+    for pattern in [".env", ".env.*", ".github/", ".runtime/", ".venv/", "outputs/", "*.log"]:
         assert pattern in ignored
     assert "!.env.example" in ignored
+
+
+def test_github_actions_quality_gate_exists():
+    workflow = (ROOT / ".github" / "workflows" / "internal-pilot-quality.yml").read_text(encoding="utf-8")
+
+    assert "Internal Pilot Quality Gate" in workflow
+    assert "python -m compileall -q src scripts tests" in workflow
+    assert "python scripts/preflight_internal_pilot_deploy.py --json" in workflow
+    assert "python -m pytest -q" in workflow
+    assert "python scripts/smoke_streamlit_app.py --timeout-seconds 80" in workflow
 
 
 def test_streamlit_smoke_script_import_check_runs():
@@ -86,6 +96,8 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     assert payload["status"] == "pass"
     assert payload["failed_count"] == 0
     check_names = {check["name"] for check in payload["checks"]}
+    assert "file:.github/workflows/internal-pilot-quality.yml" in check_names
+    assert "dockerignore:.github/" in check_names
     assert "render:runtime" in check_names
     assert "compose:volume" in check_names
     assert "dockerfile:PORT=8503" in check_names

@@ -75,9 +75,10 @@ Vercel 可以作为未来正式化后的前端托管平台：例如将前端改�
 1. 把当前分支推到 GitHub/GitLab。
 2. 推送前运行 `python scripts\preflight_internal_pilot_deploy.py --run-smoke`，确认部署配置、本地服务器口径和 `/_stcore/health` 都通过。
 3. 推送后运行 `python scripts\preflight_internal_pilot_deploy.py --require-git-sync`，确认本地分支与 upstream 同步。
-4. 在 Render 新建 Blueprint，选择本仓库。
-5. Render 读取仓库根目录 `render.yaml`，创建 `green-direct-internal-pilot`。
-6. 确认环境变量：
+4. 等待 GitHub Actions `Internal Pilot Quality Gate` 通过；如需部署前冒烟，手动触发该 workflow 并勾选 `run_smoke`。
+5. 在 Render 新建 Blueprint，选择本仓库。
+6. Render 读取仓库根目录 `render.yaml`，创建 `green-direct-internal-pilot`。
+7. 确认环境变量：
    - `GREEN_DIRECT_ENABLE_PILOT_AUTH=1`
    - `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0`
    - `GREEN_DIRECT_PILOT_STORE_DIR=/data/pilot_store`
@@ -86,11 +87,11 @@ Vercel 可以作为未来正式化后的前端托管平台：例如将前端改�
    - `GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD=1000`
    - `GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT=20`
    - `PORT=8503`，或使用平台默认端口；Docker 启动命令会优先读取 `PORT`
-7. 确认 persistent disk 挂载：
+8. 确认 persistent disk 挂载：
    - mount path: `/data`
    - app store: `/data/pilot_store`
-8. 部署完成后访问 Render 默认域名，确认登录页出现。
-9. 用 Render Shell 初始化平台管理员。不要用 Render One-Off Job 初始化本地 file store 版 pilot store；持久盘应在 Web Service 运行环境中访问。
+9. 部署完成后访问 Render 默认域名，确认登录页出现。
+10. 用 Render Shell 初始化平台管理员。不要用 Render One-Off Job 初始化本地 file store 版 pilot store；持久盘应在 Web Service 运行环境中访问。
 
 ```bash
 GREEN_DIRECT_ADMIN_PASSWORD='replace-with-one-time-password' \
@@ -102,7 +103,7 @@ python -m green_direct.cli pilot-admin bootstrap \
   --password-env GREEN_DIRECT_ADMIN_PASSWORD
 ```
 
-10. 登录后立刻重置强密码，并创建第一批内测用户。
+11. 登录后立刻重置强密码，并创建第一批内测用户。
 
 若要在自有 VM 或 Docker Compose 环境中启用最小后台 worker，管理员初始化完成后启动：
 

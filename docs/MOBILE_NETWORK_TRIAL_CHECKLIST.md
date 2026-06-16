@@ -22,8 +22,9 @@ GitHub private repository
 - GitHub 私有仓库已创建；
 - 当前分支已推送；
 - 推送后已运行 `python scripts\preflight_internal_pilot_deploy.py --require-git-sync`，确认本地分支与 GitHub upstream 同步；
+- GitHub Actions `Internal Pilot Quality Gate` 已通过；如本次是首次部署或重要回滚，手动触发该 workflow 并勾选 `run_smoke`；
 - 仓库包含 `Dockerfile`、`render.yaml`、`requirements-runtime.txt`；
-- `.dockerignore` 已排除 `.runtime/`、日志、输出目录、历史归档、测试目录、docs/notes 等运行镜像不需要的内容；
+- `.dockerignore` 已排除 `.github/`、`.runtime/`、日志、输出目录、历史归档、测试目录、docs/notes 等运行镜像不需要的内容；
 - 本地已运行 `python scripts\preflight_internal_pilot_deploy.py --run-smoke`，确认部署配置和服务器口径健康检查都通过；
 - Render 账户可访问该 GitHub 仓库；
 - Cloudflare 已接管或可管理试用域名；

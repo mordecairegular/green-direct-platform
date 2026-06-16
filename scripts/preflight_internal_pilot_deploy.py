@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 REQUIRED_FILES = (
     ".dockerignore",
+    ".github/workflows/internal-pilot-quality.yml",
     ".env.example",
     "Dockerfile",
     "README_DEPLOY.md",
@@ -40,6 +41,7 @@ DOCKERIGNORE_REQUIRED_PATTERNS = (
     ".env",
     ".env.*",
     "!.env.example",
+    ".github/",
     ".runtime/",
     ".venv/",
     "outputs/",

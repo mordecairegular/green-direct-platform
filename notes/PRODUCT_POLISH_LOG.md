@@ -4962,3 +4962,27 @@ Render 单 Web Service 首次公网试用时，不应直接把本地 file store 
 - `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
 - `git diff --check` 通过，仅有 Windows 换行转换提示；
 - `python -m pytest -q` 通过，355 项通过。
+
+### 2026-06-16 GitHub 内测质量门
+
+本轮继续推进“GitHub 私有仓库 -> 托管平台部署 -> 同事移动网络试用”的发布链路。此前本地已有 preflight 和 Streamlit smoke，但推到 GitHub 后缺少自动质量门，Render 可能在没有自动测试反馈的情况下部署某个提交。
+
+实现：
+- 新增 `.github/workflows/internal-pilot-quality.yml`；
+- push / pull request 时自动安装 `requirements.txt`，运行 `python -m compileall -q src scripts tests`、`python scripts/preflight_internal_pilot_deploy.py --json` 和 `python -m pytest -q`；
+- workflow 支持手动触发，勾选 `run_smoke` 时额外运行 `python scripts/smoke_streamlit_app.py --timeout-seconds 80`；
+- `.dockerignore` 新增 `.github/`，避免 CI 配置进入运行镜像构建上下文；
+- `scripts/preflight_internal_pilot_deploy.py` 和 `tests/test_deployment_artifacts.py` 已把 GitHub workflow 与 `.github/` 排除纳入检查；
+- 部署 README、托管平台部署路线、移动网络试用清单和 handoff 已同步：Render 部署前应先确认 GitHub Actions 质量门通过。
+
+边界：
+- 本轮不推送 GitHub，不创建远程仓库，也不替代 Render/Cloudflare 真实部署验收；
+- 默认 push/PR 不跑长进程 smoke，避免每次提交都启动 Streamlit；首次部署或重要回滚前应手动触发 workflow 并勾选 `run_smoke`；
+- 不改变 V0.1 技术仿真、经济性 V1 或推荐排序口径。
+
+验证：
+- `python -m pytest tests/test_deployment_artifacts.py -q` 通过，7 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `python -m compileall -q scripts\preflight_internal_pilot_deploy.py tests\test_deployment_artifacts.py` 通过；
+- `git diff --check` 通过，仅有 Windows 换行转换提示；
+- `python -m pytest -q` 通过，356 项通过。

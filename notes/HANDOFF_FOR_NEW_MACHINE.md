@@ -81,6 +81,7 @@
 - `scripts/benchmark_internal_pilot_performance.py`：用于记录技术仿真和经济性测算的可重复 benchmark。
 - `scripts/preflight_internal_pilot_deploy.py`：用于推送 GitHub/Render 前检查部署文件、安全默认值、Render 持久盘配置、`.dockerignore`、可选 Streamlit smoke，以及可选 `--require-git-sync` 确认本地分支已推到 upstream。
 - `scripts/smoke_streamlit_app.py`：用于推送 GitHub/Render 前做本地服务器口径冒烟检查，默认启用 pilot auth、关闭 runtime snapshot、使用临时 pilot store 并检查 `/_stcore/health`。
+- `.github/workflows/internal-pilot-quality.yml`：GitHub 推送/PR 质量门，自动运行 compile、部署 preflight 和全量 pytest；手动触发并勾选 `run_smoke` 时会额外启动 Streamlit 做健康检查。
 
 若用户提出 Vercel、Cloudflare Pages/Workers 等成熟平台，请先区分平台角色：当前 Streamlit 长进程 + pilot store 形态不适合直接部署到 serverless/edge runtime；短期公网内测推荐 Render/Fly/Railway/Cloud Run 等容器服务托管应用本体，Cloudflare 负责域名、HTTPS 和 Access 门禁。若要改架构，优先把本地 store 换成数据库/对象存储和后台 worker，再考虑前端重写。
 
