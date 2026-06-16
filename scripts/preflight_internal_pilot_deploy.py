@@ -36,10 +36,13 @@ REQUIRED_FILES = (
     "docker-compose.yml",
     "render.yaml",
     "requirements-runtime.txt",
+    "docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md",
     "docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md",
     "docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md",
     "docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md",
     "docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md",
+    "scripts/backup_pilot_store.ps1",
+    "scripts/restore_pilot_store.ps1",
     "scripts/smoke_streamlit_app.py",
 )
 

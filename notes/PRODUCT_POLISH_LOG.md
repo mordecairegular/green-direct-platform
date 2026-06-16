@@ -5870,3 +5870,22 @@ profile / benchmark：
 - 这是 FIRR 求解 fallback 的性能优化，不是经济性口径调整；
 - 候选折现矩阵缓存会随现金流长度和候选利率 tuple 复用，当前 25 年运营期内存开销很小；
 - 后续若继续优化经济性，应优先看批量现金流构造、价格曲线 artifact 化、后台 Job 化和数据库/对象存储，而不是改变 FIRR 计算语义。
+
+### 2026-06-17 首次公网内测增加备份/恢复发布门槛
+
+本轮继续扫“GitHub -> Render -> Cloudflare -> 同事移动网络试用”的上线前风险。当前路线为了尽快内测，仍使用 Render persistent disk + 本地 file store 保存账号、项目、任务、结果、artifact 和审计日志；这让首次发布时的数据备份和恢复演练成为 P0 运维边界。此前 runbook 已有备份/恢复脚本，但部署 preflight 的必备文件清单没有锁住它们，首次发布作战单也没有把 bootstrap 后的备份/恢复演练写成顺序步骤。
+
+调整：
+- `preflight_internal_pilot_deploy.py` 把 `docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md`、`scripts/backup_pilot_store.ps1` 和 `scripts/restore_pilot_store.ps1` 纳入 REQUIRED_FILES；
+- `tests/test_deployment_artifacts.py` 锁定新增 preflight 文件检查，并要求首次发布作战单包含 Render Shell 临时 tar 恢复演练和 Windows PowerShell 备份/恢复脚本路径；
+- `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md` 在管理员 bootstrap 和第一批账号创建后新增“首次备份和恢复演练”：Render Shell 用 `/tmp` 临时 tar 包恢复到空目录并运行 doctor，自有 Windows/本地环境使用备份/恢复脚本；
+- `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 把“首次备份已保存到 Git 仓库外受控位置，恢复演练目录 doctor 通过”加入发给同事前验收。
+
+验证：
+- `python -m pytest tests\test_deployment_artifacts.py -q` 通过，11 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`，新增 `file:docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md`、`file:scripts/backup_pilot_store.ps1` 和 `file:scripts/restore_pilot_store.ps1` 检查。
+
+边界：
+- 这不等于已经完成真实 Render 备份；真实发布时仍要在目标 Web Service Shell 或平台备份能力中执行一次，并把备份保存到 Git 仓库外受控位置；
+- 当前 Render Docker 镜像不包含仓库 `scripts/`，所以云端首发作战单不能假设能直接运行 PowerShell 脚本；
+- 长期正式化仍应迁移到数据库/对象存储和更成熟的备份策略。

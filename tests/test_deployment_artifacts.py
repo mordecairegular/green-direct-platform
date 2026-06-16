@@ -129,7 +129,10 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     assert payload["failed_count"] == 0
     check_names = {check["name"] for check in payload["checks"]}
     assert "file:.github/workflows/internal-pilot-quality.yml" in check_names
+    assert "file:docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md" in check_names
     assert "file:docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md" in check_names
+    assert "file:scripts/backup_pilot_store.ps1" in check_names
+    assert "file:scripts/restore_pilot_store.ps1" in check_names
     assert "dockerignore:.github/" in check_names
     assert "render:runtime" in check_names
     assert "render:branch" in check_names
@@ -235,6 +238,10 @@ def test_public_beta_first_launch_playbook_covers_handoff_steps():
         "Render Web Service Shell",
         "pilot-admin doctor",
         "pilot-admin bootstrap",
+        "green-direct-pilot-store-first-launch.tgz",
+        "pilot_store_restore_check",
+        "backup_pilot_store.ps1",
+        "restore_pilot_store.ps1",
         "Cloudflare Zero Trust Access",
         "手机 4G/5G",
         "GREEN_DIRECT_ENABLE_PILOT_AUTH=1",

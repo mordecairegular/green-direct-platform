@@ -159,6 +159,51 @@ python -m green_direct.cli pilot-admin bootstrap \
 - 1 个不可导出测试账号；
 - 3-5 个真实同事账号。
 
+## 4.1 首次备份和恢复演练
+
+管理员 bootstrap 和第一批账号创建完成后，立刻做一次手动备份。Render 运行镜像不包含仓库里的 `scripts/` 目录，Shell 也是 Linux 环境，不能直接运行 PowerShell 脚本；如果使用 Render，请先在 Web Service Shell 中打包 `/data/pilot_store` 并下载到受控位置，或使用 Render 平台侧的磁盘快照/备份能力。关键要求是：真实 pilot store 至少有一个可恢复备份，且恢复结果经过 doctor 检查。
+
+Render Shell 可先用临时 tar 包做一次恢复演练：
+
+```bash
+tar -C /data -czf /tmp/green-direct-pilot-store-first-launch.tgz pilot_store
+rm -rf /tmp/pilot_store_restore_check
+mkdir -p /tmp/pilot_store_restore_check
+tar -C /tmp/pilot_store_restore_check -xzf /tmp/green-direct-pilot-store-first-launch.tgz
+python -m green_direct.cli pilot-admin doctor \
+  --store-dir /tmp/pilot_store_restore_check/pilot_store \
+  --json
+```
+
+自有 Windows 服务器或本地演练可使用：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File scripts\backup_pilot_store.ps1 `
+  -StoreDir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+  -BackupDir D:\GreenDirectPilot\backups `
+  -Label first-launch
+```
+
+恢复演练必须恢复到空目录，不要覆盖正式 store：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File scripts\restore_pilot_store.ps1 `
+  -BackupZip D:\GreenDirectPilot\backups\green-direct-pilot-store-YYYYMMDD-HHMMSS-first-launch.zip `
+  -StoreDir D:\GreenDirectPilot\pilot_store_restore_check
+```
+
+恢复后运行 doctor：
+
+```powershell
+python -m green_direct.cli pilot-admin doctor `
+  --store-dir D:\GreenDirectPilot\pilot_store_restore_check `
+  --json
+```
+
+只有正式 store 和恢复目录的 doctor 都通过，才继续配置 Cloudflare 和发给同事。更完整的备份/恢复边界见 `docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md`。
+
 ## 5. Cloudflare 入口
 
 在 Render 添加自定义域名，例如 `green-direct.example.com`。

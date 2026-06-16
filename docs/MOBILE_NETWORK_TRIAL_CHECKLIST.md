@@ -44,6 +44,7 @@ GitHub private repository
 - 仓库包含 `Dockerfile`、`render.yaml`、`requirements-runtime.txt`；
 - `.dockerignore` 已排除 `.github/`、`.runtime/`、日志、输出目录、历史归档、测试目录、docs/notes 等运行镜像不需要的内容；
 - 本地已运行 `python scripts\preflight_internal_pilot_deploy.py --run-smoke`，确认部署配置、GitHub 推送源安全检查和服务器口径健康检查都通过；
+- 首次 bootstrap 和创建第一批账号后，已按 `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md` 做一次 pilot store 备份，并恢复到空目录通过 `pilot-admin doctor`；
 - Render 账户可访问该 GitHub 仓库；
 - Cloudflare 已接管或可管理试用域名；
 - 决定一个内测域名，例如 `green-direct.example.com`；
@@ -118,6 +119,7 @@ Cloudflare Access 是公网入口第一层门禁；应用内账号是第二层�
 - 不可导出用户不能下载 06 页导出和 artifact；
 - 普通用户看不到其他人的项目；
 - 创建项目、运行小样例、重启服务后项目仍存在；
+- 首次备份文件已保存到 Git 仓库外的受控位置，恢复演练目录的 `pilot-admin doctor` 返回 `status=pass`；
 - Render Shell 中 `pilot-admin doctor --store-dir /data/pilot_store --json` 返回 `status=pass`；
 - 平台管理页“审计日志”和 CLI 审计抽查都能看到登录、项目、下载、artifact 操作；
 - 如测试后台逐小时明细或年度现金流补算，确认 queued job 会出现在欢迎页任务面板，并由平台管理页“任务运维”、`run-worker-once` 或 `run-worker-loop` 处理完成；
