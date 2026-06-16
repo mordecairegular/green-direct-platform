@@ -60,7 +60,7 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 ### P0：公网生产阻塞
 
 1. Streamlit 主 UI 已有可选登录门禁、最小项目工作区门禁和平台账号/项目成员管理页，但还不是正式权限系统。
-   设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，未登录用户不能进入六步工作流；登录用户必须先创建或选择有效项目；切换项目会清理当前测算结果和下载缓存；平台管理员可在“平台管理”中创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并维护项目成员角色。技术仿真 summary/config snapshot/input curves、经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio、HTML 图表包和 Markdown 报告已能写入项目级 `ResultStore`，欢迎页也能展示项目最近任务/结果索引、任务状态明细、加载下载已落盘 artifact，并把技术 summary-only 恢复为当前会话结果；同一 `study_id` 的技术 summary 已恢复后，也可把经济 summary、已保留年度现金流和推荐席位输入恢复为当前会话内的经济结果，把推荐 portfolio 恢复为当前会话内的推荐结果；图表/报告入口可加载已有 hourly artifact，或在 input artifact 未过期且快照包含 `curve_columns` 时提交后台 queued job / 同步补算单方案明细。但正式上线前仍必须接入更正式的会话/数据库适配、CSRF/反向代理安全边界，并继续迁移完整历史结果恢复、推荐视角选择/重新排序工作台状态、PNG/Excel/批量包、完整报告和后台导出任务持久化。
+   设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，未登录用户不能进入六步工作流；登录用户必须先创建或选择有效项目；切换项目会清理当前测算结果和下载缓存；平台管理员可在“平台管理”中创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话、创建/归档项目，并维护项目成员角色。技术仿真 summary/config snapshot/input curves、经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio、HTML 图表包和 Markdown 报告已能写入项目级 `ResultStore`，欢迎页也能展示项目最近任务/结果索引、任务状态明细、加载下载已落盘 artifact，并把技术 summary-only 恢复为当前会话结果；同一 `study_id` 的技术 summary 已恢复后，也可把经济 summary、已保留年度现金流和推荐席位输入恢复为当前会话内的经济结果，把推荐 portfolio 恢复为当前会话内的推荐结果；图表/报告入口可加载已有 hourly artifact，或在 input artifact 未过期且快照包含 `curve_columns` 时提交后台 queued job / 同步补算单方案明细。但正式上线前仍必须接入更正式的会话/数据库适配、CSRF/反向代理安全边界，并继续迁移完整历史结果恢复、推荐视角选择/重新排序工作台状态、PNG/Excel/批量包、完整报告和后台导出任务持久化。
 
 2. 可导出/不可导出用户权限已有第一版 membership 授权位，但仍不是正式下载服务。
    `ProjectMembership.can_export_artifacts` 已能独立于项目角色控制 artifact payload 读取，最小平台管理页也可维护该字段；欢迎页历史产物下载和 06 导出页会在禁止导出时拦截，`PilotAccessService.read_artifact_payload()` 会对已落盘 artifact 的成功和拒绝下载尝试写入审计；06 页尚未落盘的 CSV/Excel/ZIP/Markdown 临时下载按钮已接入 `record_transient_export_download()`，复用项目导出权限并写 `DOWNLOAD_ARTIFACT` 审计；HTML 图表包和 Markdown 报告保存动作还要求项目提交 Job 权限。受控公网内测前仍需把未来 API、数据库适配、反向代理下载入口和对象存储签名 URL 全部接到同一授权策略。
@@ -89,7 +89,7 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
    目前可用于 pilot 交流和核查，但不应作为长期架构锚点。后续应围绕推荐方案和按需明细重做图表/报告。
 
 4. `pilot-admin` CLI 仍是 bootstrap、项目生命周期/成员应急维护、审计抽查、任务排障和过期 artifact 清理入口。
-   最小 Streamlit 平台管理页已经可维护账号和项目成员；CLI 也已支持列项目/成员、创建或归档项目、授予或禁用项目成员、列审计事件、列任务、认领 queued job、刷新 worker heartbeat/进度、标记 worker 成功/失败、清理过期 payload 和 stale running 任务恢复。首个管理员创建、密码应急重置、服务器端审计抽查和排障仍需要 CLI 或后续独立后台。
+   最小 Streamlit 平台管理页已经可维护账号、创建/归档项目、维护项目成员和处理部分任务运维；CLI 也已支持列项目/成员、创建或归档项目、授予或禁用项目成员、列审计事件、列任务、认领 queued job、刷新 worker heartbeat/进度、标记 worker 成功/失败、清理过期 payload 和 stale running 任务恢复。首个管理员创建、密码应急重置、服务器端审计抽查和排障仍需要 CLI 或后续独立后台。
 
 5. 欢迎页“项目任务与结果”仍不是完整历史结果页。
    它可以帮助内部试用用户确认当前项目已有任务和结果记录，下载已落盘的 summary / portfolio artifact，并 summary-only 恢复技术汇总；同一 `study_id` 的技术汇总已恢复后，也可恢复电源侧/同一主体经济汇总、已保留年度现金流和推荐席位输入，并 portfolio-only 恢复推荐组合；图表/报告入口可加载已有 hourly artifact 或从 input artifact 恢复输入后补算单方案明细；项目 admin 可标记/置顶结果索引，也可软删除/隐藏结果索引并留下审计。但它仍不能恢复完整历史 `StudyResult`、推荐视角选择/重新排序工作台状态，不能做正式报告版本管理或跨项目搜索。

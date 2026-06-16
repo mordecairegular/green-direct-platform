@@ -4919,3 +4919,25 @@ Render 单 Web Service 首次公网试用时，不应直接把本地 file store 
 - `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
 - `git diff --check` 通过；
 - `python -m pytest -q` 通过，352 项通过。
+
+### 2026-06-16 平台管理页补项目创建与归档
+
+本轮继续补内部 10-20 人试用所需的后台控制闭环。此前 `LocalPilotAdminService` 和 `pilot-admin` CLI 已支持平台管理员创建/归档项目，但 Streamlit 平台管理页只暴露账号、成员和任务运维。这样真实内测时，平台管理员仍要回到命令行创建项目或归档项目，不适合非程序员管理员。
+
+实现：
+- 平台管理页“项目和成员”tab 新增创建项目表单：项目 ID、项目名称、项目管理员；
+- 创建项目复用 `LocalPilotAdminService.create_project()`，会设置 owner 并自动授予项目 `admin`；
+- 项目列表下新增“归档所选项目”按钮，复用 `LocalPilotAdminService.archive_project()`；
+- 成员维护下拉只展示 active 项目，避免对 archived 项目继续授权。
+
+边界：
+- 项目 ID 仍由管理员手动填写，本轮不引入自动 slug 或项目编号生成规则；
+- 归档项目不删除任务、结果索引或 artifact，只阻止后续新增/更新项目成员和新任务提交；
+- 这仍不是企业 IAM、审批流或完整后台管理系统。
+
+验证：
+- `python -m pytest tests/test_ui_import.py::test_streamlit_platform_admin_can_create_and_archive_project tests/test_ui_import.py::test_streamlit_platform_admin_can_create_user tests/test_ui_import.py::test_streamlit_non_admin_does_not_show_platform_admin_entry tests/test_pilot_admin.py::test_platform_admin_can_create_and_archive_project -q` 通过，4 项通过；
+- `python -m compileall -q src\green_direct\ui\app.py tests\test_ui_import.py` 通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `git diff --check` 通过；
+- `python -m pytest -q` 通过，353 项通过。

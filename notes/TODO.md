@@ -60,10 +60,10 @@
 - 服务层已新增 `LocalResultStore`，支持按项目/研究保存产物、结果索引和审计日志；当前已接入技术/经济/推荐 summary 写入、最小结果索引读取、结果索引软删除和结果标记/置顶，暂未接入数据库或完整历史结果恢复。
 - 服务层已新增 `LocalPilotRegistry`，支持本地 JSON 用户、项目和项目成员角色管理，不包含密码或登录会话。
 - 服务层已新增 `LocalPilotAuth`，支持本地密码哈希、登录会话、会话校验/撤销和登录审计；Streamlit 主 UI 已接入可选登录门禁和最小项目工作区门禁，但暂未接入正式身份系统。
-- 服务层已新增 `LocalPilotAdminService`，区分平台管理员和项目管理员，支持首个管理员 bootstrap、创建用户、重置密码、授予/撤销平台管理员、停用用户并撤销会话，也支持平台管理员查看项目、授予/禁用项目成员；Streamlit 已接入最小平台管理页。
+- 服务层已新增 `LocalPilotAdminService`，区分平台管理员和项目管理员，支持首个管理员 bootstrap、创建用户、重置密码、授予/撤销平台管理员、停用用户并撤销会话，也支持平台管理员创建/归档项目、查看项目、授予/禁用项目成员；Streamlit 已接入最小平台管理页。
 - `src/green_direct/cli.py` 已新增 `pilot-admin` 命令行入口，支持 bootstrap、创建用户、重置密码、停用用户、授予/撤销平台管理员、列出用户/会话/审计事件/项目/项目成员/任务、认领 queued job、刷新 worker heartbeat/进度、标记 worker 成功/失败终态、创建或归档项目、授予或禁用项目成员、清理过期 artifact payload 和标记超时 running 任务失败，作为管理员页面前的本地运维入口。
 - Streamlit 主 UI 已新增可选内部试用登录门禁：设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，未登录用户不能进入六步工作流；登录使用 `GREEN_DIRECT_PILOT_STORE_DIR` 指向的本地账号 store，默认 `.runtime/pilot_store`。
-- Streamlit 主 UI 已新增最小“平台管理”页：平台管理员可创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并在“项目和成员”中维护项目成员角色；普通用户看不到该入口。
+- Streamlit 主 UI 已新增最小“平台管理”页：平台管理员可创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并在“项目和成员”中创建/归档项目、维护项目成员角色；普通用户看不到该入口。
 - Streamlit 主 UI 已新增项目工作区门禁：启用 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，登录用户必须先创建或选择有效项目才能进入六步业务工作流；切换项目会清理当前测算结果和下载缓存。
 - `ProjectMembership.can_export_artifacts` 已作为第一版独立导出授权位；平台管理页可维护“允许下载/导出项目结果”，历史 artifact payload 读取和 06 导出页会按该字段拦截；已落盘 artifact 下载和 06 页临时 CSV/Excel/ZIP/Markdown 下载都会写入 `DOWNLOAD_ARTIFACT` 审计。
 - 上传入口已新增第一版文件门禁：技术曲线只允许 CSV，下网电价曲线允许 CSV/XLSX/XLSM，默认单文件上限 20MB，可通过 `GREEN_DIRECT_MAX_UPLOAD_MB` 调整；合法上传文件的文件名、后缀、大小和 SHA256 会写入技术仿真配置快照。启用内部试用登录并保存技术结果时，负荷/光伏/风电三条技术输入曲线会作为 `ArtifactKind.INPUT_CURVE` 保存，默认 30 天过期，并写 `STORE_ARTIFACT` 审计。

@@ -3476,6 +3476,10 @@ def _platform_admin_project_frame(projects: list[Project]) -> pd.DataFrame:
     )
 
 
+def _active_platform_admin_projects(projects: list[Project]) -> list[Project]:
+    return [project for project in projects if project.status.value == "active"]
+
+
 def _platform_admin_membership_frame(
     memberships: list[ProjectMembership],
     users_by_id: dict[str, User],
@@ -3800,16 +3804,49 @@ def _render_platform_admin_page(st) -> None:
                         _handle_platform_admin_error(st, exc)
 
     with project_tab:
+        st.caption("平台管理员可在这里准备内测项目，再分配项目成员和导出权限。")
+        with st.form("pilot_admin_create_project_form"):
+            new_project_id = st.text_input("新项目 ID", key="pilot_admin_create_project_id")
+            new_project_name = st.text_input("新项目名称", key="pilot_admin_create_project_name")
+            owner_user_id = st.selectbox(
+                "项目管理员",
+                active_user_ids or [actor_user_id],
+                index=0,
+                key="pilot_admin_create_project_owner",
+            )
+            create_project_submitted = st.form_submit_button("创建项目", type="primary")
+        if create_project_submitted:
+            try:
+                project_id_value = str(new_project_id).strip()
+                project_name_value = str(new_project_name).strip()
+                if not project_id_value:
+                    raise ValueError("新项目 ID 不能为空。")
+                if not project_name_value:
+                    raise ValueError("新项目名称不能为空。")
+                created_project = admin_service.create_project(
+                    actor_user_id=actor_user_id,
+                    project=Project(project_id_value, project_name_value),
+                    owner_user_id=str(owner_user_id),
+                )
+                st.session_state[PILOT_ADMIN_NOTICE_KEY] = f"已创建项目：{created_project.project_id}"
+                st.rerun()
+            except Exception as exc:  # noqa: BLE001
+                _handle_platform_admin_error(st, exc)
+
         if projects:
             st.dataframe(_platform_admin_project_frame(projects), width="stretch", hide_index=True)
         else:
-            st.info("暂无项目。用户可以在登录后先创建项目，平台管理员再在此分配成员。")
+            st.info("暂无项目。请先创建项目。")
 
-        if not projects or not active_user_ids:
+        active_projects = _active_platform_admin_projects(projects)
+        if not active_projects or not active_user_ids:
             if not active_user_ids:
                 st.info("暂无可加入项目的活跃用户。")
+            if projects and not active_projects:
+                st.info("当前没有 active 项目可维护成员。")
         else:
-            selected_project_id = st.selectbox("选择项目", project_ids, key="pilot_admin_project_id")
+            active_project_ids = [project.project_id for project in active_projects]
+            selected_project_id = st.selectbox("选择项目", active_project_ids, key="pilot_admin_project_id")
             try:
                 memberships = admin_service.list_project_memberships(
                     actor_user_id=actor_user_id,
@@ -3827,6 +3864,18 @@ def _render_platform_admin_page(st) -> None:
                 )
             else:
                 st.info("该项目暂无成员。")
+
+            archive_disabled = not selected_project_id
+            if st.button("归档所选项目", key="pilot_admin_archive_project", disabled=archive_disabled):
+                try:
+                    archived = admin_service.archive_project(
+                        actor_user_id=actor_user_id,
+                        project_id=str(selected_project_id),
+                    )
+                    st.session_state[PILOT_ADMIN_NOTICE_KEY] = f"已归档项目：{archived.project_id}"
+                    st.rerun()
+                except Exception as exc:  # noqa: BLE001
+                    _handle_platform_admin_error(st, exc)
 
             with st.form("pilot_admin_project_member_form"):
                 member_user_id = st.selectbox("成员账号", active_user_ids, key="pilot_admin_project_member_user_id")

@@ -1424,6 +1424,48 @@ def test_streamlit_platform_admin_can_create_user(tmp_path, monkeypatch):
     assert created.is_platform_admin is False
 
 
+def test_streamlit_platform_admin_can_create_and_archive_project(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import ProjectRole, ProjectStatus, User
+    from green_direct.services import LocalPilotAdminService, LocalPilotAuth, LocalPilotRegistry, LocalResultStore
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+
+    registry = LocalPilotRegistry(tmp_path)
+    result_store = LocalResultStore(tmp_path)
+    auth = LocalPilotAuth(tmp_path, registry=registry, result_store=result_store)
+    admin = LocalPilotAdminService(registry=registry, auth=auth, result_store=result_store)
+    admin.bootstrap_platform_admin(
+        user=User("admin", "admin@example.local", "Admin", is_platform_admin=True),
+        password="admin-password",
+    )
+
+    app_test = AppTest.from_file("src/green_direct/ui/app.py")
+    app_test.run(timeout=10)
+    app_test.text_input[0].input("admin@example.local")
+    app_test.text_input[1].input("admin-password")
+    app_test.button[0].click().run(timeout=10)
+
+    next(button for button in app_test.button if button.label == "Admin  平台管理").click().run(timeout=10)
+    inputs = {text_input.label: text_input for text_input in app_test.text_input}
+    inputs["新项目 ID"].input("project_ui")
+    inputs["新项目名称"].input("UI Pilot Project")
+    next(button for button in app_test.button if button.label == "创建项目").click().run(timeout=10)
+
+    created = LocalPilotRegistry(tmp_path).load_project("project_ui")
+    membership = LocalPilotRegistry(tmp_path).get_project_membership("project_ui", "admin")
+    assert created.name == "UI Pilot Project"
+    assert membership is not None
+    assert membership.role == ProjectRole.ADMIN
+
+    next(button for button in app_test.button if button.label == "归档所选项目").click().run(timeout=10)
+
+    archived = LocalPilotRegistry(tmp_path).load_project("project_ui")
+    assert archived.status == ProjectStatus.ARCHIVED
+
+
 def test_streamlit_non_admin_does_not_show_platform_admin_entry(tmp_path, monkeypatch):
     import green_direct.ui.app as app
     from green_direct.models.pilot_backend import User
