@@ -516,6 +516,131 @@ def test_cli_pilot_admin_lists_jobs_with_filters_and_stale_marker(tmp_path, monk
     assert "job_other_project" not in output
 
 
+def test_cli_pilot_admin_claims_next_job_for_worker(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ADMIN_PASSWORD", "admin-password")
+    assert main(
+        [
+            "pilot-admin",
+            "bootstrap",
+            *_store_arg(tmp_path),
+            "--user-id",
+            "admin",
+            "--login-name",
+            "admin@example.local",
+            "--display-name",
+            "Admin",
+            "--password-env",
+            "ADMIN_PASSWORD",
+        ]
+    ) == 0
+    assert main(
+        [
+            "pilot-admin",
+            "create-project",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--project-id",
+            "project_active",
+            "--name",
+            "Active Project",
+        ]
+    ) == 0
+    assert main(
+        [
+            "pilot-admin",
+            "create-project",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--project-id",
+            "project_archived",
+            "--name",
+            "Archived Project",
+        ]
+    ) == 0
+    assert main(
+        [
+            "pilot-admin",
+            "archive-project",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--project-id",
+            "project_archived",
+        ]
+    ) == 0
+    capsys.readouterr()
+
+    job_store = LocalJobStore(tmp_path)
+    job_store.submit_job(
+        Job(
+            job_id="job_archived",
+            project_id="project_archived",
+            study_id="study_1",
+            requested_by_user_id="admin",
+            job_type=JobType.TECHNICAL_STUDY,
+            queued_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        )
+    )
+    job_store.submit_job(
+        Job(
+            job_id="job_economic",
+            project_id="project_active",
+            study_id="study_1",
+            requested_by_user_id="admin",
+            job_type=JobType.ECONOMIC_STUDY,
+            queued_at=datetime(2020, 1, 2, tzinfo=timezone.utc),
+        )
+    )
+    job_store.submit_job(
+        Job(
+            job_id="job_technical",
+            project_id="project_active",
+            study_id="study_1",
+            requested_by_user_id="admin",
+            job_type=JobType.TECHNICAL_STUDY,
+            queued_at=datetime(2020, 1, 3, tzinfo=timezone.utc),
+        )
+    )
+
+    assert main(
+        [
+            "pilot-admin",
+            "claim-next-job",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--worker-id",
+            "worker_1",
+            "--job-type",
+            "technical_study",
+        ]
+    ) == 0
+    output = capsys.readouterr().out
+    assert "project_id\tstudy_id\tjob_id\tjob_type\tstatus" in output
+    assert "project_active\tstudy_1\tjob_technical\ttechnical_study\trunning" in output
+    assert "\tworker_1\t" in output
+    assert job_store.load_job("project_active", "study_1", "job_technical").status == JobStatus.RUNNING
+    assert job_store.load_job("project_archived", "study_1", "job_archived").status == JobStatus.QUEUED
+    assert job_store.load_job("project_active", "study_1", "job_economic").status == JobStatus.QUEUED
+
+    assert main(
+        [
+            "pilot-admin",
+            "claim-next-job",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--worker-id",
+            "worker_2",
+            "--job-type",
+            "report_export",
+        ]
+    ) == 0
+    assert "No queued job matched." in capsys.readouterr().out
+
+
 def test_cli_errors_return_nonzero_and_do_not_create_user(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("ADMIN_PASSWORD", "admin-password")
     main(
@@ -686,7 +811,7 @@ def test_cli_pilot_admin_fails_stale_running_jobs_and_audits(tmp_path, monkeypat
 
 def test_cli_exposes_green_direct_console_script():
     parser = build_parser()
-    parsed = parser.parse_args(["pilot-admin", "fail-stale-jobs", "--actor-user-id", "admin"])
+    parsed = parser.parse_args(["pilot-admin", "claim-next-job", "--actor-user-id", "admin", "--worker-id", "worker_1"])
 
     assert parsed.command == "pilot-admin"
-    assert parsed.pilot_admin_command == "fail-stale-jobs"
+    assert parsed.pilot_admin_command == "claim-next-job"

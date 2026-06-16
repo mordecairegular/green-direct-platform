@@ -18,6 +18,7 @@ from green_direct.models.pilot_backend import (
     AuditLog,
     Job,
     JobStatus,
+    JobType,
     Project,
     ProjectMembership,
     ProjectRole,
@@ -28,6 +29,7 @@ from green_direct.services import (
     LocalPilotAdminService,
     LocalPilotAuth,
     LocalPilotRegistry,
+    PilotAccessService,
     LocalResultStore,
 )
 
@@ -41,6 +43,7 @@ class _PilotServiceBundle:
     result_store: LocalResultStore
     auth: LocalPilotAuth
     admin: LocalPilotAdminService
+    access: PilotAccessService
 
 
 def _pilot_services(store_dir: str | Path) -> _PilotServiceBundle:
@@ -54,12 +57,18 @@ def _pilot_services(store_dir: str | Path) -> _PilotServiceBundle:
         auth=auth,
         result_store=result_store,
     )
+    access = PilotAccessService(
+        registry=registry,
+        job_store=job_store,
+        result_store=result_store,
+    )
     return _PilotServiceBundle(
         registry=registry,
         job_store=job_store,
         result_store=result_store,
         auth=auth,
         admin=admin,
+        access=access,
     )
 
 
@@ -282,6 +291,28 @@ def _format_job_progress(job: Job) -> str:
     return ""
 
 
+def _print_job_header(*, include_stale: bool = True) -> None:
+    header = (
+        "project_id\tstudy_id\tjob_id\tjob_type\tstatus\trequested_by\t"
+        "progress\tworker_id\tqueued_at\tstarted_at\tfinished_at\tlast_heartbeat_at"
+    )
+    if include_stale:
+        header += "\tstale"
+    print(header)
+
+
+def _print_job_row(job: Job, *, stale: str | None = None) -> None:
+    row = (
+        f"{job.project_id}\t{job.study_id}\t{job.job_id}\t{job.job_type.value}\t"
+        f"{job.status.value}\t{job.requested_by_user_id}\t{_format_job_progress(job)}\t"
+        f"{job.worker_id or ''}\t{_format_dt(job.queued_at)}\t{_format_dt(job.started_at)}\t"
+        f"{_format_dt(job.finished_at)}\t{_format_dt(job.last_heartbeat_at)}"
+    )
+    if stale is not None:
+        row += f"\t{stale}"
+    print(row)
+
+
 def _format_audit_metadata(event: AuditLog) -> str:
     return json.dumps(event.metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -324,20 +355,29 @@ def _cmd_list_jobs(args: argparse.Namespace) -> int:
         project_id=args.project_id,
         statuses=statuses,
     )
-    print(
-        "project_id\tstudy_id\tjob_id\tjob_type\tstatus\trequested_by\t"
-        "progress\tworker_id\tqueued_at\tstarted_at\tfinished_at\tlast_heartbeat_at\tstale"
-    )
+    _print_job_header(include_stale=True)
     for job in jobs:
         stale = ""
         if stale_after_seconds is not None:
             stale = "yes" if job.is_stale(now=now, stale_after_seconds=stale_after_seconds) else "no"
-        print(
-            f"{job.project_id}\t{job.study_id}\t{job.job_id}\t{job.job_type.value}\t"
-            f"{job.status.value}\t{job.requested_by_user_id}\t{_format_job_progress(job)}\t"
-            f"{job.worker_id or ''}\t{_format_dt(job.queued_at)}\t{_format_dt(job.started_at)}\t"
-            f"{_format_dt(job.finished_at)}\t{_format_dt(job.last_heartbeat_at)}\t{stale}"
-        )
+        _print_job_row(job, stale=stale)
+    return 0
+
+
+def _cmd_claim_next_job(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    claimed = services.access.claim_next_job_for_worker(
+        actor_user_id=args.actor_user_id,
+        worker_id=args.worker_id,
+        project_id=args.project_id,
+        job_types=getattr(args, "job_type", None),
+        claimed_at=datetime.now(timezone.utc),
+    )
+    if claimed is None:
+        print("No queued job matched.")
+        return 0
+    _print_job_header(include_stale=False)
+    _print_job_row(claimed)
     return 0
 
 
@@ -589,6 +629,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Mark running jobs as stale in the output if older than this heartbeat threshold.",
     )
     list_jobs.set_defaults(func=_cmd_list_jobs)
+
+    claim_next_job = pilot_admin_sub.add_parser(
+        "claim-next-job",
+        help="Claim the oldest queued job for a trusted worker.",
+    )
+    _add_common_store_arg(claim_next_job)
+    _add_actor_arg(claim_next_job)
+    claim_next_job.add_argument("--worker-id", required=True, help="Worker id to assign to the claimed job.")
+    claim_next_job.add_argument("--project-id", help="Limit claiming to one active project.")
+    claim_next_job.add_argument(
+        "--job-type",
+        action="append",
+        choices=[job_type.value for job_type in JobType],
+        help="Filter by job type. May be provided multiple times.",
+    )
+    claim_next_job.set_defaults(func=_cmd_claim_next_job)
 
     purge_artifacts = pilot_admin_sub.add_parser(
         "purge-expired-artifacts",

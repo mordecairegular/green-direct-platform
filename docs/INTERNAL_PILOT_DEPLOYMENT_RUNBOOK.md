@@ -190,6 +190,19 @@ python -m green_direct.cli pilot-admin fail-stale-jobs `
 
 该命令会把超过阈值未 heartbeat 的 running 任务标记为 `failed`，写入项目级 `COMPLETE_JOB` 审计，并保留原 `worker_id`、最后 heartbeat 和错误说明。它只修复任务元数据，不会终止操作系统进程，也不代表已经有正式后台队列、重试或资源回收。
 
+未来 worker wrapper 可使用同一 CLI 认领 queued job：
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m green_direct.cli pilot-admin claim-next-job `
+    --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --actor-user-id admin `
+    --worker-id pilot-worker-1 `
+    --job-type technical_study
+```
+
+该命令只把一个 matching queued job 标记为 `running`，写入 `worker_id` 和 heartbeat，不会执行技术仿真、经济性测算或导出任务。不要在真实队列中人工随手执行；如果没有 worker 随后接管计算，任务会停留在 `running`，需要再通过 stale cleanup 恢复。
+
 ## 11. 审计日志抽查
 
 管理员可抽查全局审计或指定项目审计：
@@ -219,7 +232,7 @@ python -m green_direct.cli pilot-admin list-audit-events `
 - 普通用户必须选择或创建项目后才进入六步工作流；
 - Demo 技术仿真、经济性测算、方案推荐能跑通；
 - 禁止导出的项目成员不能下载历史 artifact 或 06 页导出文件；
-- `pilot-admin list-users`、`list-projects`、`list-project-members`、`list-audit-events`、`list-jobs`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
+- `pilot-admin list-users`、`list-projects`、`list-project-members`、`list-audit-events`、`list-jobs`、`claim-next-job`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
 - 新运行日志不包含明文密码、明文 token、原始曲线内容。
 
 ## 13. 回滚

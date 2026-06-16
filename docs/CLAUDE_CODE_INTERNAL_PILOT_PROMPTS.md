@@ -77,7 +77,7 @@ python -m pytest -q
    - 新技术仿真后旧导出缓存是否失效；
    - 欢迎页活动任务和任务状态明细是否只展示当前项目任务，取消入口是否仍走后端权限和审计；
    - `Job.worker_id` / `last_heartbeat_at`、`pilot-admin list-jobs` 和 `pilot-admin fail-stale-jobs` 是否能先查看超时 running 元数据、再转为 failed，并保留项目级审计；
-   - `LocalJobStore.claim_next_queued_job()` 和 `PilotAccessService.claim_next_job_for_worker()` 是否只认领 queued job、写入 worker/heartbeat、支持任务类型过滤，并跳过归档项目；
+   - `LocalJobStore.claim_next_queued_job()`、`PilotAccessService.claim_next_job_for_worker()` 和 `pilot-admin claim-next-job` 是否只认领 queued job、写入 worker/heartbeat、支持任务类型过滤，并跳过归档项目；命令是否明确不执行真实计算；
    - `pilot-admin list-audit-events` 是否只能由平台管理员读取，并能分别抽查全局审计和项目级审计；
    - 长任务失败、取消、重复点击、页面切换后的状态是否可恢复或可解释。
 3. 计算口径风险：

@@ -4497,3 +4497,30 @@ exchange_import_shortfall_energy == 0
 - `pytest tests/test_job_store.py tests/test_pilot_access.py -q` 通过，26 项通过；
 - `python -m compileall -q src scripts tests` 通过；
 - `pytest -q` 通过，320 项通过。
+
+### 2026-06-16 pilot-admin worker 认领演练入口
+
+本轮把上一片的 worker 认领原语接到 `pilot-admin` CLI。原因是仅有服务层方法还不够运维化：后续真实 worker wrapper 或部署演练需要一个可调用入口来完成“从 queued 变 running、写 worker_id 和 heartbeat”的第一步。这个入口必须复用 `PilotAccessService`，不能直接绕过归档项目过滤和平台管理员校验。
+
+本轮判断：
+- `claim-next-job` 应定位为受信任 worker wrapper 的入口，不是普通业务管理员手动按钮；
+- 命令只认领任务，不执行技术仿真、经济性测算、图表或报告导出；
+- 如果人工在真实队列中误用，任务会进入 `running`，需要后续 worker 接管或由 stale cleanup 恢复，因此 runbook 必须写清边界；
+- 不新增审计动作，任务元数据本身记录 `worker_id` / `started_at` / `last_heartbeat_at`。
+
+本轮实现：
+- `pilot-admin claim-next-job`：支持 `--worker-id`、可选 `--project-id` 和可重复 `--job-type`；
+- CLI service bundle 新增 `PilotAccessService`，命令通过 `claim_next_job_for_worker()` 认领，继续由服务层跳过归档项目；
+- `list-jobs` 和 `claim-next-job` 共享 TSV job 输出 helper；
+- `tests/test_cli.py` 覆盖 CLI 创建/归档项目后认领 queued job、跳过归档项目、按 job type 过滤和无匹配输出；
+- 软件接口总览、内部试用 runbook、性能路线、受控公网审计矩阵、上线前质量审查、Claude Code 提示词、TODO 和 handoff 已同步。
+
+边界说明：
+- 这仍不是后台 worker 执行器；没有任务 payload、跨进程队列锁、取消检查、重试或结果写回；
+- 后续真正 worker 应在认领后读取 `ResultStore`/input artifact，周期性 heartbeat，检查 cancel 状态，失败写脱敏错误，并把 summary/detail/export artifacts 写回项目 store。
+
+验证：
+- `pytest tests/test_cli.py -q` 通过，10 项通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `python -m green_direct.cli pilot-admin claim-next-job --help` 通过；
+- `pytest -q` 通过，321 项通过。
