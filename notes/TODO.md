@@ -70,7 +70,7 @@
 - 内部试用部署材料已新增第一版：`.env.example`、`docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md`、`scripts/backup_pilot_store.ps1` 和 `scripts/restore_pilot_store.ps1`，覆盖环境变量、账号 bootstrap、启动、备份、恢复、过期清理、冒烟检查和回滚边界。
 - 受控公网内测审计矩阵已新增第一版：`docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md`，用于逐项跟踪 Route A 要求中已满足、部分满足和未满足的 P0 项。
 - 性能基准脚本已新增第一版：`scripts/benchmark_internal_pilot_performance.py`，可对完整明细保留、summary-first 和经济性 summary-only 进行可重复耗时/内存记录。
-- 服务层已新增 `LocalJobStore`，支持本地 JSON 任务提交、读取、全局/项目/研究列表、状态筛选、queued job 认领、worker/heartbeat 元数据、进度更新、成功/失败/取消状态持久化、`input_artifact_ids` 输入引用持久化，以及超时 running 任务扫描和置失败；`queue_job_with_input_artifact()` 已可把一次后台任务请求 payload 保存为 `ArtifactKind.JOB_INPUT` 后再提交 queued job；`execute_next_worker_job()` / `pilot-admin run-worker-once` 已能执行第一条 `technical_study` + `hourly_detail` one-shot worker 链路；暂未包含常驻 worker daemon、重试、管理员页面、数据库锁或正式队列。
+- 服务层已新增 `LocalJobStore`，支持本地 JSON 任务提交、读取、全局/项目/研究列表、状态筛选、queued job 认领、worker/heartbeat 元数据、进度更新、成功/失败/取消状态持久化、`input_artifact_ids` 输入引用持久化，以及超时 running 任务扫描和置失败；`queue_job_with_input_artifact()` 已可把一次后台任务请求 payload 保存为 `ArtifactKind.JOB_INPUT` 后再提交 queued job；`execute_next_worker_job()` / `pilot-admin run-worker-once` 已能执行第一条 `technical_study` + `hourly_detail` worker 链路，`execute_worker_loop()` / `pilot-admin run-worker-loop` 已能持续轮询受支持 queued job；暂未包含正式队列、重试、管理员页面、数据库锁或 worker 级取消。
 - 服务层已新增 `PilotAccessService`，把项目角色权限、可见项目列表、任务提交/取消、worker 认领、worker heartbeat/进度、worker 成功/失败终态、任务输入 artifact 引用校验、产物读取和审计日志统一成可测试服务门面，暂未包含常驻 worker daemon、数据库事务或并发锁。
 - 本地 JSON store 共享写入 helper 已改为“写临时文件后原子替换”，降低账号、会话、任务、结果索引等 JSON 元数据半写损坏风险；这仍不等于数据库事务或跨进程并发锁。
 - 技术仿真完成后已能在启用内部试用登录和当前项目时登记项目级同步 `Job`，并把 `technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord` 写入 `LocalResultStore`；经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio、按需补算的单方案逐小时明细、HTML 图表包和 Markdown 报告也已接入第一阶段项目级写入；PNG/Excel/批量包、完整报告和导出后台任务化仍待迁移。
@@ -81,7 +81,7 @@
 后续方向：
 
 - 大批量模式继续补 worker 级后台进度/取消闭环和性能基准记录；当前前台预计耗时、大任务确认、项目任务状态明细和 job 输入 artifact 引用契约已是第一版粗略护栏，后续可用服务器实测数据校准。
-- 继续补按需逐小时明细后台闭环：当前 UI 已能提交 `queue_job_with_input_artifact()` 后台按需补算任务，`execute_next_worker_job()` / `pilot-admin run-worker-once` 已能读取 `Job.input_artifact_ids` 执行并写回 hourly artifact；下一步是常驻 worker、前台轮询/完成后自动加载、worker 级取消和失败重试。
+- 继续补按需逐小时明细后台闭环：当前 UI 已能提交 `queue_job_with_input_artifact()` 后台按需补算任务，`execute_next_worker_job()` / `pilot-admin run-worker-once` / `pilot-admin run-worker-loop` 已能读取 `Job.input_artifact_ids` 执行并写回 hourly artifact；下一步是前台轮询/完成后自动加载、worker 级取消和失败重试。
 - 用户选择代表方案、图表方案或导出方案后，已有项目级 hourly artifact 已可优先加载；没有 artifact 时可先排队补算，但正式内测仍需要把任务完成提示、刷新策略和历史结果恢复体验打磨成闭环。
 - 下一阶段把完整历史结果恢复、推荐视角选择与重新排序工作台状态、PNG/Excel/批量包、完整报告导出也提交为项目级后台 `Job`，并把对应 hourly/chart/report/export artifacts 写入 `ResultStore`；summary-only 经济运行如需后补年度现金流，应作为按需 Job 生成。
 - 技术仿真已完成当前进程内 `ProcessPoolExecutor` 按方案块并行；下一步评估后台任务队列时继续沿用块级调度，保持 `scenario_id`、warning、error 和顺序稳定。

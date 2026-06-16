@@ -82,7 +82,7 @@ python -m pytest -q
    - `Job.worker_id` / `last_heartbeat_at`、`pilot-admin list-jobs` 和 `pilot-admin fail-stale-jobs` 是否能先查看超时 running 元数据、再转为 failed，并保留项目级审计；
    - `queue_job_with_input_artifact()` 是否先校验权限和外部 artifact，再把非空请求 payload 保存为 `ArtifactKind.JOB_INPUT`，并把 `job_payload` 与外部输入引用一起写入 `Job.input_artifact_ids`；
    - Streamlit 缺少所选方案 hourly detail 时，是否只在当前用户可提交项目任务且存在 `technical_summary`、`config_snapshot`、三条 `input_curve_*` artifact 时显示/提交后台补算；重复点击是否复用同一研究/方案的活动任务提示，而不是排出一串重复 job；
-   - `execute_next_worker_job()` 和 `pilot-admin run-worker-once` 是否只执行受支持的 `technical_study/hourly_detail` job，是否复用 `run_hourly_detail_for_scenario()`，成功后写回 `ArtifactKind.HOURLY_DETAIL` 并审计，失败时是否标记 failed 而不是卡在 running；
+   - `execute_next_worker_job()`、`execute_worker_loop()`、`pilot-admin run-worker-once` 和 `pilot-admin run-worker-loop` 是否只执行受支持的 `technical_study/hourly_detail` job，是否复用 `run_hourly_detail_for_scenario()`，成功后写回 `ArtifactKind.HOURLY_DETAIL` 并审计，失败时是否标记 failed 而不是卡在 running；`run-worker-loop` 的 `max_jobs` / `idle_exit_after` 是否能让脚本安全退出；
    - `LocalJobStore.claim_next_queued_job()`、`PilotAccessService.claim_next_job_for_worker()`、`update_worker_job_progress()`、`succeed_worker_job()`、`fail_worker_job()`、`pilot-admin claim-next-job`、`heartbeat-job`、`complete-worker-job` 和 `fail-worker-job` 是否只更新任务元数据、校验 worker、支持任务类型过滤，并跳过归档项目；命令是否明确不执行真实计算；
    - `pilot-admin list-audit-events` 是否只能由平台管理员读取，并能分别抽查全局审计和项目级审计；
    - 长任务失败、取消、重复点击、页面切换后的状态是否可恢复或可解释。
@@ -266,7 +266,7 @@ python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/tes
 1. `render.yaml` 是否与 Dockerfile、健康检查、端口、环境变量和 `/data/pilot_store` 一致；
 2. `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 和 `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0` 是否在托管平台默认生效；
 3. persistent disk 是否挂载到 `/data`，pilot store 是否不在 Git 仓库路径；
-4. 平台管理员 bootstrap 命令是否能在 Render Shell/一次性 Job 中执行；
+4. 平台管理员 bootstrap 命令是否明确在 Render Web Service Shell 中执行，且没有误用无法访问同一 persistent disk 的 One-Off Job；
 5. Cloudflare Access 门禁与应用内登录是否形成双层门禁；
 6. 重启后用户、项目、任务、结果和审计日志是否仍可保留；
 7. 备份/恢复、日志脱敏、上传文件大小、导出权限和不可导出用户是否有实测清单。

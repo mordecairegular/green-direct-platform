@@ -32,6 +32,7 @@ from green_direct.services import (
     PilotAccessService,
     LocalResultStore,
     execute_next_worker_job,
+    execute_worker_loop,
 )
 
 DEFAULT_PILOT_STORE_DIR = Path(".runtime") / "pilot_store"
@@ -458,6 +459,48 @@ def _cmd_run_worker_once(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_run_worker_loop(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    printed_header = False
+
+    def _print_worker_result(result) -> None:
+        nonlocal printed_header
+        if not printed_header:
+            _print_job_header(include_stale=False)
+            printed_header = True
+        _print_job_row(result.job)
+        if result.artifact is not None:
+            print(
+                "artifact\t"
+                f"{result.artifact.project_id}\t{result.artifact.study_id}\t"
+                f"{result.artifact.artifact_id}\t{result.artifact.kind.value}\t"
+                f"{result.artifact.size_bytes}"
+            )
+        if result.message:
+            print(result.message)
+
+    summary = execute_worker_loop(
+        access_service=services.access,
+        actor_user_id=args.actor_user_id,
+        worker_id=args.worker_id,
+        project_id=args.project_id,
+        job_types=getattr(args, "job_type", None),
+        poll_interval_seconds=args.poll_interval_seconds,
+        max_jobs=args.max_jobs,
+        idle_exit_after=args.idle_exit_after,
+        on_result=_print_worker_result,
+    )
+    print(
+        "worker-loop\t"
+        f"stopped_reason={summary.stopped_reason}\t"
+        f"jobs_executed={summary.jobs_executed}\t"
+        f"succeeded={summary.succeeded_jobs}\t"
+        f"failed={summary.failed_jobs}\t"
+        f"idle_polls={summary.idle_polls}"
+    )
+    return 0
+
+
 def _cmd_purge_expired_artifacts(args: argparse.Namespace) -> int:
     services = _pilot_services(args.store_dir)
     services.admin.list_users(actor_user_id=args.actor_user_id)
@@ -778,6 +821,38 @@ def build_parser() -> argparse.ArgumentParser:
         help="Filter by job type. May be provided multiple times.",
     )
     run_worker_once.set_defaults(func=_cmd_run_worker_once)
+
+    run_worker_loop = pilot_admin_sub.add_parser(
+        "run-worker-loop",
+        help="Continuously claim and execute supported queued worker jobs.",
+    )
+    _add_common_store_arg(run_worker_loop)
+    _add_actor_arg(run_worker_loop)
+    run_worker_loop.add_argument("--worker-id", required=True, help="Worker id to assign to claimed jobs.")
+    run_worker_loop.add_argument("--project-id", help="Limit execution to one active project.")
+    run_worker_loop.add_argument(
+        "--job-type",
+        action="append",
+        choices=[job_type.value for job_type in JobType],
+        help="Filter by job type. May be provided multiple times.",
+    )
+    run_worker_loop.add_argument(
+        "--poll-interval-seconds",
+        type=float,
+        default=5.0,
+        help="Seconds to sleep when no queued job is available. Default: 5.",
+    )
+    run_worker_loop.add_argument(
+        "--max-jobs",
+        type=int,
+        help="Stop after executing this many jobs. Omit for daemon-style operation.",
+    )
+    run_worker_loop.add_argument(
+        "--idle-exit-after",
+        type=int,
+        help="Stop after this many consecutive idle polls. Omit to keep polling forever.",
+    )
+    run_worker_loop.set_defaults(func=_cmd_run_worker_loop)
 
     purge_artifacts = pilot_admin_sub.add_parser(
         "purge-expired-artifacts",

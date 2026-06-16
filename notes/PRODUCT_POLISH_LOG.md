@@ -4769,10 +4769,31 @@ benchmark：
 - 如果当前会话没有原始输入，但项目 artifact 足够，前台可只提交后台任务，不再强迫同步补算。
 
 边界说明：
-- 当前 UI 只提交任务，不自动启动 worker；管理员或部署进程需要执行 `pilot-admin run-worker-once` 或后续常驻 worker；
+- 当前 UI 只提交任务，不自动启动 worker；管理员或部署进程需要已启动 `pilot-admin run-worker-loop`，或手动执行 `pilot-admin run-worker-once`；
 - 当前 UI 还没有自动轮询并在 worker 完成后刷新加载 artifact；用户需在任务完成后重新进入图表/导出入口或手动刷新；
 - 这条链路只覆盖按需逐小时明细，不覆盖全量技术仿真、经济性、推荐、图表包、PNG/Excel/批量包或完整报告后台化。
 
 验证：
 - `pytest tests/test_ui_import.py tests/test_pilot_worker.py tests/test_pilot_study_persistence.py -q` 通过，84 项通过；
 - `python -m compileall -q src\green_direct\ui\app.py tests\test_ui_import.py` 通过。
+
+### 2026-06-16 最小轮询 worker loop
+
+本轮继续把按需明细后台化从“管理员手动执行一次”推进到“服务器可跑一个持续轮询的 worker 进程”。这仍不是正式队列系统，但已经能让内部试用环境不依赖人工反复执行 `run-worker-once`。
+
+实现：
+- `src/green_direct/services/pilot_worker.py` 新增 `PilotWorkerLoopResult` 和 `execute_worker_loop()`；
+- loop 复用 `execute_next_worker_job()`，因此仍沿用 `PilotAccessService` 的平台管理员权限、worker_id 校验、heartbeat/终态审计和错误脱敏；
+- 支持 `max_jobs` 和 `idle_exit_after`，用于 CI、脚本演练或有限批处理；不传时可作为 daemon-style 轮询进程；
+- `pilot-admin run-worker-loop` 暴露 CLI，支持 `--poll-interval-seconds`、`--max-jobs`、`--idle-exit-after`、`--project-id`、`--job-type`；
+- `docker-compose.yml` 新增可选 `green-direct-worker` profile，默认不启动；完成管理员 bootstrap 后可运行 `docker compose --profile worker up -d green-direct-worker`。
+
+边界：
+- 当前 loop 只执行已支持的 `technical_study/hourly_detail`，不执行全量技术仿真、经济性、推荐、图表或报告；
+- 本地 JSON store 仍没有跨进程事务/锁；试用期最多启动一个 worker loop；
+- 这不是正式队列、重试系统、资源隔离或 worker 级取消；
+- Streamlit 前台仍没有自动轮询和完成后自动加载 artifact。
+
+验证：
+- 新增 `tests/test_pilot_worker.py` 覆盖 `max_jobs` 和 `idle_exit_after`；
+- 新增 `tests/test_cli.py` parser 覆盖 `pilot-admin run-worker-loop`。

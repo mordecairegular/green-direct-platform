@@ -29,8 +29,10 @@ from green_direct.services.pilot_study_persistence import (
 )
 from green_direct.services.pilot_worker import (
     PilotWorkerExecutionResult,
+    PilotWorkerLoopResult,
     execute_claimed_worker_job,
     execute_next_worker_job,
+    execute_worker_loop,
 )
 from green_direct.services.result_store import LocalResultStore
 from green_direct.services.study_runner import (
@@ -69,6 +71,7 @@ __all__ = [
     "PilotLoginSession",
     "PilotSessionRecord",
     "PilotWorkerExecutionResult",
+    "PilotWorkerLoopResult",
     "PersistedEconomicStudy",
     "PersistedExportArtifact",
     "PersistedHourlyDetailArtifact",
@@ -88,6 +91,7 @@ __all__ = [
     "economic_input_fingerprint",
     "execute_claimed_worker_job",
     "execute_next_worker_job",
+    "execute_worker_loop",
     "filter_uploads",
     "inspect_upload",
     "persist_economic_study_result",

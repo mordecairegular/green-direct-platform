@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from io import BytesIO
 import json
+import time
+from typing import Callable
 from typing import Iterable
 
 import pandas as pd
@@ -37,6 +39,18 @@ class PilotWorkerExecutionResult:
     @property
     def succeeded(self) -> bool:
         return self.job.status == JobStatus.SUCCEEDED
+
+
+@dataclass(frozen=True)
+class PilotWorkerLoopResult:
+    """Summary from a trusted worker polling loop."""
+
+    jobs_executed: int
+    succeeded_jobs: int
+    failed_jobs: int
+    idle_polls: int
+    stopped_reason: str
+    last_result: PilotWorkerExecutionResult | None = None
 
 
 def _sanitize_worker_error(exc: Exception) -> str:
@@ -390,3 +404,79 @@ def execute_next_worker_job(
             artifact=None,
             message=f"Worker job failed: {failed.error_message}",
         )
+
+
+def execute_worker_loop(
+    *,
+    access_service: PilotAccessService,
+    actor_user_id: str,
+    worker_id: str,
+    project_id: str | None = None,
+    job_types: Iterable[JobType | str] | None = None,
+    poll_interval_seconds: float = 5.0,
+    max_jobs: int | None = None,
+    idle_exit_after: int | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    on_result: Callable[[PilotWorkerExecutionResult], None] | None = None,
+) -> PilotWorkerLoopResult:
+    """Poll for supported queued jobs until a stop condition is reached.
+
+    By default this is a daemon-style loop. Tests and one-shot operational
+    scripts can provide max_jobs or idle_exit_after to make it finite.
+    """
+
+    if poll_interval_seconds < 0:
+        raise ValueError("poll_interval_seconds must be non-negative.")
+    if max_jobs is not None and max_jobs <= 0:
+        raise ValueError("max_jobs must be positive when provided.")
+    if idle_exit_after is not None and idle_exit_after <= 0:
+        raise ValueError("idle_exit_after must be positive when provided.")
+
+    jobs_executed = 0
+    succeeded_jobs = 0
+    failed_jobs = 0
+    idle_polls = 0
+    last_result: PilotWorkerExecutionResult | None = None
+    job_type_filter = tuple(job_types) if job_types is not None else None
+
+    while True:
+        if max_jobs is not None and jobs_executed >= max_jobs:
+            return PilotWorkerLoopResult(
+                jobs_executed=jobs_executed,
+                succeeded_jobs=succeeded_jobs,
+                failed_jobs=failed_jobs,
+                idle_polls=idle_polls,
+                stopped_reason="max_jobs",
+                last_result=last_result,
+            )
+
+        result = execute_next_worker_job(
+            access_service=access_service,
+            actor_user_id=actor_user_id,
+            worker_id=worker_id,
+            project_id=project_id,
+            job_types=job_type_filter,
+        )
+        if result is None:
+            idle_polls += 1
+            if idle_exit_after is not None and idle_polls >= idle_exit_after:
+                return PilotWorkerLoopResult(
+                    jobs_executed=jobs_executed,
+                    succeeded_jobs=succeeded_jobs,
+                    failed_jobs=failed_jobs,
+                    idle_polls=idle_polls,
+                    stopped_reason="idle_exit_after",
+                    last_result=last_result,
+                )
+            sleep(poll_interval_seconds)
+            continue
+
+        jobs_executed += 1
+        last_result = result
+        idle_polls = 0
+        if result.succeeded:
+            succeeded_jobs += 1
+        else:
+            failed_jobs += 1
+        if on_result is not None:
+            on_result(result)

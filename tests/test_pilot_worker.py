@@ -13,6 +13,7 @@ from green_direct.services import (
     PilotAccessService,
     TechnicalStudyInput,
     execute_next_worker_job,
+    execute_worker_loop,
     persist_technical_study_result,
     queue_job_with_input_artifact,
     run_technical_study,
@@ -172,3 +173,65 @@ def test_worker_marks_unsupported_job_failed(tmp_path):
     assert not result.succeeded
     assert result.job.status == JobStatus.FAILED
     assert "Unsupported worker job type: economic_study" in str(result.job.error_message)
+
+
+def test_worker_loop_processes_jobs_until_max_jobs(tmp_path):
+    service = _access_service(tmp_path)
+    project = _project_with_admin(service)
+    for job_id in ("job_unsupported_1", "job_unsupported_2"):
+        queue_job_with_input_artifact(
+            access_service=service,
+            actor_user_id="admin",
+            project_id=project.project_id,
+            study_id="study_1",
+            job_type=JobType.ECONOMIC_STUDY,
+            payload={"task": "economy"},
+            job_id=job_id,
+        )
+    seen_job_ids: list[str] = []
+    sleeps: list[float] = []
+
+    summary = execute_worker_loop(
+        access_service=service,
+        actor_user_id="admin",
+        worker_id="worker_loop",
+        job_types=[JobType.ECONOMIC_STUDY],
+        poll_interval_seconds=0.25,
+        max_jobs=2,
+        sleep=sleeps.append,
+        on_result=lambda result: seen_job_ids.append(result.job.job_id),
+    )
+
+    assert summary.stopped_reason == "max_jobs"
+    assert summary.jobs_executed == 2
+    assert summary.succeeded_jobs == 0
+    assert summary.failed_jobs == 2
+    assert summary.idle_polls == 0
+    assert seen_job_ids == ["job_unsupported_1", "job_unsupported_2"]
+    assert sleeps == []
+    assert service.job_store.load_job(project.project_id, "study_1", "job_unsupported_1").status == JobStatus.FAILED
+    assert service.job_store.load_job(project.project_id, "study_1", "job_unsupported_2").status == JobStatus.FAILED
+
+
+def test_worker_loop_can_exit_after_idle_polls(tmp_path):
+    service = _access_service(tmp_path)
+    _project_with_admin(service)
+    sleeps: list[float] = []
+
+    summary = execute_worker_loop(
+        access_service=service,
+        actor_user_id="admin",
+        worker_id="worker_loop",
+        job_types=[JobType.TECHNICAL_STUDY],
+        poll_interval_seconds=0.25,
+        idle_exit_after=2,
+        sleep=sleeps.append,
+    )
+
+    assert summary.stopped_reason == "idle_exit_after"
+    assert summary.jobs_executed == 0
+    assert summary.succeeded_jobs == 0
+    assert summary.failed_jobs == 0
+    assert summary.idle_polls == 2
+    assert summary.last_result is None
+    assert sleeps == [0.25]

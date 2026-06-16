@@ -35,6 +35,41 @@ services:
       retries: 3
       start_period: 30s
 
+  green-direct-worker:
+    profiles:
+      - worker
+    image: green-direct:internal-pilot
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: green-direct-internal-pilot-worker
+    restart: unless-stopped
+    depends_on:
+      - green-direct
+    environment:
+      GREEN_DIRECT_ENABLE_PILOT_AUTH: "1"
+      GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT: "0"
+      GREEN_DIRECT_PILOT_STORE_DIR: "/data/pilot_store"
+      PYTHONPATH: "/app/src"
+    volumes:
+      - green_direct_pilot_store:/data/pilot_store
+    command:
+      - python
+      - -m
+      - green_direct.cli
+      - pilot-admin
+      - run-worker-loop
+      - --store-dir
+      - /data/pilot_store
+      - --actor-user-id
+      - ${GREEN_DIRECT_WORKER_ACTOR_USER_ID:-admin}
+      - --worker-id
+      - ${GREEN_DIRECT_WORKER_ID:-pilot-worker-compose}
+      - --job-type
+      - technical_study
+      - --poll-interval-seconds
+      - ${GREEN_DIRECT_WORKER_POLL_INTERVAL_SECONDS:-5}
+
 volumes:
   green_direct_pilot_store:
     name: green_direct_pilot_store

@@ -171,11 +171,11 @@ PNG 图表包后台任务也按会话隔离：
 - 支持 `claim_next_queued_job()`，可按项目和任务类型认领最早 queued 任务并转为 running，写入 `worker_id` 和 heartbeat，作为后续 worker 轮询的本地原语；
 - `Job.input_artifact_ids` 会随 job JSON 持久化；`pilot-admin list-jobs` 已显示输入 artifact 数量，便于运维判断某个 queued/running job 是否带了受控输入引用；
 - 任务请求 payload 可通过 `queue_job_with_input_artifact()` 保存为 `job_input_<job_id>.json`，并以默认 `job_payload` key 挂入 `Job.input_artifact_ids`；外部输入如 `technical_summary`、`config_snapshot`、`input_curve_*` 也会在同一映射中保留；
-- `src/green_direct/services/pilot_worker.py` 已提供第一条 one-shot worker 执行路径：`execute_next_worker_job()` 先认领 queued job，再根据 `Job.input_artifact_ids` 读取输入 artifact 并执行；当前仅支持 `technical_study` + `job_payload.task="hourly_detail"`；
+- `src/green_direct/services/pilot_worker.py` 已提供第一条 worker 执行路径：`execute_next_worker_job()` 先认领 queued job，再根据 `Job.input_artifact_ids` 读取输入 artifact 并执行；`execute_worker_loop()` 可持续轮询并执行受支持任务；当前仅支持 `technical_study` + `job_payload.task="hourly_detail"`；
 - Streamlit 推荐页、图表概览页和导出/报告页在缺少所选方案逐小时明细时，若当前项目结果已有 `technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，已可提交 `technical_study/hourly_detail` queued job；当前 UI 只排队，不自动启动 worker，也不轮询完成后自动加载结果；
 - 支持 `list_stale_running_jobs()` 和 `fail_stale_running_jobs()`，可把超过阈值未 heartbeat 的 running 任务标记为 failed；`pilot-admin fail-stale-jobs` 会复用该能力并写 `COMPLETE_JOB` 审计；
 - 路径片段使用白名单校验，防止 `project_id`、`study_id`、`job_id` 被拼接成越权路径；
-- 当前实现只持久化任务状态、本地认领原语和一条最小 one-shot 执行路径；JSON 写入已使用原子替换，但仍不包含常驻 worker daemon、正式调度器、重试策略、跨进程并发锁或管理员 UI；后续任务队列或数据库实现应沿用同一 `Job` 契约。
+- 当前实现只持久化任务状态、本地认领原语、一条最小执行路径和 CLI 轮询 worker；JSON 写入已使用原子替换，但仍不包含正式调度器、重试策略、跨进程并发锁或管理员 UI；后续任务队列或数据库实现应沿用同一 `Job` 契约。
 - Streamlit 欢迎页已消费该任务状态：可筛选 `queued` / `running` 活动任务、展示任务状态明细并提供最小取消入口。但取消和 stale cleanup 都只改变任务元数据状态，不代表已有 worker 级中断、重试或资源隔离。
 
 已落地的第一步权限与审计服务：
@@ -187,7 +187,7 @@ PNG 图表包后台任务也按会话隔离：
 - `succeed_worker_job()` / `fail_worker_job()` 已作为平台管理员保护的 worker 终态入口，要求 `worker_id` 与 running job 记录一致，并写 `COMPLETE_JOB` 审计；
 - `submit_job()` 已支持并校验 `Job.input_artifact_ids`：若提交的 job 声明了输入 artifact，服务层会要求这些 artifact 已存在于同一 `project_id` / `study_id`，并把引用写入 `SUBMIT_JOB` 审计 metadata；
 - `queue_job_with_input_artifact()` 在 `submit_job()` 前预校验权限和外部 artifact，并写 `STORE_ARTIFACT` 审计；它只提交 queued job，不在 Streamlit 请求内执行计算；
-- `execute_next_worker_job()` / `pilot-admin run-worker-once` 已可执行第一条受支持 worker 链路：读取 `job_payload`、`technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，复用 `run_hourly_detail_for_scenario()` 生成单方案逐小时明细，写回 `ArtifactKind.HOURLY_DETAIL` 并标记 job 成功或失败；
+- `execute_next_worker_job()` / `pilot-admin run-worker-once` / `pilot-admin run-worker-loop` 已可执行第一条受支持 worker 链路：读取 `job_payload`、`technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，复用 `run_hourly_detail_for_scenario()` 生成单方案逐小时明细，写回 `ArtifactKind.HOURLY_DETAIL` 并标记 job 成功或失败；
 - `list_accessible_projects()` 已用于 Streamlit 登录后的项目工作区选择，只返回当前用户有有效 membership 的项目；
 - `admin` 可创建/归档项目、授予/停用成员、提交任务、查看任务和产物、取消他人任务；
 - `analyst` 可提交和查看本项目任务，并取消自己提交的任务；
@@ -197,7 +197,7 @@ PNG 图表包后台任务也按会话隔离：
 - 产物索引读取仍要求项目查看权限；网页内恢复/图表查看 payload 使用 `read_artifact_payload_for_view()`，要求项目查看权限并写入 `VIEW_ARTIFACT` 审计；文件下载/导出 payload 使用 `read_artifact_payload()`，要求项目导出权限，成功和拒绝都会写入 `DOWNLOAD_ARTIFACT` 审计；当前 Streamlit 06 页尚未落盘的临时 CSV/Excel/ZIP/Markdown 下载使用 `record_transient_export_download()` 记录同类审计；
 - 停用用户、停用 membership、非成员、已归档项目的新任务提交会被拒绝；
 - 创建项目、成员变更、提交任务、取消任务、读取产物 payload 会写入 `AuditLog`；
-- 当前服务仍不包含常驻 worker daemon、数据库事务或跨进程并发锁；它是当前 Streamlit 项目工作区、后续任务入口和 SQLite/Postgres 适配器应复用的权限/审计语义。
+- 当前服务仍不包含正式队列、数据库事务或跨进程并发锁；它是当前 Streamlit 项目工作区、后续任务入口和 SQLite/Postgres 适配器应复用的权限/审计语义。
 
 试用版已有本地文件版密码与会话服务，可先用于开发和受控内网演示；正式内网版仍应评估 SQLite/Postgres 会话表、企业微信、OIDC、LDAP 或公司统一身份。
 
@@ -280,13 +280,13 @@ PNG 图表包后台任务也按会话隔离：
 - `LocalResultStore` 和 `PilotAccessService` 已支持按项目/研究列出结果索引；Streamlit 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引，并可加载下载已落盘的 summary / portfolio artifact；技术 summary 可 summary-only 恢复到当前会话，恢复时会带上已有 hourly artifact 和 input artifact 索引；同一 `study_id` 的技术汇总已恢复后，经济 summary 可恢复到当前会话，并同步恢复已保存的年度现金流和推荐席位输入，推荐 portfolio 也可 portfolio-only 恢复到当前会话。当前会话刚跑出的 summary-first 结果可按需补算单个方案明细，并把补算明细保存为默认 30 天过期的 hourly artifact；历史 summary-only 恢复如果已有 hourly artifact，可在图表/报告入口按网页查看权限加载；如果只有 input artifact、没有 hourly artifact，可在三条输入曲线未过期且 `config_snapshot` 带有 `curve_columns` 时重建 `TechnicalStudyInput` 并跨会话补算单方案明细。
 
 仍未落地：
-- 常驻后台 worker / 正式队列 / worker 级取消重试闭环；
-- 技术仿真历史 summary-only 结果基于受控 input artifact 的后台补算已能排队并由 one-shot worker 执行，但仍缺自动轮询、完成提示和常驻执行器；
+- 正式队列 / worker 级取消重试闭环 / 跨进程锁；
+- 技术仿真历史 summary-only 结果基于受控 input artifact 的后台补算已能排队并由 one-shot worker 或最小轮询 worker 执行，但仍缺前台自动轮询、完成提示和自动加载；
 - 推荐视角选择/重新排序状态、PNG/Excel/批量导出包、完整报告产物写入 `ResultStore`；
 - 完整项目级任务状态页仍需继续扩展为真正 worker 轮询/重试/取消页面；当前已有项目内任务状态明细。推荐结果重新排序工作台恢复和跨项目搜索仍未落地；结果索引标记/置顶和软删除已有第一版，但仍不是完整历史结果管理页；
 - SQLite/Postgres 或对象存储适配、跨进程并发锁、备份和部署 runbook；本地 JSON 写入已有原子替换，但仍不是数据库事务。
 
 下一阶段建议：
 1. 先把当前任务状态明细升级为真正 worker 轮询/重试/取消页面，并完善结果历史恢复/下载页，让用户可以在项目内找回已完成测算；
-2. 再把按需逐小时明细的后台排队入口补成完整体验：常驻 worker 自动认领、前台轮询、完成后自动加载 hourly artifact，并把 summary-only 经济运行的按需年度现金流生成纳入 Job 链路；
+2. 再把按需逐小时明细的后台排队入口补成完整体验：前台轮询、完成后自动加载 hourly artifact，并把 summary-only 经济运行的按需年度现金流生成纳入 Job 链路；
 3. 最后把剩余图表包和报告导出统一变成项目级 artifacts，并接入后台 worker。

@@ -29,6 +29,8 @@ Browser
 
 Cloudflare 的最佳角色：域名、HTTPS、WAF/基础防护、Zero Trust Access、访问日志入口。不要让 Cloudflare Workers/Pages 承载当前 Python 计算应用本体。
 
+当前仓库已有最小后台 worker loop，但 `render.yaml` 仍只创建 Web Service。原因是本地 file store 版依赖 `/data/pilot_store`，不应在 Render 上直接再建一个独立 Worker Service 并假设它能共享同一个服务磁盘。若要拆成 Web + Worker 两个托管服务，优先把项目库迁移到 Postgres/SQLite 托管盘方案和对象存储；若部署在自有 VM / Docker Compose，可用同一命名卷启动可选 `green-direct-worker` profile。
+
 如果目标只是让同事在手机或移动网络下先试用，请优先按 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 执行；本文保留更完整的平台判断和架构边界。
 
 ## 2. 为什么先选 Render
@@ -86,7 +88,7 @@ Vercel 可以作为未来正式化后的前端托管平台：例如将前端改�
    - mount path: `/data`
    - app store: `/data/pilot_store`
 8. 部署完成后访问 Render 默认域名，确认登录页出现。
-9. 用 Render Shell 或一次性 Job 初始化平台管理员：
+9. 用 Render Shell 初始化平台管理员。不要用 Render One-Off Job 初始化本地 file store 版 pilot store；持久盘应在 Web Service 运行环境中访问。
 
 ```bash
 GREEN_DIRECT_ADMIN_PASSWORD='replace-with-one-time-password' \
@@ -99,6 +101,14 @@ python -m green_direct.cli pilot-admin bootstrap \
 ```
 
 10. 登录后立刻重置强密码，并创建第一批内测用户。
+
+若要在自有 VM 或 Docker Compose 环境中启用最小后台 worker，管理员初始化完成后启动：
+
+```bash
+docker compose --profile worker up -d green-direct-worker
+```
+
+托管平台 Render 的本地 disk 路线下，首次内测可先用同步补算 fallback 或在同一服务 shell 中执行一次性 `run-worker-once` 做排障；不要把本地 file store 版误拆成多个无法共享状态的服务。
 
 ## 4. Cloudflare 入口
 
@@ -138,7 +148,7 @@ Streamlit UI
   -> PilotAccessService / ResultStore / JobStore
   -> Postgres or SQLite managed database
   -> Object storage for input curves, hourly detail, chart packages, reports
-  -> Worker process for long-running calculations
+  -> Worker process for long-running calculations (`run-worker-loop` or managed queue worker)
 ```
 
 第二阶段再把前台改为 Next.js/React，把计算和项目库变成 FastAPI + worker + queue。这个路线更接近正式 SaaS，但会明显拉长工期，不适合作为第一次公网试用的前置条件。

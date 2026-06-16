@@ -43,9 +43,11 @@ GitHub private repository
 6. 部署完成后，访问 Render 默认域名。
 7. 若显示应用登录页，说明公网入口已通。
 
+当前 `render.yaml` 只创建 Web Service。按需逐小时明细后台任务已有 `run-worker-loop`，但本地 file store 版在 Render 上不应简单拆成另一个独立 Worker Service 共享 `/data/pilot_store`；该类持久盘绑定在服务侧，正式拆分 worker 前应先迁移到数据库/对象存储，或改用同一主机/Compose 共享卷方案。第一次移动网络试用可先保留同步补算 fallback，必要时由管理员在同一服务环境里执行 `run-worker-once`。
+
 ## 4. 初始化管理员
 
-在 Render Shell 或一次性命令环境中执行：
+在 Render Web Service 的 Shell 中执行。不要用 Render One-Off Job 初始化本地 file store 版 pilot store；持久盘应在 Web Service 运行环境中访问。
 
 ```bash
 GREEN_DIRECT_ADMIN_PASSWORD='replace-with-one-time-password' \
@@ -92,6 +94,7 @@ Cloudflare Access 是公网入口第一层门禁；应用内账号是第二层�
 - 普通用户看不到其他人的项目；
 - 创建项目、运行小样例、重启服务后项目仍存在；
 - 审计日志能看到登录、项目、下载、artifact 操作；
+- 如测试后台逐小时明细补算，确认 queued job 会出现在欢迎页任务面板，并由 `run-worker-once` 或 `run-worker-loop` 处理完成；
 - `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0`；
 - 数据目录不是 Git 仓库目录。
 - Render/Docker 构建日志中没有上传本地 `.runtime`、输出文件、历史归档或调试日志。

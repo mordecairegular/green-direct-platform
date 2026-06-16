@@ -167,7 +167,7 @@ python -m green_direct.cli pilot-admin purge-expired-artifacts `
 
 ## 10. 任务卡死恢复
 
-当前 `LocalJobStore` 已记录 `worker_id` 和 `last_heartbeat_at`，并已有第一条 one-shot worker 执行路径，但试用版还没有常驻后台 worker、进程守护或自动重试。如果 Streamlit 进程中断、服务器重启或未来 worker 异常退出，可能留下长期 `running` 的任务元数据。管理员可先查看任务状态：
+当前 `LocalJobStore` 已记录 `worker_id` 和 `last_heartbeat_at`，并已有第一条 worker 执行路径和最小轮询命令；但试用版还没有正式队列、进程守护、worker 级取消或自动重试。如果 Streamlit 进程中断、服务器重启或未来 worker 异常退出，可能留下长期 `running` 的任务元数据。管理员可先查看任务状态：
 
 ```powershell
 $env:PYTHONPATH = "src"
@@ -215,6 +215,20 @@ python -m green_direct.cli pilot-admin run-worker-once `
 ```
 
 `run-worker-once` 会认领一个 matching queued job，读取 `job_payload`、`technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，补算单方案逐小时明细，写回 `ArtifactKind.HOURLY_DETAIL`，并标记任务成功或失败。当前它只支持该按需 hourly detail 任务，不支持全量技术仿真、经济性测算、推荐、图表包或报告导出。
+
+完成管理员 bootstrap 后，也可以启动最小轮询 worker，让它持续认领受支持的 queued job：
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m green_direct.cli pilot-admin run-worker-loop `
+    --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --actor-user-id admin `
+    --worker-id pilot-worker-1 `
+    --job-type technical_study `
+    --poll-interval-seconds 5
+```
+
+`run-worker-loop` 会反复执行与 `run-worker-once` 相同的受支持任务。可用 `--max-jobs` 做有限批处理，用 `--idle-exit-after` 在连续空轮询后退出，便于 CI、脚本或一次性演练。Docker Compose 部署已提供可选 worker profile：先完成管理员初始化，再执行 `docker compose --profile worker up -d green-direct-worker`。当前本地 JSON store 仍不适合多 worker 并发写入；试用期建议最多启动一个 worker loop。
 
 认领后，worker wrapper 可周期性刷新 heartbeat 和进度：
 
@@ -287,7 +301,7 @@ python -m green_direct.cli pilot-admin list-audit-events `
 - 普通用户必须选择或创建项目后才进入六步工作流；
 - Demo 技术仿真、经济性测算、方案推荐能跑通；
 - 禁止导出的项目成员不能下载历史 artifact 或 06 页导出文件；
-- `pilot-admin list-users`、`list-projects`、`list-project-members`、`list-audit-events`、`list-jobs`、`claim-next-job`、`heartbeat-job`、`complete-worker-job`、`fail-worker-job`、`run-worker-once`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
+- `pilot-admin list-users`、`list-projects`、`list-project-members`、`list-audit-events`、`list-jobs`、`claim-next-job`、`heartbeat-job`、`complete-worker-job`、`fail-worker-job`、`run-worker-once`、`run-worker-loop`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
 - 新运行日志不包含明文密码、明文 token、原始曲线内容。
 
 ## 13. 回滚
@@ -296,7 +310,7 @@ python -m green_direct.cli pilot-admin list-audit-events `
 
 ## 14. 仍未完成的生产化事项
 
-- 正式常驻后台 worker、排队、worker 级取消、重试和限流；当前仅有活动任务取消元数据、stale running 置失败运维入口和按需 hourly detail 的 one-shot worker；
+- 正式队列、worker 级取消、重试和限流；当前仅有活动任务取消元数据、stale running 置失败运维入口、按需 hourly detail 的 queued job 入口，以及最小 `run-worker-loop` 轮询 worker；
 - SQLite/Postgres 或对象存储适配；
 - 原始上传文件保存、留存和清理；
 - 完整历史结果恢复、跨项目搜索和报告版本管理；结果索引标记/置顶和软删除已有第一版；

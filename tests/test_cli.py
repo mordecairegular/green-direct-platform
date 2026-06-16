@@ -962,3 +962,35 @@ def test_cli_exposes_run_worker_once_command():
     assert parsed.pilot_admin_command == "run-worker-once"
     assert parsed.worker_id == "worker_1"
     assert parsed.job_type == ["technical_study"]
+
+
+def test_cli_exposes_run_worker_loop_command():
+    parser = build_parser()
+    parsed = parser.parse_args(
+        [
+            "pilot-admin",
+            "run-worker-loop",
+            "--actor-user-id",
+            "admin",
+            "--worker-id",
+            "worker_1",
+            "--project-id",
+            "project_1",
+            "--job-type",
+            "technical_study",
+            "--poll-interval-seconds",
+            "0.5",
+            "--max-jobs",
+            "3",
+            "--idle-exit-after",
+            "2",
+        ]
+    )
+
+    assert parsed.command == "pilot-admin"
+    assert parsed.pilot_admin_command == "run-worker-loop"
+    assert parsed.worker_id == "worker_1"
+    assert parsed.job_type == ["technical_study"]
+    assert parsed.poll_interval_seconds == 0.5
+    assert parsed.max_jobs == 3
+    assert parsed.idle_exit_after == 2

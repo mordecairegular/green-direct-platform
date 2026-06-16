@@ -144,6 +144,25 @@ green_direct_pilot_store -> /data/pilot_store
 
 不要把该数据卷内容提交到 Git，也不要放到 Web 静态目录。
 
+## 4.1 后台 Worker
+
+按需逐小时明细补算已经可以提交为项目级 queued job。完成平台管理员 bootstrap 后，可启动可选 worker profile，让后台进程持续认领受支持任务：
+
+```powershell
+docker compose --profile worker up -d green-direct-worker
+```
+
+默认 worker 使用 `admin` 作为平台管理员 actor，worker id 为 `pilot-worker-compose`。可通过环境变量覆盖：
+
+```powershell
+$env:GREEN_DIRECT_WORKER_ACTOR_USER_ID = "admin"
+$env:GREEN_DIRECT_WORKER_ID = "pilot-worker-1"
+$env:GREEN_DIRECT_WORKER_POLL_INTERVAL_SECONDS = "5"
+docker compose --profile worker up -d green-direct-worker
+```
+
+该 worker 当前只执行 `technical_study/hourly_detail` 任务。它不是正式队列系统，不提供 worker 级取消、重试、资源隔离或多 worker 并发锁；本地 JSON store 版试用期建议最多启动一个 worker。
+
 ## 5. 账号与权限
 
 平台管理员登录后可以在“平台管理”页：
@@ -292,7 +311,7 @@ http://127.0.0.1:8503/_stcore/health
 
 当前 Docker 部署包解决的是“可标准化启动和持久化本地 store”。尚未完成：
 
-- 常驻后台 worker / 正式队列 / worker 级取消 / 重试；当前仅有按需 hourly detail 的 queued job 提交入口和 one-shot worker；
+- 正式队列 / worker 级取消 / 重试 / 进程守护；当前仅有按需 hourly detail 的 queued job 提交入口、one-shot worker 和最小轮询 worker；
 - SQLite/Postgres 或对象存储适配；
 - 原始上传文件、逐小时明细、图表包和报告导出的完整 artifact 留存；
 - 集中日志、监控告警、CI/CD 和自动化恢复演练；
