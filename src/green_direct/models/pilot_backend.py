@@ -84,6 +84,7 @@ class ArtifactKind(str, Enum):
     HOURLY_DETAIL = "hourly_detail"
     ECONOMY_SUMMARY = "economy_summary"
     ANNUAL_CASHFLOW = "annual_cashflow"
+    RECOMMENDATION_INPUT = "recommendation_input"
     RECOMMENDATION_PORTFOLIO = "recommendation_portfolio"
     CHART_PACKAGE = "chart_package"
     REPORT = "report"
@@ -365,6 +366,7 @@ class StudyResultRecord:
     technical_summary_artifact_id: str | None = None
     economy_summary_artifact_id: str | None = None
     single_entity_summary_artifact_id: str | None = None
+    recommendation_input_artifact_id: str | None = None
     recommendation_artifact_id: str | None = None
     hourly_detail_artifact_ids: Mapping[str, str] = field(default_factory=dict)
     report_artifact_ids: Mapping[str, str] = field(default_factory=dict)

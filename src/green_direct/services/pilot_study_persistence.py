@@ -48,6 +48,7 @@ class PersistedEconomicStudy:
     job: Job
     power_summary_artifact: JobArtifact
     single_entity_summary_artifact: JobArtifact
+    recommendation_input_artifact: JobArtifact
     result_record: StudyResultRecord
     input_fingerprint: str
 
@@ -148,6 +149,23 @@ def _config_snapshot_json(
 
 def _frame_csv(frame) -> str:
     return frame.to_csv(index=False)
+
+
+def _recommendation_inputs_json(economic_result: EconomicStudyResult) -> str:
+    inputs = economic_result.recommendation_inputs
+    payload = {
+        "economic_params": asdict(inputs.economic_params),
+        "load_side_avoided_charge_price": inputs.load_side_avoided_charge_price,
+        "green_power_settlement_price_with_vat": inputs.green_power_settlement_price_with_vat,
+        "environmental_value_per_kwh": inputs.environmental_value_per_kwh,
+        "min_power_side_acceptable_firr": inputs.min_power_side_acceptable_firr,
+    }
+    return json.dumps(
+        json_value(payload),
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+    )
 
 
 def _hourly_detail_expiry(retention_days: int) -> tuple[ArtifactRetentionPolicy, datetime | None]:
@@ -452,7 +470,7 @@ def persist_economic_study_result(
         job_type=JobType.ECONOMIC_STUDY,
         input_fingerprint=input_fingerprint,
         progress_current=0,
-        progress_total=2,
+        progress_total=3,
         progress_message="economic study queued",
     )
     submitted = access_service.submit_job(actor_user_id=actor_user_id, job=job)
@@ -464,16 +482,27 @@ def persist_economic_study_result(
     )
     power_artifact_id = f"economy_summary_{running.job_id}"
     single_entity_artifact_id = f"single_entity_summary_{running.job_id}"
+    recommendation_input_artifact_id = f"recommendation_inputs_{running.job_id}"
     result_id = f"economy_result_{running.job_id}"
     try:
+        recommendation_input_artifact = access_service.result_store.store_artifact(
+            artifact_id=recommendation_input_artifact_id,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=running.job_id,
+            kind=ArtifactKind.RECOMMENDATION_INPUT,
+            payload=_recommendation_inputs_json(economic_result),
+            filename="recommendation_inputs.json",
+            content_type="application/json",
+        )
         access_service.update_job_progress(
             actor_user_id=actor_user_id,
             project_id=project_id,
             study_id=study_id,
             job_id=running.job_id,
             current=1,
-            total=2,
-            message="power-side economy summary ready",
+            total=3,
+            message="recommendation input snapshot ready",
         )
         power_artifact = access_service.result_store.store_artifact(
             artifact_id=power_artifact_id,
@@ -484,6 +513,15 @@ def persist_economic_study_result(
             payload=_frame_csv(economic_result.power_summary),
             filename="power_economy_summary.csv",
             content_type="text/csv",
+        )
+        access_service.update_job_progress(
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=running.job_id,
+            current=2,
+            total=3,
+            message="power-side economy summary ready",
         )
         single_entity_artifact = access_service.result_store.store_artifact(
             artifact_id=single_entity_artifact_id,
@@ -500,8 +538,8 @@ def persist_economic_study_result(
             project_id=project_id,
             study_id=study_id,
             job_id=running.job_id,
-            current=2,
-            total=2,
+            current=3,
+            total=3,
             message="economic study result ready",
         )
         record = access_service.result_store.save_result_record(
@@ -512,6 +550,7 @@ def persist_economic_study_result(
                 created_by_job_id=running.job_id,
                 economy_summary_artifact_id=power_artifact.artifact_id,
                 single_entity_summary_artifact_id=single_entity_artifact.artifact_id,
+                recommendation_input_artifact_id=recommendation_input_artifact.artifact_id,
             )
         )
         succeeded = access_service.succeed_job(
@@ -537,6 +576,7 @@ def persist_economic_study_result(
         job=succeeded,
         power_summary_artifact=power_artifact,
         single_entity_summary_artifact=single_entity_artifact,
+        recommendation_input_artifact=recommendation_input_artifact,
         result_record=record,
         input_fingerprint=input_fingerprint,
     )

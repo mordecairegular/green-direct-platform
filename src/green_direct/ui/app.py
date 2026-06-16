@@ -2042,6 +2042,7 @@ def _study_result_with_pilot_economy_refs(study_result: StudyResult, persisted) 
         "economy_result_id": persisted.result_record.result_id,
         "power_economy_summary_artifact_id": persisted.power_summary_artifact.artifact_id,
         "single_entity_summary_artifact_id": persisted.single_entity_summary_artifact.artifact_id,
+        "recommendation_input_artifact_id": persisted.recommendation_input_artifact.artifact_id,
         "economy_input_fingerprint": persisted.input_fingerprint,
     }
     return replace(study_result, result_store_refs=refs)
@@ -2349,6 +2350,7 @@ def _pilot_result_artifact_count(record: StudyResultRecord) -> int:
         record.technical_summary_artifact_id,
         record.economy_summary_artifact_id,
         record.single_entity_summary_artifact_id,
+        record.recommendation_input_artifact_id,
         record.recommendation_artifact_id,
     ]
     direct_artifact_count = sum(1 for artifact_id in artifact_ids if artifact_id)
@@ -2361,6 +2363,7 @@ def _pilot_result_artifact_refs(record: StudyResultRecord) -> list[tuple[str, st
         ("技术汇总", record.technical_summary_artifact_id),
         ("电源侧经济性汇总", record.economy_summary_artifact_id),
         ("同一主体经济性汇总", record.single_entity_summary_artifact_id),
+        ("推荐席位输入", record.recommendation_input_artifact_id),
         ("推荐组合", record.recommendation_artifact_id),
     ]
     refs.extend((label, artifact_id) for label, artifact_id in direct_refs if artifact_id)
@@ -2430,6 +2433,55 @@ def _pilot_load_artifact_view(
         "size_bytes": artifact.size_bytes,
         "kind": artifact.kind,
     }
+
+
+def _recommendation_input_snapshot_from_payload(payload: bytes) -> RecommendationInputSnapshot:
+    data = json.loads(payload.decode("utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("推荐席位输入 artifact 格式无效。")
+
+    params_data = data.get("economic_params") or {}
+    if not isinstance(params_data, dict):
+        raise ValueError("推荐席位输入缺少经济参数。")
+    params_data = dict(params_data)
+
+    raw_revenues = params_data.get("other_operating_revenues", ())
+    if raw_revenues is None:
+        params_data["other_operating_revenues"] = ()
+    elif isinstance(raw_revenues, (list, tuple)):
+        revenues: list[OtherOperatingRevenueItem] = []
+        for item in raw_revenues:
+            if isinstance(item, OtherOperatingRevenueItem):
+                revenues.append(item)
+            elif isinstance(item, dict):
+                revenue_data = dict(item)
+                specific_years = revenue_data.get("specific_years", ())
+                if specific_years is None:
+                    revenue_data["specific_years"] = ()
+                elif isinstance(specific_years, (list, tuple)):
+                    revenue_data["specific_years"] = tuple(int(year) for year in specific_years)
+                else:
+                    raise ValueError("推荐席位输入中的其他收入年份格式无效。")
+                revenues.append(OtherOperatingRevenueItem(**revenue_data))
+            else:
+                raise ValueError("推荐席位输入中的其他收入条目格式无效。")
+        params_data["other_operating_revenues"] = tuple(revenues)
+    else:
+        raise ValueError("推荐席位输入中的其他收入格式无效。")
+
+    def required_float(field_name: str) -> float:
+        if field_name not in data:
+            raise ValueError(f"推荐席位输入缺少字段：{field_name}")
+        return float(data[field_name])
+
+    min_firr_value = data.get("min_power_side_acceptable_firr")
+    return RecommendationInputSnapshot(
+        economic_params=EconomicParams(**params_data),
+        load_side_avoided_charge_price=required_float("load_side_avoided_charge_price"),
+        green_power_settlement_price_with_vat=required_float("green_power_settlement_price_with_vat"),
+        environmental_value_per_kwh=float(data.get("environmental_value_per_kwh", 0.0)),
+        min_power_side_acceptable_firr=None if min_firr_value is None else float(min_firr_value),
+    )
 
 
 def _pilot_restore_technical_summary_result(
@@ -2569,9 +2621,24 @@ def _pilot_restore_economy_summary_result(
             raise ValueError(f"Artifact {record.single_entity_summary_artifact_id} 不是经济性汇总。")
         single_entity_summary = pd.read_csv(BytesIO(single_entity_download["payload"]))
 
+    recommendation_inputs = None
+    if record.recommendation_input_artifact_id:
+        recommendation_input_download = _pilot_load_artifact_view(
+            access,
+            actor_user_id=actor_user_id,
+            record=record,
+            artifact_id=record.recommendation_input_artifact_id,
+        )
+        if recommendation_input_download["kind"] != ArtifactKind.RECOMMENDATION_INPUT:
+            raise ValueError(f"Artifact {record.recommendation_input_artifact_id} 不是推荐席位输入。")
+        recommendation_inputs = _recommendation_input_snapshot_from_payload(
+            recommendation_input_download["payload"]
+        )
+
     return {
         "power_summary": power_summary,
         "single_entity_summary": single_entity_summary,
+        "recommendation_inputs": recommendation_inputs,
         "row_count": max(len(power_summary), len(single_entity_summary)),
     }
 
@@ -2624,7 +2691,11 @@ def _pilot_restore_economy_summary_to_session(
         }
     else:
         st.session_state.pop("single_entity_economy_result", None)
-    st.session_state.pop("recommendation_v1_inputs", None)
+    recommendation_inputs = restored.get("recommendation_inputs")
+    if isinstance(recommendation_inputs, RecommendationInputSnapshot):
+        st.session_state["recommendation_v1_inputs"] = recommendation_inputs.to_session_dict()
+    else:
+        st.session_state.pop("recommendation_v1_inputs", None)
     st.session_state.pop("recommendation_v1_result", None)
     st.session_state.pop("download_payloads", None)
 
@@ -2638,12 +2709,15 @@ def _pilot_restore_economy_summary_to_session(
             refs["power_economy_summary_artifact_id"] = record.economy_summary_artifact_id
         if record.single_entity_summary_artifact_id:
             refs["single_entity_summary_artifact_id"] = record.single_entity_summary_artifact_id
+        if record.recommendation_input_artifact_id:
+            refs["recommendation_input_artifact_id"] = record.recommendation_input_artifact_id
         st.session_state["study_result"] = replace(study_result, result_store_refs=refs)
 
-    st.session_state["_economy_notice"] = (
-        f"已从项目历史恢复经济性汇总：{record.result_id}。"
-        "这是 summary-only 恢复，不包含年度现金流和推荐排序输入；如需推荐页，请重新运行经济性测算。"
-    )
+    if isinstance(recommendation_inputs, RecommendationInputSnapshot):
+        restore_note = "这是 summary-only 恢复，不包含年度现金流；推荐席位输入已恢复，可进入推荐页重新生成/排序。"
+    else:
+        restore_note = "这是 summary-only 恢复，不包含年度现金流和推荐排序输入；如需推荐页，请重新运行经济性测算。"
+    st.session_state["_economy_notice"] = f"已从项目历史恢复经济性汇总：{record.result_id}。{restore_note}"
     return restored
 
 
@@ -2821,7 +2895,7 @@ def _render_pilot_result_artifact_downloads(
                             raise
                     else:
                         st.rerun()
-                st.caption("恢复仅写入经济性 summary；年度现金流和推荐排序输入不会随之恢复。")
+                st.caption("恢复仅写入经济性 summary；年度现金流不会随之恢复，推荐席位输入若已保存会同步恢复。")
             if record.recommendation_artifact_id:
                 restore_recommendation_key = (
                     f"pilot_history_restore_recommendation_{record.project_id}:{record.study_id}:{record.result_id}"

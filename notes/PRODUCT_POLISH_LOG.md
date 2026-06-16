@@ -4034,3 +4034,31 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_pilot_access.py tests/test_pilot_study_persistence.py tests/test_ui_import.py::test_pilot_economy_and_recommendation_helpers_persist_refs_and_dedupe tests/test_ui_import.py::test_pilot_history_artifact_refs_and_download_use_access_service tests/test_ui_import.py::test_pilot_project_activity_frames_summarize_jobs_and_results tests/test_ui_import.py::test_pilot_restore_recommendation_uses_view_permission_without_export tests/test_ui_import.py::test_pilot_restore_economy_summary_uses_view_permission_without_export tests/test_ui_import.py::test_recommendation_status_display_does_not_mark_no_candidate_as_ok tests/test_ui_import.py::test_first_report_scenario_prefers_valid_recommendation_portfolio_id tests/test_ui_import.py::test_default_export_scenario_prefers_current_then_recommendation -q` 通过，27 项通过；
 - `python -m compileall -q src scripts tests` 通过；
 - `python -m pytest -q` 通过，293 项通过。
+
+### 2026-06-16 推荐席位输入 artifact 留存与恢复
+
+本轮继续补项目历史结果恢复链路。上一轮经济 summary 可以恢复，但推荐页仍缺少当时经济测算用于推荐 V1 的输入快照，用户只能重新跑经济性测算后再生成推荐。对受控公网内测 Route A 来说，Run 的参数快照和可复盘性是 P0 要求；推荐席位输入不应只停留在当前浏览器 session。
+
+本轮判断：
+- 推荐席位输入体量小、结构稳定，应随经济性测算结果一起保存为项目级 artifact；
+- 该输入快照属于网页内继续分析所需的参数，不应被“不可导出”权限阻断网页恢复；恢复时仍走 `read_artifact_payload_for_view()`，不授予文件下载能力；
+- 经济 summary 恢复后可以回填 `recommendation_v1_inputs`，允许用户进入推荐页重新生成/排序；
+- 推荐 portfolio 的已生成结果仍是 portfolio-only 恢复，不包含视角选择、手工重新排序或完整推荐工作台状态。
+
+本轮实现：
+- 新增 `ArtifactKind.RECOMMENDATION_INPUT` 和 `StudyResultRecord.recommendation_input_artifact_id`；
+- `persist_economic_study_result()` 现在除 `power_economy_summary.csv`、`single_entity_summary.csv` 外，还写入 `recommendation_inputs.json`；
+- Streamlit 历史结果列表会显示“推荐席位输入” artifact，下载仍受 `can_export_artifacts` 控制；
+- 经济 summary 恢复时若存在 `recommendation_inputs.json`，会校验 artifact 类型、还原 `RecommendationInputSnapshot` 和嵌套的 `OtherOperatingRevenueItem`，再写回 `st.session_state["recommendation_v1_inputs"]`；
+- 恢复提示改为区分新旧结果：新结果提示“推荐席位输入已恢复”，旧结果仍提示需要重新运行经济性测算。
+
+边界说明：
+- 当前仍不恢复经济性年度现金流；
+- 当前仍不持久化推荐页的视角选择、用户手工重排状态或完整推荐工作台状态；
+- 该能力不改变经济性 V1 现金流、FIRR/FNPV、推荐 V1 排序口径或 V0.1 技术调度口径。
+
+验证：
+- `python -m pytest tests/test_pilot_study_persistence.py::test_persist_economic_study_result_writes_versioned_artifacts_and_record tests/test_ui_import.py::test_pilot_restore_economy_summary_uses_view_permission_without_export tests/test_ui_import.py::test_pilot_economy_and_recommendation_helpers_persist_refs_and_dedupe -q` 通过，3 项通过；
+- `python -m pytest tests/test_pilot_access.py tests/test_pilot_study_persistence.py tests/test_result_store.py tests/test_pilot_backend_models.py tests/test_ui_import.py::test_pilot_history_artifact_refs_and_download_use_access_service tests/test_ui_import.py::test_pilot_project_activity_frames_summarize_jobs_and_results tests/test_ui_import.py::test_pilot_restore_economy_summary_uses_view_permission_without_export tests/test_ui_import.py::test_pilot_restore_recommendation_uses_view_permission_without_export -q` 通过，41 项通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `python -m pytest -q` 通过，293 项通过。

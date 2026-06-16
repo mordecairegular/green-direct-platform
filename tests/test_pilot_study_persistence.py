@@ -1,3 +1,5 @@
+import json
+
 import pandas as pd
 import pytest
 
@@ -332,11 +334,21 @@ def test_persist_economic_study_result_writes_versioned_artifacts_and_record(tmp
     assert first.input_fingerprint == economic_input_fingerprint(economy)
     assert first.result_record.economy_summary_artifact_id == first.power_summary_artifact.artifact_id
     assert first.result_record.single_entity_summary_artifact_id == first.single_entity_summary_artifact.artifact_id
+    assert first.result_record.recommendation_input_artifact_id == first.recommendation_input_artifact.artifact_id
+    assert first.recommendation_input_artifact.kind == ArtifactKind.RECOMMENDATION_INPUT
     assert first.result_record.result_id != second.result_record.result_id
+    loaded_record = service.result_store.load_result_record(project.project_id, "study_1", first.result_record.result_id)
+    assert loaded_record.recommendation_input_artifact_id == first.recommendation_input_artifact.artifact_id
     power_payload = service.result_store.read_artifact_payload(first.power_summary_artifact).decode("utf-8")
     single_entity_payload = service.result_store.read_artifact_payload(first.single_entity_summary_artifact).decode("utf-8")
+    recommendation_input_payload = json.loads(
+        service.result_store.read_artifact_payload(first.recommendation_input_artifact).decode("utf-8")
+    )
     assert "firr" in power_payload
     assert "single_entity_firr_pre_tax" in single_entity_payload
+    assert recommendation_input_payload["load_side_avoided_charge_price"] == 0.5
+    assert recommendation_input_payload["green_power_settlement_price_with_vat"] == 0.4
+    assert "economic_params" in recommendation_input_payload
 
 
 def test_persist_recommendation_study_result_writes_portfolio_and_detail(tmp_path):

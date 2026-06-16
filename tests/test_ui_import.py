@@ -407,6 +407,10 @@ def test_pilot_economy_and_recommendation_helpers_persist_refs_and_dedupe(tmp_pa
     assert persisted_recommendation is not None
     assert duplicate_recommendation is None
     assert study_result.result_store_refs["economy_job_id"] == persisted_economy.job.job_id
+    assert (
+        study_result.result_store_refs["recommendation_input_artifact_id"]
+        == persisted_economy.recommendation_input_artifact.artifact_id
+    )
     assert study_result.result_store_refs["recommendation_job_id"] == persisted_recommendation.job.job_id
     jobs = app._pilot_access_service().job_store.list_project_jobs(project.project_id)
     assert len(jobs) == 2
@@ -667,6 +671,7 @@ def test_pilot_restore_technical_summary_rebuilds_summary_only_session(tmp_path)
 
 def test_pilot_restore_economy_summary_uses_view_permission_without_export(tmp_path, monkeypatch):
     import green_direct.ui.app as app
+    from green_direct.economy import EconomicParams
     from green_direct.models.pilot_backend import ArtifactKind, AuditAction, Project, ProjectRole, StudyResultRecord, User
 
     monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
@@ -723,6 +728,36 @@ def test_pilot_restore_economy_summary_uses_view_permission_without_export(tmp_p
         filename="single_entity_summary.csv",
         content_type="text/csv",
     )
+    access.result_store.store_artifact(
+        artifact_id="recommendation_inputs_job_1",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_id="job_economy",
+        kind=ArtifactKind.RECOMMENDATION_INPUT,
+        payload=json.dumps(
+            {
+                "economic_params": {
+                    "operation_years": 20,
+                    "other_operating_revenues": [
+                        {
+                            "name": "容量补贴",
+                            "amount_with_vat": 1.2,
+                            "vat_rate": 0.06,
+                            "active_rule": "specific_years",
+                            "specific_years": [1, 2],
+                        }
+                    ],
+                },
+                "load_side_avoided_charge_price": 0.51,
+                "green_power_settlement_price_with_vat": 0.41,
+                "environmental_value_per_kwh": 0.02,
+                "min_power_side_acceptable_firr": 0.06,
+            },
+            ensure_ascii=False,
+        ),
+        filename="recommendation_inputs.json",
+        content_type="application/json",
+    )
     technical_record = StudyResultRecord(
         result_id="technical_result",
         project_id=project.project_id,
@@ -737,6 +772,7 @@ def test_pilot_restore_economy_summary_uses_view_permission_without_export(tmp_p
         created_by_job_id="job_economy",
         economy_summary_artifact_id="economy_summary_job_1",
         single_entity_summary_artifact_id="single_entity_summary_job_1",
+        recommendation_input_artifact_id="recommendation_inputs_job_1",
     )
 
     class DummyStreamlit:
@@ -801,11 +837,21 @@ def test_pilot_restore_economy_summary_uses_view_permission_without_export(tmp_p
     assert dummy.session_state["single_entity_economy_result"]["summary"]["single_entity_firr_pre_tax"].tolist() == [
         0.11
     ]
-    assert "recommendation_v1_inputs" not in dummy.session_state
+    recommendation_inputs = dummy.session_state["recommendation_v1_inputs"]
+    assert recommendation_inputs["load_side_avoided_charge_price"] == 0.51
+    assert recommendation_inputs["green_power_settlement_price_with_vat"] == 0.41
+    assert recommendation_inputs["environmental_value_per_kwh"] == 0.02
+    assert recommendation_inputs["min_power_side_acceptable_firr"] == 0.06
+    assert isinstance(recommendation_inputs["economic_params"], EconomicParams)
+    assert recommendation_inputs["economic_params"].operation_years == 20
+    assert recommendation_inputs["economic_params"].other_operating_revenues[0].specific_years == (1, 2)
     assert "download_payloads" not in dummy.session_state
     assert dummy.session_state["study_result"].result_store_refs["economy_result_id"] == "economy_result_job_1"
     assert dummy.session_state["study_result"].result_store_refs["power_economy_summary_artifact_id"] == (
         "economy_summary_job_1"
+    )
+    assert dummy.session_state["study_result"].result_store_refs["recommendation_input_artifact_id"] == (
+        "recommendation_inputs_job_1"
     )
     audit_actions = [event.action for event in access.result_store.read_audit_log(project.project_id)]
     assert AuditAction.VIEW_ARTIFACT in audit_actions

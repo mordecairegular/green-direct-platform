@@ -261,14 +261,14 @@ PNG 图表包后台任务也按会话隔离：
 - `PilotAccessService` 已支持 `start_job()`、`update_job_progress()`、`succeed_job()` 和 `fail_job()`，任务状态变更要求发起人本人或项目管理员权限，完成/失败写入 `AuditLog.COMPLETE_JOB`；
 - `persist_technical_study_result()` 会把一次 `TechnicalStudyResult` 登记为 `technical_study` 类型同步 `Job`，写入三条 `input_curve_*.csv`、`technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord(result_id="technical_result")`；
 - Streamlit 02 页 Demo 和正式测算完成后，在启用内部登录且存在当前项目时，会调用该路径，并把结果引用挂到 `StudyResult.result_store_refs`。
-- `persist_economic_study_result()` 会把一次 `EconomicStudyResult` 登记为 `economic_study` 类型同步 `Job`，写入电源侧和同一主体经济性 summary；
+- `persist_economic_study_result()` 会把一次 `EconomicStudyResult` 登记为 `economic_study` 类型同步 `Job`，写入电源侧和同一主体经济性 summary，并把推荐 V1 所需的价格、经济参数和最低可接受 FIRR 保存为 `recommendation_inputs.json`；
 - `persist_recommendation_study_result()` 会把一次 `RecommendationStudyResult` 登记为 `recommendation` 类型同步 `Job`，写入推荐组合和负荷侧明细；Streamlit 推荐页使用 fingerprint 去重，避免同一组合刷新时重复写入。
-- `LocalResultStore` 和 `PilotAccessService` 已支持按项目/研究列出结果索引；Streamlit 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引，并可加载下载已落盘的 summary / portfolio artifact；技术 summary 可 summary-only 恢复到当前会话，恢复时会带上已有 hourly artifact 和 input artifact 索引；同一 `study_id` 的技术汇总已恢复后，经济 summary 可 summary-only 恢复到当前会话，推荐 portfolio 也可 portfolio-only 恢复到当前会话。当前会话刚跑出的 summary-first 结果可按需补算单个方案明细，并把补算明细保存为默认 30 天过期的 hourly artifact；历史 summary-only 恢复如果已有 hourly artifact，可在图表/报告入口按网页查看权限加载；如果只有 input artifact、没有 hourly artifact，可在三条输入曲线未过期且 `config_snapshot` 带有 `curve_columns` 时重建 `TechnicalStudyInput` 并跨会话补算单方案明细。
+- `LocalResultStore` 和 `PilotAccessService` 已支持按项目/研究列出结果索引；Streamlit 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引，并可加载下载已落盘的 summary / portfolio artifact；技术 summary 可 summary-only 恢复到当前会话，恢复时会带上已有 hourly artifact 和 input artifact 索引；同一 `study_id` 的技术汇总已恢复后，经济 summary 可 summary-only 恢复到当前会话，并同步恢复已保存的推荐席位输入，推荐 portfolio 也可 portfolio-only 恢复到当前会话。当前会话刚跑出的 summary-first 结果可按需补算单个方案明细，并把补算明细保存为默认 30 天过期的 hourly artifact；历史 summary-only 恢复如果已有 hourly artifact，可在图表/报告入口按网页查看权限加载；如果只有 input artifact、没有 hourly artifact，可在三条输入曲线未过期且 `config_snapshot` 带有 `curve_columns` 时重建 `TechnicalStudyInput` 并跨会话补算单方案明细。
 
 仍未落地：
 - 后台 worker / 队列 / 取消闭环；
 - 技术仿真历史 summary-only 结果基于受控 input artifact 的后台 Job 化补算动作；
-- 经济性年度现金流、推荐席位输入、图表包、报告产物写入 `ResultStore`；
+- 经济性年度现金流、推荐视角选择/重新排序状态、图表包、报告产物写入 `ResultStore`；
 - 完整项目级任务状态页、推荐结果重新排序工作台恢复、删除、标记和跨项目搜索；
 - SQLite/Postgres 或对象存储适配、并发锁、备份和部署 runbook。
 

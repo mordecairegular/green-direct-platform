@@ -201,6 +201,7 @@ class LocalResultStore:
             technical_summary_artifact_id=data.get("technical_summary_artifact_id"),
             economy_summary_artifact_id=data.get("economy_summary_artifact_id"),
             single_entity_summary_artifact_id=data.get("single_entity_summary_artifact_id"),
+            recommendation_input_artifact_id=data.get("recommendation_input_artifact_id"),
             recommendation_artifact_id=data.get("recommendation_artifact_id"),
             hourly_detail_artifact_ids=data.get("hourly_detail_artifact_ids") or {},
             report_artifact_ids=data.get("report_artifact_ids") or {},
