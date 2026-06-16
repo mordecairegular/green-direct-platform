@@ -65,6 +65,10 @@ def _check(condition: bool, checks: list[dict[str, str]], name: str, message: st
     checks.append({"name": name, "status": "pass" if condition else "fail", "message": message})
 
 
+def _record(checks: list[dict[str, str]], name: str, status: str, message: str) -> None:
+    checks.append({"name": name, "status": status, "message": message})
+
+
 def _load_yaml(path: Path) -> Any:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
@@ -168,9 +172,60 @@ def _run_smoke(timeout_seconds: int, checks: list[dict[str, str]]) -> None:
     _check(ok, checks, "smoke:streamlit", message)
 
 
+def _git_output(args: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True)
+
+
+def _git_sync_checks(checks: list[dict[str, str]]) -> None:
+    status = _git_output(["status", "--porcelain"])
+    if status.returncode != 0:
+        _check(False, checks, "git:status", f"git status failed: {status.stderr.strip()}")
+        return
+    is_clean = status.stdout.strip() == ""
+    _record(
+        checks,
+        "git:clean",
+        "pass" if is_clean else "fail",
+        "working tree is clean" if is_clean else "working tree has uncommitted changes; commit or stash before deploy",
+    )
+
+    upstream = _git_output(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+    if upstream.returncode != 0:
+        _check(False, checks, "git:upstream", "current branch has no upstream; push/set upstream before Render deploy")
+        return
+    upstream_name = upstream.stdout.strip()
+    _check(bool(upstream_name), checks, "git:upstream", f"current branch tracks {upstream_name}")
+
+    counts = _git_output(["rev-list", "--left-right", "--count", "@{u}...HEAD"])
+    if counts.returncode != 0:
+        _check(False, checks, "git:sync", f"git rev-list failed: {counts.stderr.strip()}")
+        return
+    parts = counts.stdout.split()
+    if len(parts) != 2:
+        _check(False, checks, "git:sync", f"unexpected ahead/behind output: {counts.stdout.strip()}")
+        return
+    behind_count, ahead_count = (int(parts[0]), int(parts[1]))
+    is_synced = ahead_count == 0 and behind_count == 0
+    _record(
+        checks,
+        "git:sync",
+        "pass" if is_synced else "fail",
+        (
+            f"branch is synchronized with upstream (ahead={ahead_count}, behind={behind_count})"
+            if is_synced
+            else f"branch is not synchronized with upstream (ahead={ahead_count}, behind={behind_count}); push/pull before Render deploy"
+        ),
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-smoke", action="store_true", help="Start Streamlit and check health.")
+    parser.add_argument(
+        "--require-git-sync",
+        action="store_true",
+        help="Fail if the working tree is dirty or the current branch is not synchronized with its upstream.",
+    )
     parser.add_argument("--smoke-timeout-seconds", type=int, default=80)
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     return parser
@@ -184,6 +239,8 @@ def main(argv: list[str] | None = None) -> int:
     _dockerfile_checks(checks)
     _compose_checks(checks)
     _render_checks(checks)
+    if args.require_git_sync:
+        _git_sync_checks(checks)
     if args.run_smoke:
         _run_smoke(args.smoke_timeout_seconds, checks)
 

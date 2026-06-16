@@ -94,6 +94,14 @@ python scripts\preflight_internal_pilot_deploy.py --run-smoke
 
 preflight 会检查部署文件、Docker/Render 安全默认值、`.dockerignore`、持久盘路径和可选 Streamlit smoke。
 
+推送到 GitHub 后、在 Render 部署前，可再运行：
+
+```powershell
+python scripts\preflight_internal_pilot_deploy.py --require-git-sync
+```
+
+该检查会确认当前工作树干净，且当前分支与 upstream 同步，避免 Render 部署到旧提交。
+
 ## 3. 默认安全设置
 
 `docker-compose.yml` 默认设置：

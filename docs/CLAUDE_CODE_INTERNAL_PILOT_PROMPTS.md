@@ -270,6 +270,7 @@ python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/tes
 
 如果你可以访问托管平台或本机 Docker，请实际执行：
 0. python scripts/preflight_internal_pilot_deploy.py --run-smoke
+0b. 推送到 GitHub 后运行 python scripts/preflight_internal_pilot_deploy.py --require-git-sync
 1. docker compose build
 2. docker compose up -d
 3. 创建平台管理员

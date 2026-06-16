@@ -4652,6 +4652,7 @@ exchange_import_shortfall_energy == 0
 - 新增 `scripts/preflight_internal_pilot_deploy.py`；
 - 默认检查必需文件、`.dockerignore`、Dockerfile 安全默认值、docker-compose 环境变量/volume、Render runtime/env/disk/health 配置；
 - `--run-smoke` 可串联 `scripts/smoke_streamlit_app.py`，同时验证本地 Streamlit 服务器口径；
+- 新增可选 `--require-git-sync`，用于 Render 部署前确认工作树干净且当前分支与 upstream 同步，避免托管平台部署旧提交；
 - `--json` 可用于 CI 或 Claude Code 审查时读取机器可读结果；
 - `tests/test_deployment_artifacts.py` 增加 preflight 静态检查测试；
 - 部署 README、移动网络试用清单、托管平台部署路线、Claude Code 提示词和 handoff 已同步。
@@ -4663,6 +4664,8 @@ exchange_import_shortfall_energy == 0
 验证：
 - `python scripts/preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
 - `python scripts/preflight_internal_pilot_deploy.py --run-smoke` 通过，包含 `smoke:streamlit`；
-- `pytest tests/test_deployment_artifacts.py -q` 通过，5 项通过；
-- `python -m compileall -q scripts/preflight_internal_pilot_deploy.py scripts/smoke_streamlit_app.py tests/test_deployment_artifacts.py` 通过；
-- `pytest -q` 通过，326 项通过。
+- `python scripts/preflight_internal_pilot_deploy.py --help` 显示 `--require-git-sync`；
+- `python scripts/preflight_internal_pilot_deploy.py --require-git-sync --json` 在未提交/未推送状态下按预期失败，并报告 `git:clean` 与 `git:sync`；
+- `pytest tests/test_deployment_artifacts.py -q` 通过，6 项通过；
+- `python -m compileall -q scripts/preflight_internal_pilot_deploy.py tests/test_deployment_artifacts.py` 通过；
+- `pytest -q` 通过，327 项通过。

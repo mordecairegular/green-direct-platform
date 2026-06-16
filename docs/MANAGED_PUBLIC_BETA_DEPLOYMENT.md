@@ -72,20 +72,21 @@ Vercel 可以作为未来正式化后的前端托管平台：例如将前端改�
 
 1. 把当前分支推到 GitHub/GitLab。
 2. 推送前运行 `python scripts\preflight_internal_pilot_deploy.py --run-smoke`，确认部署配置、本地服务器口径和 `/_stcore/health` 都通过。
-3. 在 Render 新建 Blueprint，选择本仓库。
-4. Render 读取仓库根目录 `render.yaml`，创建 `green-direct-internal-pilot`。
-5. 确认环境变量：
+3. 推送后运行 `python scripts\preflight_internal_pilot_deploy.py --require-git-sync`，确认本地分支与 upstream 同步。
+4. 在 Render 新建 Blueprint，选择本仓库。
+5. Render 读取仓库根目录 `render.yaml`，创建 `green-direct-internal-pilot`。
+6. 确认环境变量：
    - `GREEN_DIRECT_ENABLE_PILOT_AUTH=1`
    - `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0`
    - `GREEN_DIRECT_PILOT_STORE_DIR=/data/pilot_store`
    - `GREEN_DIRECT_MAX_UPLOAD_MB=20`
    - `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN=20000`
    - `PORT=8503`，或使用平台默认端口；Docker 启动命令会优先读取 `PORT`
-6. 确认 persistent disk 挂载：
+7. 确认 persistent disk 挂载：
    - mount path: `/data`
    - app store: `/data/pilot_store`
-7. 部署完成后访问 Render 默认域名，确认登录页出现。
-8. 用 Render Shell 或一次性 Job 初始化平台管理员：
+8. 部署完成后访问 Render 默认域名，确认登录页出现。
+9. 用 Render Shell 或一次性 Job 初始化平台管理员：
 
 ```bash
 GREEN_DIRECT_ADMIN_PASSWORD='replace-with-one-time-password' \
@@ -97,7 +98,7 @@ python -m green_direct.cli pilot-admin bootstrap \
   --password-env GREEN_DIRECT_ADMIN_PASSWORD
 ```
 
-9. 登录后立刻重置强密码，并创建第一批内测用户。
+10. 登录后立刻重置强密码，并创建第一批内测用户。
 
 ## 4. Cloudflare 入口
 

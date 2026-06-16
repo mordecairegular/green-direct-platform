@@ -21,6 +21,7 @@ GitHub private repository
 
 - GitHub 私有仓库已创建；
 - 当前分支已推送；
+- 推送后已运行 `python scripts\preflight_internal_pilot_deploy.py --require-git-sync`，确认本地分支与 GitHub upstream 同步；
 - 仓库包含 `Dockerfile`、`render.yaml`、`requirements-runtime.txt`；
 - `.dockerignore` 已排除 `.runtime/`、日志、输出目录、历史归档、测试目录、docs/notes 等运行镜像不需要的内容；
 - 本地已运行 `python scripts\preflight_internal_pilot_deploy.py --run-smoke`，确认部署配置和服务器口径健康检查都通过；

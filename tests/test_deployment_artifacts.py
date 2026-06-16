@@ -78,3 +78,19 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     assert "render:runtime" in check_names
     assert "compose:volume" in check_names
     assert "dockerfile:PORT=8503" in check_names
+
+
+def test_internal_pilot_preflight_exposes_git_sync_check():
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "preflight_internal_pilot_deploy.py"),
+            "--help",
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "--require-git-sync" in completed.stdout
