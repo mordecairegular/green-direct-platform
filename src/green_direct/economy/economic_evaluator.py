@@ -295,6 +295,8 @@ def _summary_records(summary: pd.DataFrame) -> Iterable[dict[Any, Any]]:
 def evaluate_scenario_economy(
     summary: Mapping[str, Any] | pd.Series,
     params: EconomicParams | None = None,
+    *,
+    retain_annual_cashflow: bool = True,
 ) -> EconomicResult:
     """Evaluate V1 annual project cash flow for one technical scenario."""
 
@@ -360,12 +362,19 @@ def evaluate_scenario_economy(
         deductible_or_taxable=economic_params.bess_replacement_input_vat_deductible,
     )
 
-    rows: list[dict[str, Any]] = []
+    rows: list[dict[str, Any]] | None = [] if retain_annual_cashflow else None
+    years: list[int] = []
+    cashflows: list[float] = []
+    first_operation_revenue_with_vat = 0.0
+    first_operation_cost_with_vat = 0.0
     vat_credit_begin = 0.0
     loss_buckets: list[tuple[int, float]] = []
 
     def append_row(row: dict[str, Any]) -> None:
-        rows.append({"scenario_id": scenario_id, **row})
+        years.append(int(row["year"]))
+        cashflows.append(float(row["net_cash_flow"]))
+        if rows is not None:
+            rows.append({"scenario_id": scenario_id, **row})
 
     append_row(
         {
@@ -456,6 +465,9 @@ def evaluate_scenario_economy(
             + bess_om_cost_with_vat
             + other_operating_cost_with_vat
         )
+        if operation_year == 1:
+            first_operation_revenue_with_vat = operating_revenue_with_vat
+            first_operation_cost_with_vat = operating_cost_with_vat
         operating_cost_without_vat = operating_cost_with_vat
 
         replacement_cash_outflow = (
@@ -583,23 +595,28 @@ def evaluate_scenario_economy(
         )
         vat_credit_begin = vat_credit_end
 
-    annual = pd.DataFrame(rows)
-    annual["cumulative_net_cash_flow"] = annual["net_cash_flow"].cumsum()
-    annual["discount_factor"] = _discount_factors(
+    discount_factors = _discount_factors(
         int(economic_params.operation_years),
         float(economic_params.discount_rate),
     )
-    annual["discounted_net_cash_flow"] = annual["net_cash_flow"] * annual["discount_factor"]
-    annual["cumulative_discounted_net_cash_flow"] = annual["discounted_net_cash_flow"].cumsum()
+    discounted_cashflows = [
+        cashflow * discount_factors[year]
+        for year, cashflow in zip(years, cashflows)
+    ]
+    if rows is not None:
+        annual = pd.DataFrame(rows)
+        annual["cumulative_net_cash_flow"] = annual["net_cash_flow"].cumsum()
+        annual["discount_factor"] = [discount_factors[year] for year in years]
+        annual["discounted_net_cash_flow"] = annual["net_cash_flow"] * annual["discount_factor"]
+        annual["cumulative_discounted_net_cash_flow"] = annual["discounted_net_cash_flow"].cumsum()
+    else:
+        annual = pd.DataFrame()
 
-    years = annual["year"].astype(int).tolist()
-    cashflows = annual["net_cash_flow"].astype(float).tolist()
-    discounted_cashflows = annual["discounted_net_cash_flow"].astype(float).tolist()
     firr, firr_status = _calculate_irr(cashflows)
     metrics = {
         "scenario_id": scenario_id,
         "price_mode": summary_map.get("price_mode", "fixed_price"),
-        "fnpv": float(annual["discounted_net_cash_flow"].sum()),
+        "fnpv": float(sum(discounted_cashflows)),
         "firr": firr,
         "firr_status": firr_status,
         "static_payback_year": _calculate_payback(years, cashflows),
@@ -618,16 +635,8 @@ def evaluate_scenario_economy(
             "green_power_settlement_price_with_vat_effective",
             economic_params.self_use_price_with_vat,
         ),
-        "annual_operating_revenue_with_vat": float(
-            annual.loc[annual["period_type"] == "operation", "operating_revenue_with_vat"].iloc[0]
-        )
-        if economic_params.operation_years > 0
-        else 0.0,
-        "annual_operating_cost_with_vat": float(
-            annual.loc[annual["period_type"] == "operation", "operating_cost_with_vat"].iloc[0]
-        )
-        if economic_params.operation_years > 0
-        else 0.0,
+        "annual_operating_revenue_with_vat": float(first_operation_revenue_with_vat),
+        "annual_operating_cost_with_vat": float(first_operation_cost_with_vat),
         "bess_replacement_operation_year": first_replacement_year,
         "bess_replacement_operation_years": ",".join(str(year) for year in replacement_years),
         "bess_replacement_count": len(replacement_years),
@@ -648,8 +657,9 @@ def evaluate_batch_economy(
     annual_cashflows: dict[str, pd.DataFrame] = {}
     retained_scenario_ids = {str(scenario_id) for scenario_id in annual_cashflow_scenario_ids or []}
     for row in _summary_records(summary):
-        result = evaluate_scenario_economy(row, params=params)
+        retain_cashflow = retain_annual_cashflows or _scenario_id(row) in retained_scenario_ids
+        result = evaluate_scenario_economy(row, params=params, retain_annual_cashflow=retain_cashflow)
         results.append(result.metrics)
-        if retain_annual_cashflows or result.scenario_id in retained_scenario_ids:
+        if retain_cashflow:
             annual_cashflows[result.scenario_id] = result.annual_cashflow
     return pd.DataFrame(results), annual_cashflows

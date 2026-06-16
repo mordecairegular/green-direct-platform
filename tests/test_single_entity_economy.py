@@ -1,11 +1,13 @@
 import math
 
+import pandas as pd
 import pytest
 
 from green_direct.economy import (
     AvoidedGridPurchaseParams,
     EconomicParams,
     calc_net_avoided_grid_cost_price,
+    evaluate_batch_single_entity_pre_tax_economy,
     evaluate_single_entity_pre_tax_economy,
 )
 
@@ -104,3 +106,58 @@ def test_avoided_grid_validation_rejects_negative_bill_component():
         calc_net_avoided_grid_cost_price(
             AvoidedGridPurchaseParams(energy_market_price_with_vat=-0.01)
         )
+
+
+def test_single_entity_summary_only_skips_cashflow_table_without_changing_metrics():
+    summary = _summary(
+        wind_capacity=1.0,
+        pv_capacity=1.0,
+        bess_energy=2.0,
+        grid_export_energy=113.0,
+        self_use_energy=300.0,
+    )
+    avoided = AvoidedGridPurchaseParams(net_avoided_grid_cost_price=0.55)
+    params = EconomicParams(operation_years=5, construction_input_vat_rate=0.10)
+
+    full = evaluate_single_entity_pre_tax_economy(summary, avoided, params)
+    summary_only = evaluate_single_entity_pre_tax_economy(
+        summary,
+        avoided,
+        params,
+        retain_annual_cashflow=False,
+    )
+
+    assert summary_only.annual_cashflow.empty
+    assert summary_only.metrics["single_entity_fnpv_pre_tax"] == pytest.approx(
+        full.metrics["single_entity_fnpv_pre_tax"]
+    )
+    assert summary_only.metrics["single_entity_firr_pre_tax"] == pytest.approx(
+        full.metrics["single_entity_firr_pre_tax"]
+    )
+    assert summary_only.metrics["single_entity_static_payback_year"] == pytest.approx(
+        full.metrics["single_entity_static_payback_year"]
+    )
+    assert summary_only.metrics["single_entity_dynamic_payback_year"] == pytest.approx(
+        full.metrics["single_entity_dynamic_payback_year"]
+    )
+
+
+def test_batch_single_entity_summary_only_keeps_selected_cashflows_only():
+    frame = pd.DataFrame(
+        [
+            _summary(scenario_id="S_KEEP", wind_capacity=1.0, self_use_energy=300.0),
+            _summary(scenario_id="S_DROP", pv_capacity=1.0, self_use_energy=250.0),
+        ]
+    )
+
+    summary, annual_cashflows = evaluate_batch_single_entity_pre_tax_economy(
+        frame,
+        AvoidedGridPurchaseParams(net_avoided_grid_cost_price=0.55),
+        EconomicParams(operation_years=3),
+        retain_annual_cashflows=False,
+        annual_cashflow_scenario_ids=["S_KEEP"],
+    )
+
+    assert summary["scenario_id"].tolist() == ["S_KEEP", "S_DROP"]
+    assert set(annual_cashflows) == {"S_KEEP"}
+    assert not annual_cashflows["S_KEEP"].empty

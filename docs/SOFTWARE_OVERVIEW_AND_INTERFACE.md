@@ -1201,7 +1201,7 @@ Explicit export artifact
 - `Job(job_type="economic_study")`：记录经济性测算同步写入；
 - `power_economy_summary.csv` / `single_entity_summary.csv`：电源侧和同一主体经济性汇总；
 - `recommendation_inputs.json`：推荐 V1 重新生成/排序所需的经济参数、负荷侧可避免电费价格、绿电结算价、环境价值和电源侧最低可接受 FIRR；
-- `power_annual_cashflows.zip` / `single_entity_annual_cashflows.zip`：当前运行实际保留的年度现金流，每个方案一个 CSV；若经济性以 summary-only 方式运行且未保留现金流，则不会生成这些 artifact；
+- `power_annual_cashflows.zip` / `single_entity_annual_cashflows.zip`：当前运行实际保留的年度现金流，每个方案一个 CSV；若经济性以 summary-only 方式运行且未保留现金流，则不会生成这些 artifact，也不会为未保留方案构造完整年度现金流 `DataFrame`；
 - `Job(job_type="recommendation")`：记录推荐组合写入；
 - `recommendation_portfolio.csv` / `recommendation_load_side_detail.csv`：推荐组合和负荷侧可成交收益明细；
 - `Job(job_type="chart_export")` / `Job(job_type="report_export")`：记录用户显式保存的导出产物；

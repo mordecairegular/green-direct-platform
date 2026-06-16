@@ -25,8 +25,8 @@
 - `PerformanceParams.max_scenarios_per_run` 与 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN` 已提供单次方案数硬上限；02 页会在超限时提示并禁用开始测算，`run_batch()` 后端也会拒绝执行；
 - 02 页已新增计算前工作量提示：按方案数、小时数、明细保留策略和并行进程数给出粗略耗时区间；超过方案数提醒阈值时必须勾选大批量同步测算确认，才允许点击“开始测算”；
 - 推荐页、图表页和导出页已支持当前会话内对单方案按需补算逐小时明细；
-- `run_economic_study(..., retain_annual_cashflows=False, annual_cashflow_scenario_ids=...)` 已支持只常驻经济性 summary 或指定方案年度现金流；
-- 经济性批量评价已减少 `iterrows()`、重复校验和部分 IRR 求解开销。
+- `run_economic_study(..., retain_annual_cashflows=False, annual_cashflow_scenario_ids=...)` 已支持只常驻经济性 summary 或指定方案年度现金流；未保留年度现金流的方案已不再构造完整年度现金流 `DataFrame`，只保留计算 summary 指标所需的现金流数组；
+- 经济性批量评价已减少 `iterrows()`、重复校验、未保留年度现金流表构造和部分 IRR 求解开销。
 
 ## 2. 新增基准脚本
 
@@ -120,6 +120,7 @@ python scripts\benchmark_internal_pilot_performance.py --json
 要做：
 
 - 继续把固定年限、折现因子、投资、运维、折旧等计算批量化；
+- 未保留年度现金流的方案不构造年度现金流表；（已完成第一版）
 - 保留 FIRR 精确口径，但对常规单符号变化现金流使用快速路径；
 - 推荐排序只依赖经济性 summary；
 - 只为报告方案、推荐方案或用户指定方案保留完整年度现金流。

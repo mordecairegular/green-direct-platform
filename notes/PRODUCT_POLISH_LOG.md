@@ -4184,3 +4184,35 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest -q` 通过，298 项通过；
 - `$env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help` 通过；
 - `git diff --check` 无实际空白错误，仅提示 Windows 换行转换。
+
+### 2026-06-16 经济性 summary-only 不再构造未保留年度现金流表
+
+本轮继续推进大方案池性能问题。此前 `run_economic_study(..., retain_annual_cashflows=False)` 已能做到“不常驻保存全部年度现金流”，但底层电源侧和同一主体评价仍会为每个方案先构造完整年度现金流 `DataFrame`，再在批量函数里丢弃未保留方案。几百到几千个方案时，这会让经济性 summary-only 仍然明显偏慢。
+
+本轮判断：
+- 不改变经济性 V1 现金流口径、FNPV/FIRR/回收期口径或推荐 V1 排序口径；
+- 直接调用 `evaluate_scenario_economy()` / `evaluate_single_entity_pre_tax_economy()` 的默认行为保持不变，仍返回完整年度现金流表；
+- 仅在批量 summary-only 且某方案不需要保留年度现金流时，跳过年度现金流 `DataFrame` 构造；
+- 指定保留的报告方案、推荐方案或用户指定方案仍生成完整年度现金流表，后续可写入 artifact。
+
+本轮实现：
+- `evaluate_scenario_economy()` 新增内部参数 `retain_annual_cashflow`，默认 `True`；
+- `evaluate_single_entity_pre_tax_economy()` 新增同名参数，默认 `True`；
+- 两个 evaluator 在不保留年度现金流时，只维护 `years`、`cashflows` 和折现现金流数组，用于计算 FNPV、FIRR、静态/动态回收期等 summary 指标；
+- `evaluate_batch_economy()` 和 `evaluate_batch_single_entity_pre_tax_economy()` 会按 `retain_annual_cashflows` 与 `annual_cashflow_scenario_ids` 决定是否构造并返回某方案年度现金流表；
+- 补充测试证明 summary-only 指标与完整年度现金流路径一致，且批量路径只保留指定方案现金流。
+
+边界说明：
+- 这不是经济性近似计算；
+- 价格曲线、推荐排序、年度现金流字段含义均未改变；
+- 未保留年度现金流的历史结果仍不能凭空恢复现金流表，如需后补应走后续按需年度现金流 Job。
+
+验证：
+- `python -m pytest tests/test_economy_v1.py tests/test_single_entity_economy.py tests/test_study_runner.py::test_economic_study_can_skip_annual_cashflow_retention tests/test_study_runner.py::test_economic_study_can_keep_selected_annual_cashflows_only -q` 通过，31 项通过；
+- `python -m compileall -q src/green_direct/economy tests/test_economy_v1.py tests/test_single_entity_economy.py` 通过；
+- 优化前基准：`python scripts/benchmark_internal_pilot_performance.py --hours 168 --pv-count 8 --wind-count 7 --bess-power-count 4 --durations 0,2 --parallel-workers 2 --skip-full-retention --json` 中 `economy_summary_no_annual_cashflows` 约 3.1503s、峰值 Python heap 约 0.574MB；
+- 优化后同命令中 `economy_summary_no_annual_cashflows` 约 0.8120s、峰值 Python heap 约 0.497MB；同次技术 summary-first 约 1.1898s；
+- `python -m pytest tests/test_economy_v1.py tests/test_single_entity_economy.py tests/test_study_runner.py tests/test_performance_benchmark_script.py -q` 通过，42 项通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `python -m pytest -q` 通过，302 项通过；
+- `git diff --check` 无实际空白错误，仅提示 Windows 换行转换。

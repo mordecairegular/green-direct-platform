@@ -54,6 +54,7 @@
 - 大批量汇总优先模式会清除当前项目级下网电价曲线，避免缺少全量逐小时明细时误跑价格曲线经济性。
 - Claude Code 上线前 review/debug、UI 提升和后台账户/Job/ResultStore 架构提示词已收敛到 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`。
 - 经济性批量评价已做低风险底层提速：去除 `iterrows()`，缓存年度折现因子，NPV 使用等价 Horner 形式，同一主体批量评价减少重复参数校验；常规单符号变化现金流的 IRR 直接走二分快路径，多符号变化仍走原候选率扫描。
+- 经济性 summary-only 已避免为未保留方案构造完整年度现金流 `DataFrame`；未保留方案仍用同一现金流数组计算 FNPV、FIRR 和回收期，只对报告/推荐/用户指定方案保留完整年度现金流表。
 - 内部试用后台已新增持久化无关模型骨架：`User`、`Project`、`ProjectMembership`、`ProjectStudy`、`Job`、`JobArtifact`、`StudyResultRecord`、`AuditLog`。
 - 服务层已新增 `LocalResultStore`，支持按项目/研究保存产物、结果索引和审计日志；当前已接入技术/经济/推荐 summary 写入和最小结果索引读取，暂未接入数据库或完整历史结果恢复。
 - 服务层已新增 `LocalPilotRegistry`，支持本地 JSON 用户、项目和项目成员角色管理，不包含密码或登录会话。
@@ -82,7 +83,7 @@
 - 用户选择代表方案、图表方案或导出方案后，已有项目级 hourly artifact 已可优先加载；下一步是没有 artifact 时提交后台按需补算任务。
 - 下一阶段把完整历史结果恢复/删除/标记、推荐视角选择与重新排序工作台状态、PNG/Excel/批量包、完整报告导出也提交为项目级后台 `Job`，并把对应 hourly/chart/report/export artifacts 写入 `ResultStore`；summary-only 经济运行如需后补年度现金流，应作为按需 Job 生成。
 - 技术仿真已完成当前进程内 `ProcessPoolExecutor` 按方案块并行；下一步评估后台任务队列时继续沿用块级调度，保持 `scenario_id`、warning、error 和顺序稳定。
-- 经济性测算优先做 DataFrame/NumPy 批量化，完整年度现金流可先只对报告方案或推荐组合生成。
+- 经济性测算继续做 DataFrame/NumPy 批量化和后台 Job 化；完整年度现金流已可先只对报告方案、推荐组合或用户指定方案生成。
 - 后续再评估 Numba、编译化调度内核或更高性能的数据结构。
 
 ### 2.1 内部 10-20 人试用上线架构

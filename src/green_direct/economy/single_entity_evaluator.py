@@ -54,6 +54,7 @@ def evaluate_single_entity_pre_tax_economy(
     params: EconomicParams | None = None,
     *,
     validate_params: bool = True,
+    retain_annual_cashflow: bool = True,
 ) -> EconomicResult:
     """Evaluate same-investor incremental pre-tax cash flow for one scenario.
 
@@ -151,10 +152,15 @@ def evaluate_single_entity_pre_tax_economy(
         economic_params,
     )
 
-    rows: list[dict[str, Any]] = []
+    rows: list[dict[str, Any]] | None = [] if retain_annual_cashflow else None
+    years: list[int] = []
+    cashflows: list[float] = []
 
     def append_row(row: dict[str, Any]) -> None:
-        rows.append({"scenario_id": scenario_id, **row})
+        years.append(int(row["year"]))
+        cashflows.append(float(row["net_cash_flow"]))
+        if rows is not None:
+            rows.append({"scenario_id": scenario_id, **row})
 
     append_row(
         {
@@ -221,23 +227,28 @@ def evaluate_single_entity_pre_tax_economy(
             }
         )
 
-    annual = pd.DataFrame(rows)
-    annual["cumulative_net_cash_flow"] = annual["net_cash_flow"].cumsum()
-    annual["discount_factor"] = _discount_factors(
+    discount_factors = _discount_factors(
         int(economic_params.operation_years),
         float(economic_params.discount_rate),
     )
-    annual["discounted_net_cash_flow"] = annual["net_cash_flow"] * annual["discount_factor"]
-    annual["cumulative_discounted_net_cash_flow"] = annual["discounted_net_cash_flow"].cumsum()
+    discounted_cashflows = [
+        cashflow * discount_factors[year]
+        for year, cashflow in zip(years, cashflows)
+    ]
+    if rows is not None:
+        annual = pd.DataFrame(rows)
+        annual["cumulative_net_cash_flow"] = annual["net_cash_flow"].cumsum()
+        annual["discount_factor"] = [discount_factors[year] for year in years]
+        annual["discounted_net_cash_flow"] = annual["net_cash_flow"] * annual["discount_factor"]
+        annual["cumulative_discounted_net_cash_flow"] = annual["discounted_net_cash_flow"].cumsum()
+    else:
+        annual = pd.DataFrame()
 
-    years = annual["year"].astype(int).tolist()
-    cashflows = annual["net_cash_flow"].astype(float).tolist()
-    discounted_cashflows = annual["discounted_net_cash_flow"].astype(float).tolist()
     firr, firr_status = _calculate_irr(cashflows)
     metrics = {
         "scenario_id": scenario_id,
         "perspective": "single_entity_pre_tax",
-        "single_entity_fnpv_pre_tax": float(annual["discounted_net_cash_flow"].sum()),
+        "single_entity_fnpv_pre_tax": float(sum(discounted_cashflows)),
         "single_entity_firr_pre_tax": firr,
         "single_entity_firr_status": firr_status,
         "single_entity_static_payback_year": _calculate_payback(years, cashflows),
@@ -286,13 +297,15 @@ def evaluate_batch_single_entity_pre_tax_economy(
     retained_scenario_ids = {str(scenario_id) for scenario_id in annual_cashflow_scenario_ids or []}
     validate_avoided_grid_purchase_params(avoided_grid_params)
     for row in _summary_records(summary):
+        retain_cashflow = retain_annual_cashflows or _scenario_id(row) in retained_scenario_ids
         result = evaluate_single_entity_pre_tax_economy(
             row,
             avoided_grid_params=avoided_grid_params,
             params=params,
             validate_params=False,
+            retain_annual_cashflow=retain_cashflow,
         )
         results.append(result.metrics)
-        if retain_annual_cashflows or result.scenario_id in retained_scenario_ids:
+        if retain_cashflow:
             annual_cashflows[result.scenario_id] = result.annual_cashflow
     return pd.DataFrame(results), annual_cashflows

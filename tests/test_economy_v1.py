@@ -1,10 +1,12 @@
 import math
 
+import pandas as pd
 import pytest
 
 from green_direct.economy import (
     EconomicParams,
     OtherOperatingRevenueItem,
+    evaluate_batch_economy,
     evaluate_scenario_economy,
 )
 from green_direct.economy.economic_evaluator import _calculate_irr, _npv
@@ -289,3 +291,47 @@ def test_bess_replacement_is_skipped_when_triggered_in_final_operation_year():
     assert result.metrics["bess_replacement_operation_years"] == ""
     assert result.metrics["bess_replacement_count"] == 0
     assert result.annual_cashflow["bess_replacement_cash_outflow"].sum() == 0
+
+
+def test_economy_summary_only_skips_cashflow_table_without_changing_metrics():
+    summary = _summary(
+        wind_capacity=1.0,
+        pv_capacity=1.0,
+        bess_energy=2.0,
+        grid_export_energy=452.0,
+        self_use_energy=300.0,
+    )
+    params = EconomicParams(operation_years=5, construction_input_vat_rate=0.10)
+
+    full = evaluate_scenario_economy(summary, params)
+    summary_only = evaluate_scenario_economy(summary, params, retain_annual_cashflow=False)
+
+    assert summary_only.annual_cashflow.empty
+    assert summary_only.metrics["fnpv"] == pytest.approx(full.metrics["fnpv"])
+    assert summary_only.metrics["firr"] == pytest.approx(full.metrics["firr"])
+    assert summary_only.metrics["static_payback_year"] == pytest.approx(
+        full.metrics["static_payback_year"]
+    )
+    assert summary_only.metrics["dynamic_payback_year"] == pytest.approx(
+        full.metrics["dynamic_payback_year"]
+    )
+
+
+def test_batch_economy_summary_only_keeps_selected_cashflows_only():
+    frame = pd.DataFrame(
+        [
+            _summary(scenario_id="S_KEEP", wind_capacity=1.0, grid_export_energy=452.0),
+            _summary(scenario_id="S_DROP", pv_capacity=1.0, self_use_energy=300.0),
+        ]
+    )
+
+    summary, annual_cashflows = evaluate_batch_economy(
+        frame,
+        EconomicParams(operation_years=3),
+        retain_annual_cashflows=False,
+        annual_cashflow_scenario_ids=["S_KEEP"],
+    )
+
+    assert summary["scenario_id"].tolist() == ["S_KEEP", "S_DROP"]
+    assert set(annual_cashflows) == {"S_KEEP"}
+    assert not annual_cashflows["S_KEEP"].empty

@@ -47,7 +47,7 @@
 | 关键操作审计日志 | 部分满足 | 登录、项目、成员、任务、artifact 写入/网页查看/下载/清理、当前 06 页临时导出下载已审计 | 管理员跨项目查看、原始文件查看、未来 API/反向代理下载仍需补齐 | 扩充 `AuditAction` 覆盖面 |
 | Docker 可部署 | 第一版满足 | `Dockerfile`、`docker-compose.yml`、`README_DEPLOY.md` | 尚未在目标服务器完成构建/启动/恢复演练 | 实机运行 `docker compose build/up` 和数据卷恢复演练 |
 | HTTPS/反向代理/备份/恢复/回滚说明 | 部分满足 | 内部 runbook、PowerShell 备份/恢复脚本、`README_DEPLOY.md` | 缺少系统服务托管、集中日志、监控告警和自动恢复演练 | 在目标服务器补 Caddy/Nginx 配置、日志和监控 |
-| 核心算法回归通过 | 满足当前 checkpoint | 最近 `pytest -q` 为 298 passed | 后续改性能/后台时仍需重复验证 | 每个工程化切片后跑回归 |
+| 核心算法回归通过 | 满足当前 checkpoint | 最近 `pytest -q` 为 302 passed | 后续改性能/后台时仍需重复验证 | 每个工程化切片后跑回归 |
 
 ## 3. 推荐执行顺序
 

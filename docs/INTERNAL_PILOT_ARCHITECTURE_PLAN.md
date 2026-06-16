@@ -210,8 +210,8 @@ PNG 图表包后台任务也按会话隔离：
 - 02 页“高级：枚举性能提醒”已新增“大批量保留明细数”：当方案数超过提醒阈值时，UI 自动进入汇总优先模式，技术仿真只常驻方案汇总和前 N 个方案逐小时明细；
 - 推荐页、图表概览页和导出/报告页已接入第一版“补算逐小时明细”按钮；缺少明细时会先尝试按网页查看权限加载已有 `ArtifactKind.HOURLY_DETAIL`，没有可用 hourly artifact 时再使用当前会话的原始技术输入补算；历史 summary-only 恢复若带有三条 `ArtifactKind.INPUT_CURVE` 和 `curve_columns` 快照，会先恢复 `TechnicalStudyInput`，再复用同一补算入口；补算后写回当前 `batch_result.hourly_details` 和 `study_result.technical_result.batch_result`，并清空旧下载/图表缓存；在启用内部登录且当前技术结果已有项目索引时，会把补算出的单方案明细写为 `ArtifactKind.HOURLY_DETAIL` CSV，并挂回 `StudyResultRecord.hourly_detail_artifact_ids`；
 - 大批量汇总优先模式会清除当前项目级下网电价曲线，避免价格曲线经济性在缺少全量逐小时明细时误用部分数据；
-- `run_economic_study(..., retain_annual_cashflows=False, annual_cashflow_scenario_ids=[...])` 可保留经济性 summary 指标，同时不常驻全部年度现金流表，或只保留报告方案/推荐组合现金流；
-- 经济性批量评价已去除 `iterrows()` 行遍历，年度折现因子按年限和折现率缓存，NPV 使用等价 Horner 形式计算，同一主体批量评价只做一次公共参数校验；常规单符号变化现金流的 IRR 使用二分快路径，多符号变化仍保留原候选率扫描和多根判断；
+- `run_economic_study(..., retain_annual_cashflows=False, annual_cashflow_scenario_ids=[...])` 可保留经济性 summary 指标，同时不常驻全部年度现金流表，或只保留报告方案/推荐组合现金流；当前已推进为未保留方案不构造完整年度现金流 `DataFrame`，只用现金流数组计算 FNPV、FIRR 和回收期；
+- 经济性批量评价已去除 `iterrows()` 行遍历，年度折现因子按年限和折现率缓存，NPV 使用等价 Horner 形式计算，同一主体批量评价只做一次公共参数校验；常规单符号变化现金流的 IRR 使用二分快路径，多符号变化仍保留原候选率扫描和多根判断；未保留年度现金流表的 summary-only 小样本从约 3.1503s 降至约 0.8120s（220 个方案、168 小时技术 summary-first 后经济性 summary-only，本机样本）；
 - 这些接口和内部优化默认保持小规模旧行为，不改变 V0.1 技术计算口径或经济性口径。summary-only 技术仿真让未保留明细的方案不再构造完整 hourly ledger，可同时降低大批量模式的耗时、内存、快照和结果传输压力；并行技术仿真和经济性底层优化为后续后台 Job 提供缩短等待时间的基础。
 
 建议路线：
