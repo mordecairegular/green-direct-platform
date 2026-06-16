@@ -70,6 +70,7 @@ python -m pytest -q
    - 是否存在进程级全局缓存复用用户结果；
    - `.runtime/latest_session_snapshot.pkl` 是否会在多人环境默认恢复旧结果；
    - PNG/HTML/Excel/CSV/Markdown 下载是否可能拿到旧项目或其他用户的数据；
+   - Web 平台管理页和 `pilot-admin` 项目成员命令是否使用同一平台管理员权限语义；
    - 下网电价曲线是否只来自当前会话明确上传的数据。
 2. 后台任务风险：
    - PNG ZIP 后台任务 key 是否按会话隔离；

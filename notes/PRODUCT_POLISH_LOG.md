@@ -4385,3 +4385,31 @@ exchange_import_shortfall_energy == 0
 - `python -m compileall -q src/green_direct/ui/app.py tests/test_ui_import.py` 通过；
 - `python -m compileall -q src scripts tests` 通过；
 - `pytest -q` 通过，315 项通过。
+
+### 2026-06-16 pilot-admin 项目成员运维入口
+
+本轮继续补后台账户管理控制能力。此前 `LocalPilotAdminService` 和 Streamlit 平台管理页已经可以维护项目成员，但 CLI 仍只覆盖用户、会话、任务和 artifact 清理。内部试用部署时，如果 Web 管理页不可用、或者需要在服务器上快速排障，平台管理员还需要命令行方式查看项目、查看成员、授予项目角色和禁用项目成员。
+
+本轮判断：
+- 不新增新的权限语义，继续复用 `LocalPilotAdminService` 的平台管理员校验和审计；
+- CLI 作为服务器侧应急运维入口，不替代 Streamlit 平台管理页；
+- 项目创建仍主要发生在 Web 项目工作区；本轮只管理已存在项目的成员关系；
+- 导出权限必须和 Web 管理页一致，继续使用 `can_export_artifacts`。
+
+本轮实现：
+- `pilot-admin list-projects`：列出项目 ID、名称、状态、创建人和创建时间；
+- `pilot-admin list-project-members`：列出指定项目成员、角色、状态和导出授权；
+- `pilot-admin grant-project-role`：授予/更新项目角色，支持 `--can-export-artifacts` 和 `--cannot-export-artifacts`；
+- `pilot-admin disable-project-member`：禁用指定项目成员关系；
+- `tests/test_cli.py` 覆盖项目列表、成员授权、成员列表、禁用成员和 `UPDATE_MEMBERSHIP` 审计；
+- TODO、软件接口总览、内部试用 runbook、受控公网审计矩阵、预发布质量审查、架构计划、Claude Code 提示词和 handoff 已同步。
+
+边界说明：
+- 该能力仍基于本地 JSON store，不是正式数据库后台；
+- CLI 要求平台管理员身份，不按项目 `admin` 授权；项目内普通管理仍应通过 `PilotAccessService` 或 Web 项目权限入口；
+- 不提供物理删除项目、跨项目数据迁移或批量成员导入。
+
+验证：
+- `pytest tests/test_cli.py -q` 通过，8 项通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `pytest -q` 通过，316 项通过。

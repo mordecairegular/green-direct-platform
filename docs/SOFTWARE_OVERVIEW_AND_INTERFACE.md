@@ -1049,6 +1049,8 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `disable-user`：停用用户并撤销有效会话；
 - `grant-platform-admin` / `revoke-platform-admin`：授予或撤销平台管理员；
 - `list-users` / `list-sessions`：查看用户和会话；
+- `list-projects` / `list-project-members`：查看项目和项目成员；
+- `grant-project-role` / `disable-project-member`：授予或更新项目角色、禁用项目成员；
 - `list-jobs`：查看全局或单项目任务元数据，可按状态筛选，并可标记是否超过 heartbeat 阈值；
 - `purge-expired-artifacts`：由平台管理员清理已过期 artifact payload，保留元数据并写入项目级 `DELETE_ARTIFACT` 审计；
 - `fail-stale-jobs`：由平台管理员把超时未 heartbeat 的 running 任务标记为 failed，并写入项目级 `COMPLETE_JOB` 审计。
@@ -1138,6 +1140,18 @@ python -m green_direct.cli pilot-admin create-user `
 python -m green_direct.cli pilot-admin list-users `
     --store-dir .runtime/pilot_store `
     --actor-user-id admin
+
+python -m green_direct.cli pilot-admin list-projects `
+    --store-dir .runtime/pilot_store `
+    --actor-user-id admin
+
+python -m green_direct.cli pilot-admin grant-project-role `
+    --store-dir .runtime/pilot_store `
+    --actor-user-id admin `
+    --project-id project_1 `
+    --user-id analyst_01 `
+    --role analyst `
+    --cannot-export-artifacts
 
 python -m green_direct.cli pilot-admin list-jobs `
     --store-dir .runtime/pilot_store `

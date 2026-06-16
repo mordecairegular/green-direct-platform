@@ -10,6 +10,8 @@ from green_direct.models.pilot_backend import (
     Job,
     JobStatus,
     JobType,
+    Project,
+    ProjectRole,
 )
 from green_direct.services import LocalJobStore, LocalPilotAuth, LocalPilotRegistry, LocalResultStore
 
@@ -187,6 +189,119 @@ def test_cli_pilot_admin_grant_revoke_and_list_sessions(tmp_path, monkeypatch, c
         ]
     ) == 0
     assert LocalPilotRegistry(tmp_path).load_user("ops").is_platform_admin is False
+
+
+def test_cli_pilot_admin_manages_project_memberships(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ADMIN_PASSWORD", "admin-password")
+    assert main(
+        [
+            "pilot-admin",
+            "bootstrap",
+            *_store_arg(tmp_path),
+            "--user-id",
+            "admin",
+            "--login-name",
+            "admin@example.local",
+            "--display-name",
+            "Admin",
+            "--password-env",
+            "ADMIN_PASSWORD",
+        ]
+    ) == 0
+    assert main(
+        [
+            "pilot-admin",
+            "create-user",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--user-id",
+            "analyst",
+            "--login-name",
+            "analyst@example.local",
+            "--display-name",
+            "Analyst",
+        ]
+    ) == 0
+    capsys.readouterr()
+
+    registry = LocalPilotRegistry(tmp_path)
+    registry.save_project(Project("project_1", "Pilot Project", created_by_user_id="admin"))
+
+    assert main(
+        [
+            "pilot-admin",
+            "list-projects",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+        ]
+    ) == 0
+    project_output = capsys.readouterr().out
+    assert "project_id\tname\tstatus\tcreated_by\tcreated_at" in project_output
+    assert "project_1\tPilot Project\tactive\tadmin" in project_output
+
+    assert main(
+        [
+            "pilot-admin",
+            "grant-project-role",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--project-id",
+            "project_1",
+            "--user-id",
+            "analyst",
+            "--role",
+            "analyst",
+            "--cannot-export-artifacts",
+        ]
+    ) == 0
+    assert "Granted project role: project_1\tanalyst\tanalyst" in capsys.readouterr().out
+
+    membership = registry.get_project_membership("project_1", "analyst")
+    assert membership is not None
+    assert membership.role == ProjectRole.ANALYST
+    assert membership.can_export_artifacts is False
+
+    assert main(
+        [
+            "pilot-admin",
+            "list-project-members",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--project-id",
+            "project_1",
+        ]
+    ) == 0
+    member_output = capsys.readouterr().out
+    assert "membership_id\tproject_id\tuser_id\trole\tstatus\tcan_export\tcreated_at" in member_output
+    assert "project_1\tanalyst\tanalyst\tactive\tcan_export=no" in member_output
+
+    assert main(
+        [
+            "pilot-admin",
+            "disable-project-member",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--project-id",
+            "project_1",
+            "--user-id",
+            "analyst",
+        ]
+    ) == 0
+    assert "Disabled project member: project_1\tanalyst" in capsys.readouterr().out
+    disabled = registry.get_project_membership("project_1", "analyst")
+    assert disabled is not None
+    assert disabled.is_active is False
+
+    audit_events = LocalResultStore(tmp_path).read_audit_log("project_1")
+    assert [event.action for event in audit_events] == [
+        AuditAction.UPDATE_MEMBERSHIP,
+        AuditAction.UPDATE_MEMBERSHIP,
+    ]
 
 
 def test_cli_pilot_admin_lists_jobs_with_filters_and_stale_marker(tmp_path, monkeypatch, capsys):

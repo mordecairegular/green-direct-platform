@@ -76,6 +76,30 @@ python -m green_direct.cli pilot-admin bootstrap `
 
 之后可在 Streamlit 的“平台管理”页创建试用账号、重置密码、停用用户、授予/撤销平台管理员，并维护项目成员和导出权限。应至少保留两个活跃平台管理员，避免单点锁死。
 
+CLI 也可作为 Web 管理页不可用时的服务器侧应急入口：
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m green_direct.cli pilot-admin list-projects `
+    --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --actor-user-id admin
+
+python -m green_direct.cli pilot-admin list-project-members `
+    --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --actor-user-id admin `
+    --project-id project_1
+
+python -m green_direct.cli pilot-admin grant-project-role `
+    --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --actor-user-id admin `
+    --project-id project_1 `
+    --user-id analyst_01 `
+    --role analyst `
+    --cannot-export-artifacts
+```
+
+`grant-project-role` 可用 `--can-export-artifacts` 或 `--cannot-export-artifacts` 明确维护导出权限；`disable-project-member` 可禁用单个项目成员关系。
+
 ## 6. 启动服务
 
 内网或反向代理后的推荐命令：
@@ -167,7 +191,7 @@ python -m green_direct.cli pilot-admin fail-stale-jobs `
 - 普通用户必须选择或创建项目后才进入六步工作流；
 - Demo 技术仿真、经济性测算、方案推荐能跑通；
 - 禁止导出的项目成员不能下载历史 artifact 或 06 页导出文件；
-- `pilot-admin list-users`、`list-jobs`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
+- `pilot-admin list-users`、`list-projects`、`list-project-members`、`list-jobs`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
 - 新运行日志不包含明文密码、明文 token、原始曲线内容。
 
 ## 12. 回滚

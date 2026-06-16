@@ -12,7 +12,16 @@ import sys
 from typing import Sequence
 from uuid import uuid4
 
-from green_direct.models.pilot_backend import AuditAction, AuditLog, Job, JobStatus, User
+from green_direct.models.pilot_backend import (
+    AuditAction,
+    AuditLog,
+    Job,
+    JobStatus,
+    Project,
+    ProjectMembership,
+    ProjectRole,
+    User,
+)
 from green_direct.services import (
     LocalJobStore,
     LocalPilotAdminService,
@@ -71,6 +80,23 @@ def _print_user(user: User) -> None:
     status = user.status.value
     admin = "yes" if user.is_platform_admin else "no"
     print(f"{user.user_id}\t{user.login_name}\t{user.display_name}\t{status}\tplatform_admin={admin}")
+
+
+def _print_project(project: Project) -> None:
+    created_by = project.created_by_user_id or ""
+    print(
+        f"{project.project_id}\t{project.name}\t{project.status.value}\t"
+        f"{created_by}\t{project.created_at.isoformat()}"
+    )
+
+
+def _print_project_membership(membership: ProjectMembership) -> None:
+    export = "yes" if membership.can_export_artifacts else "no"
+    print(
+        f"{membership.membership_id}\t{membership.project_id}\t{membership.user_id}\t"
+        f"{membership.role.value}\t{membership.status.value}\tcan_export={export}\t"
+        f"{membership.created_at.isoformat()}"
+    )
 
 
 def _cmd_bootstrap(args: argparse.Namespace) -> int:
@@ -158,6 +184,63 @@ def _cmd_list_sessions(args: argparse.Namespace) -> int:
     for session in sessions:
         revoked = "yes" if session.is_revoked else "no"
         print(f"{session.session_id}\t{session.user_id}\t{session.expires_at.isoformat()}\t{revoked}")
+    return 0
+
+
+def _cmd_list_projects(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    projects = services.admin.list_projects(
+        actor_user_id=args.actor_user_id,
+        active_only=bool(args.active_only),
+    )
+    print("project_id\tname\tstatus\tcreated_by\tcreated_at")
+    for project in projects:
+        _print_project(project)
+    return 0
+
+
+def _cmd_list_project_members(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    memberships = services.admin.list_project_memberships(
+        actor_user_id=args.actor_user_id,
+        project_id=args.project_id,
+        active_only=bool(args.active_only),
+    )
+    print("membership_id\tproject_id\tuser_id\trole\tstatus\tcan_export\tcreated_at")
+    for membership in memberships:
+        _print_project_membership(membership)
+    return 0
+
+
+def _export_permission_from_args(args: argparse.Namespace) -> bool | None:
+    if getattr(args, "can_export_artifacts", False):
+        return True
+    if getattr(args, "cannot_export_artifacts", False):
+        return False
+    return None
+
+
+def _cmd_grant_project_role(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    membership = services.admin.grant_project_role(
+        actor_user_id=args.actor_user_id,
+        project_id=args.project_id,
+        user_id=args.user_id,
+        role=args.role,
+        can_export_artifacts=_export_permission_from_args(args),
+    )
+    print(f"Granted project role: {membership.project_id}\t{membership.user_id}\t{membership.role.value}")
+    return 0
+
+
+def _cmd_disable_project_member(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    membership = services.admin.disable_project_membership(
+        actor_user_id=args.actor_user_id,
+        project_id=args.project_id,
+        user_id=args.user_id,
+    )
+    print(f"Disabled project member: {membership.project_id}\t{membership.user_id}")
     return 0
 
 
@@ -360,6 +443,46 @@ def build_parser() -> argparse.ArgumentParser:
     list_sessions.add_argument("--user-id", required=True)
     list_sessions.add_argument("--active-only", action="store_true")
     list_sessions.set_defaults(func=_cmd_list_sessions)
+
+    list_projects = pilot_admin_sub.add_parser("list-projects", help="List projects.")
+    _add_common_store_arg(list_projects)
+    _add_actor_arg(list_projects)
+    list_projects.add_argument("--active-only", action="store_true")
+    list_projects.set_defaults(func=_cmd_list_projects)
+
+    list_project_members = pilot_admin_sub.add_parser(
+        "list-project-members",
+        help="List project memberships.",
+    )
+    _add_common_store_arg(list_project_members)
+    _add_actor_arg(list_project_members)
+    list_project_members.add_argument("--project-id", required=True)
+    list_project_members.add_argument("--active-only", action="store_true")
+    list_project_members.set_defaults(func=_cmd_list_project_members)
+
+    grant_project_role = pilot_admin_sub.add_parser(
+        "grant-project-role",
+        help="Grant or update a project role for one user.",
+    )
+    _add_common_store_arg(grant_project_role)
+    _add_actor_arg(grant_project_role)
+    grant_project_role.add_argument("--project-id", required=True)
+    grant_project_role.add_argument("--user-id", required=True)
+    grant_project_role.add_argument("--role", required=True, choices=[role.value for role in ProjectRole])
+    export_group = grant_project_role.add_mutually_exclusive_group()
+    export_group.add_argument("--can-export-artifacts", action="store_true")
+    export_group.add_argument("--cannot-export-artifacts", action="store_true")
+    grant_project_role.set_defaults(func=_cmd_grant_project_role)
+
+    disable_project_member = pilot_admin_sub.add_parser(
+        "disable-project-member",
+        help="Disable one project membership.",
+    )
+    _add_common_store_arg(disable_project_member)
+    _add_actor_arg(disable_project_member)
+    disable_project_member.add_argument("--project-id", required=True)
+    disable_project_member.add_argument("--user-id", required=True)
+    disable_project_member.set_defaults(func=_cmd_disable_project_member)
 
     list_jobs = pilot_admin_sub.add_parser("list-jobs", help="List project job metadata for operations.")
     _add_common_store_arg(list_jobs)
