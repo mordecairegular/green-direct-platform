@@ -616,7 +616,7 @@ BatchResult(
 - 当方案数量达到上万时，内存、DataFrame 构造和 UI 交互都可能成为瓶颈；
 - 02 页已接入第一版“汇总优先”大批量模式，超过方案数提醒阈值时不再默认常驻全部逐小时明细；
 - 未保留明细的方案只生成技术 summary，不构造完整 `hourly_detail` DataFrame；
-- 当前会话内已支持为代表方案、图表方案或导出方案按需补算单个 `hourly_detail`，但补算依赖当前 session 保存的 `TechnicalStudyInput`，不会随 runtime snapshot 或历史 summary-only 恢复持久化；
+- 当前会话内已支持为代表方案、图表方案或导出方案按需补算单个 `hourly_detail`；补算优先使用当前 session 保存的 `TechnicalStudyInput`，历史 summary-only 恢复在受控项目结果仍保留 input artifact 且快照包含 `curve_columns` 时也可重建输入并补算，runtime snapshot 仍不保存原始技术输入；
 - 后续建议把按需明细补算升级为项目级 artifact / 后台任务，并把技术仿真、经济性测算和图表导出逐步改为后台任务；
 - 多人内部试用时，计算任务应通过 `Job` / `ResultStore` 隔离到项目和用户，不能依赖全局 `session_state` 或项目级运行快照；
 - 图表模块若只展示 1 到 5 个方案，不应强制依赖所有方案的逐小时明细都已保存在内存中。
@@ -636,12 +636,12 @@ StudyResult.from_technical(technical_result) -> StudyResult
 
 - `TechnicalStudyResult.batch_result`：旧 `BatchResult`，用于兼容现有图表、经济性、推荐和导出模块；
 - `TechnicalStudyResult.input_diagnostics`：曲线读取和清洗产生的结构化诊断；
-- `TechnicalStudyResult.config_snapshot`：本次测算方案池、储能参数、政策参数、时间参数、编码和 warning 快照；
+- `TechnicalStudyResult.config_snapshot`：本次测算方案池、储能参数、政策参数、清洗参数、时间参数、三条曲线列名、编码和 warning 快照；
 - `StudyResult`：顶层结果雏形，当前先包装技术结果，并可挂载经济性和推荐结果。
 
 `run_hourly_detail_for_scenario()` 用于大批量 summary-first 之后的单方案明细补算。它从 `summary` 中按 `scenario_id` 找到容量配置，重建 `Scenario`，再复用 `TechnicalStudyInput` 中的三条原始曲线、列名、储能参数、政策参数和 `dt_hours` 运行同一单方案仿真。该函数不重新遍历全量方案，也不改变 summary-first 阶段的调度口径。
 
-当前 Streamlit 只把 `TechnicalStudyInput` 保存在当前浏览器会话中，用于刚完成测算后的按需补算；它不会写入 `.runtime/latest_session_snapshot.pkl`，也不会随历史 technical summary artifact 恢复，避免旧原始曲线被误用于另一个历史 summary。
+当前 Streamlit 仍只把刚完成测算的 `TechnicalStudyInput` 保存在当前浏览器会话中，用于即时按需补算；它不会写入 `.runtime/latest_session_snapshot.pkl`。启用内部试用登录并恢复历史 technical summary 时，若同一项目结果仍保留三条 input artifact 且 `config_snapshot` 含 `curve_columns`，UI 会用网页查看权限读取 input artifact，重建 `TechnicalStudyInput` 后再补算单个方案明细；若旧结果缺列名快照或 input artifact 已清理，则只保留 summary/已有 hourly artifact 查看能力。
 
 后续新模块建议优先依赖服务层对象，再按需读取其中的 `batch_result` 兼容旧模块；不建议继续把 Streamlit 页面函数作为业务入口。
 
@@ -1006,7 +1006,7 @@ python -m pytest
 - `inspect_upload()` 会返回安全 trace metadata：文件名、后缀、大小和 SHA256；
 - `filter_uploads()` 会过滤非法文件并返回用户可读的拒绝原因。
 
-Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，但技术曲线仍只纳入 CSV；单独覆盖的负荷/光伏/风电曲线只允许 CSV；下网电价曲线允许 CSV/XLSX/XLSM。非法文件不会进入预览、曲线读取或电价曲线解析。启用内部试用登录并保存技术结果时，负荷、光伏和风电三条技术输入曲线会作为 `ArtifactKind.INPUT_CURVE` 写入 `ResultStore`，默认 30 天过期，并在 `config_snapshot.json` 中写入 `input_artifact_ids`。正式受控公网内测前仍应补充价格曲线、schema 报告、定时清理、关键 Run 保留和恢复策略。
+Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，但技术曲线仍只纳入 CSV；单独覆盖的负荷/光伏/风电曲线只允许 CSV；下网电价曲线允许 CSV/XLSX/XLSM。非法文件不会进入预览、曲线读取或电价曲线解析。启用内部试用登录并保存技术结果时，负荷、光伏和风电三条技术输入曲线会作为 `ArtifactKind.INPUT_CURVE` 写入 `ResultStore`，默认 30 天过期，并在 `config_snapshot.json` 中写入 `input_artifact_ids` 与 `curve_columns`；历史 summary-only 结果可在这些 input artifact 仍可查看时恢复技术输入并按需补算单方案明细。正式受控公网内测前仍应补充价格曲线、schema 报告、定时清理、关键 Run 保留和恢复策略。
 
 `src/green_direct/services/pilot_registry.py` 已提供第一版 `LocalPilotRegistry`：
 
@@ -1060,7 +1060,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - 会话失效、token 错误或退出登录时，会清理当前浏览器会话内的测算结果、下载缓存、价格曲线和图表导出缓存，避免下一位用户看到上一位用户的临时结果；
 - 登录后必须先创建或选择一个有效项目工作区，六步业务工作流才会继续渲染；切换项目会清理当前测算结果和下载缓存；
 - 平台管理员登录后，侧栏会出现“平台管理”入口，当前支持创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并在“项目和成员”中为已有项目分配或禁用成员角色、维护是否允许下载/导出项目结果；
-- 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引；面板可筛出当前项目排队/运行中的活动任务，并按项目角色提供最小取消入口；导出权限允许时，可加载下载已落盘的 summary / portfolio artifact，并可 summary-only 恢复技术汇总到当前会话；导出权限禁止时，只显示历史索引，不加载产物 payload；
+- 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引；面板可筛出当前项目排队/运行中的活动任务，并按项目角色提供最小取消入口；导出权限允许时，可下载已落盘的 summary / portfolio artifact；网页内恢复技术汇总、加载已有 hourly artifact 和恢复 input artifact 走 `read_artifact_payload_for_view()`，只要求项目查看权限并写 `VIEW_ARTIFACT` 审计，不授予文件下载能力；
 - 当前门禁、平台管理页和结果面板只解决内部试用账号、项目工作区控制、结果可见性和已落盘 artifact 取回入口，仍没有数据库会话表、CSRF 防护、正式审计后台、完整历史结果恢复或后台 worker。
 
 `src/green_direct/services/job_store.py` 已提供第一版 `LocalJobStore`：
@@ -1188,7 +1188,7 @@ RecommendationStudyResult
 - `Job(job_type="technical_study")`：记录项目、研究、发起人、输入配置指纹、进度和完成状态；
 - `input_curve_load.csv` / `input_curve_pv.csv` / `input_curve_wind.csv`：技术仿真原始输入曲线 artifact，默认 30 天过期；
 - `technical_summary.csv`：当前技术仿真的方案汇总；
-- `config_snapshot.json`：本次技术仿真的配置快照；若保存了 input curve artifact，会额外包含 `input_artifact_ids`；
+- `config_snapshot.json`：本次技术仿真的配置快照；若保存了 input curve artifact，会额外包含 `input_artifact_ids`；技术快照还包含 `curve_columns`，用于历史 summary-only 恢复后重建 `TechnicalStudyInput`；
 - `StudyResultRecord(result_id="technical_result")`：指向技术汇总 artifact；
 - `Job(job_type="economic_study")`：记录经济性测算同步写入；
 - `power_economy_summary.csv` / `single_entity_summary.csv`：电源侧和同一主体经济性汇总；
@@ -1203,7 +1203,7 @@ RecommendationStudyResult
 
 边界：
 - 这仍是 Streamlit 进程内同步写入，不是真正后台 worker；
-- 当前不持久化全量逐小时明细、经济性年度现金流、图表包或报告；当前会话内补算出的单方案 `hourly_detail` 已可在有项目结果索引时写入 `ResultStore`，技术 summary 恢复也会带回 input artifact 索引，但尚未实现直接基于 input artifact 跨会话重新补算缺失明细；
+- 当前不持久化全量逐小时明细、经济性年度现金流、图表包或报告；当前会话内补算出的单方案 `hourly_detail` 已可在有项目结果索引时写入 `ResultStore`，技术 summary 恢复也会带回 input artifact 索引，并可在三条 input artifact 未过期且快照含 `curve_columns` 时跨会话重新补算缺失明细；
 - 当前结果面板支持技术 summary-only 恢复、已有 hourly artifact 加载和活动任务取消入口，但不恢复完整历史 `StudyResult`，不删除或标记结果，也不做跨项目搜索；取消入口只更新任务状态元数据，不代表已有后台 worker 级中断能力；
 - `technical_input_fingerprint()` 目前基于 `config_snapshot` 生成稳定 sha256，用于追踪输入配置；原始上传曲线本身由 input curve artifact 的 `sha256` 和 `size_bytes` 记录；
 - `economic_input_fingerprint()` 基于经济参数、价格模式和 summary 形状生成；`recommendation_result_fingerprint()` 基于推荐结果表生成，用于 UI 内去重；

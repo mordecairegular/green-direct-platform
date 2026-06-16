@@ -41,7 +41,7 @@ from green_direct.export.excel_exporter import export_summary_excel
 from green_direct.io.read_curves import read_csv_auto_encoding
 from green_direct.io.validators import DataValidationError
 from green_direct.models.diagnostics import InputDiagnostics
-from green_direct.models.params import BessParams, DataCleaningParams, PerformanceParams, PolicyParams
+from green_direct.models.params import BessParams, DataCleaningParams, PerformanceParams, PolicyParams, TimeParams
 from green_direct.models.pilot_backend import (
     ArtifactKind,
     Job,
@@ -3595,6 +3595,147 @@ def _load_pilot_hourly_detail_artifact_if_available(st, scenario_id: str) -> boo
     return True
 
 
+def _dataclass_snapshot_kwargs(model_cls, raw: object) -> dict[str, object]:
+    if not isinstance(raw, dict):
+        return {}
+    field_names = set(getattr(model_cls, "__dataclass_fields__", {}))
+    return {str(key): value for key, value in raw.items() if str(key) in field_names}
+
+
+def _coerce_supported_hours(raw: object) -> tuple[int, ...]:
+    if isinstance(raw, (list, tuple)) and raw:
+        try:
+            return tuple(int(value) for value in raw)
+        except (TypeError, ValueError):
+            return TimeParams().supported_hours
+    return TimeParams().supported_hours
+
+
+def _technical_curve_columns_from_config_snapshot(
+    config_snapshot: dict[str, object],
+) -> dict[str, tuple[str, str]] | None:
+    raw_columns = config_snapshot.get("curve_columns")
+    if not isinstance(raw_columns, dict):
+        return None
+    curve_columns: dict[str, tuple[str, str]] = {}
+    for curve_key in ("load", "pv", "wind"):
+        raw_curve = raw_columns.get(curve_key)
+        if not isinstance(raw_curve, dict):
+            return None
+        time_col = raw_curve.get("time_col")
+        value_col = raw_curve.get("value_col")
+        if not time_col or not value_col:
+            return None
+        curve_columns[curve_key] = (str(time_col), str(value_col))
+    return curve_columns
+
+
+def _pilot_input_curve_artifact_ids(st) -> dict[str, str]:
+    ids: dict[str, str] = {}
+    study_result = st.session_state.get("study_result")
+    refs = study_result.result_store_refs if isinstance(study_result, StudyResult) else {}
+    snapshot = st.session_state.get("config_snapshot")
+    config_input_ids = snapshot.get("input_artifact_ids") if isinstance(snapshot, dict) else {}
+    for curve_key in ("load", "pv", "wind"):
+        artifact_id = refs.get(f"input_curve_{curve_key}_artifact_id")
+        if not artifact_id and isinstance(config_input_ids, dict):
+            artifact_id = config_input_ids.get(curve_key)
+        if artifact_id:
+            ids[curve_key] = str(artifact_id)
+    return ids
+
+
+def _restore_technical_study_input_from_pilot_artifacts(st) -> bool:
+    if not _pilot_auth_enabled() or _has_technical_study_input(st):
+        return _has_technical_study_input(st)
+    actor_user_id = _current_pilot_user_id(st)
+    project_id = _current_pilot_project_id(st)
+    study_result = st.session_state.get("study_result")
+    config_snapshot = st.session_state.get("config_snapshot")
+    if not actor_user_id or not project_id or not isinstance(study_result, StudyResult):
+        return False
+    if not isinstance(config_snapshot, dict):
+        return False
+
+    artifact_ids = _pilot_input_curve_artifact_ids(st)
+    if set(artifact_ids) != {"load", "pv", "wind"}:
+        return False
+
+    curve_columns = _technical_curve_columns_from_config_snapshot(config_snapshot)
+    if curve_columns is None:
+        st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
+            "历史结果带有输入曲线 artifact 索引，但 config_snapshot 缺少 curve_columns，"
+            "无法跨会话恢复原始技术输入；请重新运行技术仿真后再补算逐小时明细。"
+        )
+        return False
+
+    try:
+        access = _pilot_access_service()
+        payloads: dict[str, bytes] = {}
+        for curve_key, artifact_id in sorted(artifact_ids.items()):
+            artifact = access.load_artifact(
+                actor_user_id=actor_user_id,
+                project_id=project_id,
+                study_id=study_result.study_id,
+                artifact_id=artifact_id,
+            )
+            if artifact.kind != ArtifactKind.INPUT_CURVE:
+                raise ValueError(f"Artifact {artifact_id} 不是技术输入曲线。")
+            payloads[curve_key] = access.read_artifact_payload_for_view(
+                actor_user_id=actor_user_id,
+                artifact=artifact,
+            )
+
+        raw_time = config_snapshot.get("time")
+        time_config = raw_time if isinstance(raw_time, dict) else {}
+        dt_hours = float(time_config.get("dt_hours", 1.0))
+        supported_hours = _coerce_supported_hours(time_config.get("supported_hours"))
+        validate_length = bool(time_config.get("validate_length", True))
+        scenario_grid = config_snapshot.get("scenario_grid")
+        if not isinstance(scenario_grid, dict):
+            scenario_grid = {}
+        inputs = TechnicalStudyInput(
+            load_source=payloads["load"],
+            pv_source=payloads["pv"],
+            wind_source=payloads["wind"],
+            load_time_col=curve_columns["load"][0],
+            load_value_col=curve_columns["load"][1],
+            pv_time_col=curve_columns["pv"][0],
+            pv_value_col=curve_columns["pv"][1],
+            wind_time_col=curve_columns["wind"][0],
+            wind_value_col=curve_columns["wind"][1],
+            scenario_grid=dict(scenario_grid),
+            bess_params=BessParams(**_dataclass_snapshot_kwargs(BessParams, config_snapshot.get("bess"))),
+            policy_params=PolicyParams(**_dataclass_snapshot_kwargs(PolicyParams, config_snapshot.get("policy"))),
+            performance_params=PerformanceParams(
+                **_dataclass_snapshot_kwargs(PerformanceParams, config_snapshot.get("performance"))
+            ),
+            cleaning_params=DataCleaningParams(
+                **_dataclass_snapshot_kwargs(DataCleaningParams, config_snapshot.get("cleaning"))
+            ),
+            time_params=TimeParams(dt_hours=dt_hours, supported_hours=supported_hours),
+            dt_hours=dt_hours,
+            validate_length=validate_length,
+            retain_hourly_details=False,
+            hourly_detail_scenario_ids=(),
+            config_metadata={
+                "restored_from_input_artifacts": True,
+                "restored_study_id": study_result.study_id,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 - restored input is an optional convenience path
+        if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError, TypeError)):
+            st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = f"项目输入曲线恢复失败：{exc}"
+            return False
+        raise
+
+    _remember_technical_study_input(st, inputs)
+    st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
+        "已从项目输入曲线 artifact 恢复原始技术输入，可按需补算逐小时明细。"
+    )
+    return True
+
+
 def _append_hourly_detail_to_current_result(st, scenario_id: str, summary: pd.DataFrame) -> str:
     inputs = st.session_state.get(TECHNICAL_STUDY_INPUT_KEY)
     if not isinstance(inputs, TechnicalStudyInput):
@@ -3622,6 +3763,8 @@ def _render_on_demand_hourly_detail_action(st, scenario_id: str | None, summary:
         return True
     if _load_pilot_hourly_detail_artifact_if_available(st, str(scenario_id)):
         return True
+    if not _has_technical_study_input(st):
+        _restore_technical_study_input_from_pilot_artifacts(st)
     if not _has_technical_study_input(st):
         st.info("当前会话没有原始技术输入快照，无法按需补算逐小时明细；请重新运行技术仿真或加载含逐小时明细的结果。")
         return False

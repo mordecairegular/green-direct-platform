@@ -109,6 +109,19 @@ def test_technical_study_wraps_curve_reading_batch_run_and_study_result():
     assert set(technical.hourly_details) == set(technical.summary["scenario_id"])
     assert technical.config_snapshot["demo"] is True
     assert technical.config_snapshot["policy"]["allow_export"] is False
+    assert technical.config_snapshot["cleaning"]["allow_negative_pu"] is True
+    assert technical.config_snapshot["curve_columns"]["load"] == {
+        "time_col": "时间",
+        "value_col": "负荷",
+    }
+    assert technical.config_snapshot["curve_columns"]["pv"] == {
+        "time_col": "时间",
+        "value_col": "光伏",
+    }
+    assert technical.config_snapshot["curve_columns"]["wind"] == {
+        "time_col": "时间",
+        "value_col": "风电",
+    }
     assert technical.input_diagnostics.warnings_as_messages()
     assert study.batch_result is technical.batch_result
     assert study.summary.equals(technical.summary)

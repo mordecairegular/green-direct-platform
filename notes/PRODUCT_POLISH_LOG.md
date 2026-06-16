@@ -3942,7 +3942,7 @@ exchange_import_shortfall_energy == 0
 - `StudyResult.result_store_refs` 会包含 `input_curve_load_artifact_id` / `input_curve_pv_artifact_id` / `input_curve_wind_artifact_id`，给后续跨会话按需补算留入口。
 
 边界说明：
-- 当前只是保存并恢复索引，尚未实现“从 input artifact 重建 `TechnicalStudyInput` 并跨会话补算缺失 hourly detail”的动作；
+- 当时只是保存并恢复索引，尚未实现“从 input artifact 重建 `TechnicalStudyInput` 并跨会话补算缺失 hourly detail”的动作；该缺口已在后续小节完成第一版闭环；
 - 下网电价曲线、schema 验证报告、经济性年度现金流、图表包和报告仍未完整 artifact 化；
 - 当前仍是本地文件版 store，不是数据库事务、对象存储生命周期或定时清理服务。
 
@@ -3951,3 +3951,30 @@ exchange_import_shortfall_energy == 0
 - `python -m compileall -q src scripts tests` 通过；
 - `python -m pytest tests/test_pilot_study_persistence.py tests/test_ui_import.py::test_pilot_technical_result_helper_persists_and_attaches_refs tests/test_ui_import.py::test_pilot_restore_technical_summary_rebuilds_summary_only_session -q` 通过，8 项通过；
 - `python -m pytest -q` 通过，290 项通过。
+
+### 2026-06-16 基于 input artifact 的跨会话明细补算闭环
+
+上一轮已经把负荷、光伏、风电三条技术输入曲线保存为项目级 `ArtifactKind.INPUT_CURVE`，但历史 summary-only 恢复后只带回 artifact id，仍不能真正补算缺失逐小时明细。本轮把这条链路闭合到“可网页查看、可补算、不可绕过下载权限”的第一版。
+
+本轮判断：
+- 跨会话补算不能依赖全局 runtime snapshot，也不能把旧会话里的 `_technical_study_input` 静默套到另一个历史 summary；
+- 要从 input artifact 重建 `TechnicalStudyInput`，必须同时保存当次测算三条曲线使用的 `time_col` / `value_col`；
+- 不可导出用户仍应能在网页内恢复和查看结果，但不能通过补算链路获得下载权限。
+
+本轮实现：
+- `TechnicalStudyResult.config_snapshot` 新增 `curve_columns` 和 `cleaning`，用于记录三条曲线列名和清洗参数；
+- Streamlit 新增 `_restore_technical_study_input_from_pilot_artifacts()`：历史 summary-only 结果缺少 hourly detail 时，若当前项目、用户、`StudyResult`、三条 input artifact 和 `curve_columns` 都可用，则通过 `PilotAccessService.read_artifact_payload_for_view()` 读取曲线 payload，重建 `TechnicalStudyInput`；
+- 推荐页、图表概览页和图表下载/报告页的按需明细入口顺序变为：已有内存明细 -> 已有 hourly artifact -> 从 input artifact 恢复技术输入 -> 单方案补算；
+- 补算成功后仍复用已有 `_append_hourly_detail_to_current_result()` 和 `persist_hourly_detail_artifact()`，写回当前 `batch_result` / `study_result`，并保存为项目级 `hourly_detail_<scenario_id>` artifact；
+- 读取 input artifact 走 `VIEW_ARTIFACT` 审计，不走 `DOWNLOAD_ARTIFACT`，因此不会给不可导出用户打开文件下载能力。
+
+边界说明：
+- 旧结果如果没有 `curve_columns` 快照，或 input artifact 已到期清理，只能查看 summary 或已有 hourly artifact，不能跨会话补算；
+- 当前补算仍发生在 Streamlit 进程内，是同步动作，不是后台 Job，也没有 worker 级取消/重试；
+- 下网电价曲线、经济性年度现金流、图表包、报告和导出产物仍待进入完整项目级 artifact 闭环。
+
+验证：
+- `python -m pytest tests/test_study_runner.py::test_technical_study_wraps_curve_reading_batch_run_and_study_result tests/test_ui_import.py::test_pilot_restore_summary_can_rebuild_input_from_input_artifacts_and_recompute -q` 通过，2 项通过；
+- `python -m pytest tests/test_pilot_access.py tests/test_pilot_study_persistence.py tests/test_study_runner.py tests/test_ui_import.py::test_pilot_restore_technical_summary_rebuilds_summary_only_session tests/test_ui_import.py::test_pilot_restore_summary_can_load_hourly_artifact_for_view_without_export tests/test_ui_import.py::test_pilot_restore_summary_can_rebuild_input_from_input_artifacts_and_recompute tests/test_ui_import.py::test_append_hourly_detail_updates_current_result tests/test_ui_import.py::test_append_hourly_detail_persists_pilot_artifact -q` 通过，36 项通过。
+- `python -m compileall -q src scripts tests` 通过；
+- `python -m pytest -q` 通过，291 项通过。

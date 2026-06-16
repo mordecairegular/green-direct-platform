@@ -24,7 +24,7 @@
 - 产品仍只是绿电直连 / 源网荷储前期方案测算和政策指标初判工具，不接 EMS、SCADA、调度自动化、真实电表或任何生产控制网络；
 - 必须区分平台管理员、项目管理员、可计算不可导出用户、可计算可导出用户；当前 `ProjectMembership.can_export_artifacts` 已提供第一版“可导出/不可导出”后端授权位，但未来 API、反向代理下载和对象存储签名仍必须复用同一语义；
 - 上传、计算、结果查看、产物下载、管理员跨项目查看都应经过后端权限校验并写入审计日志；
-- 原始上传文件、逐小时明细和导出文件需要保留期限和清理机制，项目元数据、参数快照、结果摘要和审计日志应更长时间保留；当前已完成技术三曲线 input artifact 和本地 artifact payload 过期清理第一版，尚未覆盖价格曲线、导出文件、关键 Run 保留和定时调度；
+- 原始上传文件、逐小时明细和导出文件需要保留期限和清理机制，项目元数据、参数快照、结果摘要和审计日志应更长时间保留；当前已完成技术三曲线 input artifact、本地 artifact payload 过期清理，以及基于 input artifact 的单方案明细跨会话补算第一版，尚未覆盖价格曲线、导出文件、关键 Run 保留和定时调度；
 - 公网内测前必须补充 `.env.example`、部署 runbook、HTTPS/反向代理说明、数据卷、备份/恢复和回滚说明；当前已有内部试用部署 runbook、本地 store 备份/恢复脚本、Dockerfile、docker-compose、`README_DEPLOY.md` 和 `SECURITY.md` 第一版，仍需在目标服务器实机演练，并补系统服务托管、日志轮转、监控告警和安全扫描。
 
 ## 2. 当前上线安全修正
@@ -208,7 +208,7 @@ PNG 图表包后台任务也按会话隔离：
 - `TechnicalStudyInput(retain_hourly_details=False, hourly_detail_scenario_ids=(...))` 已把该能力接入服务层，并写入 `config_snapshot["detail_retention"]`；
 - `run_hourly_detail_for_scenario(inputs, scenario_id=..., summary=...)` 已提供当前会话内的单方案逐小时明细补算入口：从技术 summary 行重建 `Scenario`，复用同一次技术输入的原始曲线、BESS 参数、政策参数和 `dt_hours`，只补算选中方案；
 - 02 页“高级：枚举性能提醒”已新增“大批量保留明细数”：当方案数超过提醒阈值时，UI 自动进入汇总优先模式，技术仿真只常驻方案汇总和前 N 个方案逐小时明细；
-- 推荐页、图表概览页和导出/报告页已接入第一版“补算逐小时明细”按钮；缺少明细时会先尝试按网页查看权限加载已有 `ArtifactKind.HOURLY_DETAIL`，没有可用 artifact 再使用当前会话的原始技术输入补算；补算后写回当前 `batch_result.hourly_details` 和 `study_result.technical_result.batch_result`，并清空旧下载/图表缓存；在启用内部登录且当前技术结果已有项目索引时，会把补算出的单方案明细写为 `ArtifactKind.HOURLY_DETAIL` CSV，并挂回 `StudyResultRecord.hourly_detail_artifact_ids`；
+- 推荐页、图表概览页和导出/报告页已接入第一版“补算逐小时明细”按钮；缺少明细时会先尝试按网页查看权限加载已有 `ArtifactKind.HOURLY_DETAIL`，没有可用 hourly artifact 时再使用当前会话的原始技术输入补算；历史 summary-only 恢复若带有三条 `ArtifactKind.INPUT_CURVE` 和 `curve_columns` 快照，会先恢复 `TechnicalStudyInput`，再复用同一补算入口；补算后写回当前 `batch_result.hourly_details` 和 `study_result.technical_result.batch_result`，并清空旧下载/图表缓存；在启用内部登录且当前技术结果已有项目索引时，会把补算出的单方案明细写为 `ArtifactKind.HOURLY_DETAIL` CSV，并挂回 `StudyResultRecord.hourly_detail_artifact_ids`；
 - 大批量汇总优先模式会清除当前项目级下网电价曲线，避免价格曲线经济性在缺少全量逐小时明细时误用部分数据；
 - `run_economic_study(..., retain_annual_cashflows=False, annual_cashflow_scenario_ids=[...])` 可保留经济性 summary 指标，同时不常驻全部年度现金流表，或只保留报告方案/推荐组合现金流；
 - 经济性批量评价已去除 `iterrows()` 行遍历，年度折现因子按年限和折现率缓存，NPV 使用等价 Horner 形式计算，同一主体批量评价只做一次公共参数校验；常规单符号变化现金流的 IRR 使用二分快路径，多符号变化仍保留原候选率扫描和多根判断；
@@ -263,16 +263,16 @@ PNG 图表包后台任务也按会话隔离：
 - Streamlit 02 页 Demo 和正式测算完成后，在启用内部登录且存在当前项目时，会调用该路径，并把结果引用挂到 `StudyResult.result_store_refs`。
 - `persist_economic_study_result()` 会把一次 `EconomicStudyResult` 登记为 `economic_study` 类型同步 `Job`，写入电源侧和同一主体经济性 summary；
 - `persist_recommendation_study_result()` 会把一次 `RecommendationStudyResult` 登记为 `recommendation` 类型同步 `Job`，写入推荐组合和负荷侧明细；Streamlit 推荐页使用 fingerprint 去重，避免同一组合刷新时重复写入。
-- `LocalResultStore` 和 `PilotAccessService` 已支持按项目/研究列出结果索引；Streamlit 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引，并可加载下载已落盘的 summary / portfolio artifact；技术 summary 可 summary-only 恢复到当前会话，恢复时会带上已有 hourly artifact 和 input artifact 索引。当前会话刚跑出的 summary-first 结果可按需补算单个方案明细，并把补算明细保存为默认 30 天过期的 hourly artifact；历史 summary-only 恢复如果已有 hourly artifact，可在图表/报告入口按网页查看权限加载；如果只有 input artifact、没有 hourly artifact，当前仍未接入跨会话补算动作。
+- `LocalResultStore` 和 `PilotAccessService` 已支持按项目/研究列出结果索引；Streamlit 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引，并可加载下载已落盘的 summary / portfolio artifact；技术 summary 可 summary-only 恢复到当前会话，恢复时会带上已有 hourly artifact 和 input artifact 索引。当前会话刚跑出的 summary-first 结果可按需补算单个方案明细，并把补算明细保存为默认 30 天过期的 hourly artifact；历史 summary-only 恢复如果已有 hourly artifact，可在图表/报告入口按网页查看权限加载；如果只有 input artifact、没有 hourly artifact，可在三条输入曲线未过期且 `config_snapshot` 带有 `curve_columns` 时重建 `TechnicalStudyInput` 并跨会话补算单方案明细。
 
 仍未落地：
 - 后台 worker / 队列 / 取消闭环；
-- 技术仿真历史 summary-only 结果基于受控 input artifact 的跨会话补算动作；
+- 技术仿真历史 summary-only 结果基于受控 input artifact 的后台 Job 化补算动作；
 - 经济性年度现金流、图表包、报告产物写入 `ResultStore`；
 - 完整项目级任务状态页、完整历史结果恢复、删除、标记和跨项目搜索；
 - SQLite/Postgres 或对象存储适配、并发锁、备份和部署 runbook。
 
 下一阶段建议：
 1. 先做完整任务状态页和结果历史恢复/下载页，让用户可以在项目内找回已完成测算；
-2. 再把基于 input artifact 的逐小时明细补算和经济性年度现金流纳入结果恢复链路，让缺少 hourly artifact 的历史结果也能受控补算；
+2. 再把基于 input artifact 的逐小时明细补算升级为后台 Job，并把经济性年度现金流纳入结果恢复链路；
 3. 最后把图表包和报告导出统一变成项目级 artifacts，并接入后台 worker。

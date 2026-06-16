@@ -152,6 +152,7 @@ def _build_technical_config_snapshot(
         "bess": asdict(inputs.bess_params),
         "policy": asdict(inputs.policy_params),
         "performance": asdict(inputs.performance_params),
+        "cleaning": asdict(inputs.cleaning_params),
         "time": {
             "dt_hours": inputs.dt_hours,
             "supported_hours": inputs.time_params.supported_hours,
@@ -160,6 +161,20 @@ def _build_technical_config_snapshot(
         "detail_retention": {
             "retain_hourly_details": inputs.retain_hourly_details,
             "hourly_detail_scenario_ids": list(inputs.hourly_detail_scenario_ids),
+        },
+        "curve_columns": {
+            "load": {
+                "time_col": inputs.load_time_col,
+                "value_col": inputs.load_value_col,
+            },
+            "pv": {
+                "time_col": inputs.pv_time_col,
+                "value_col": inputs.pv_value_col,
+            },
+            "wind": {
+                "time_col": inputs.wind_time_col,
+                "value_col": inputs.wind_value_col,
+            },
         },
         "curve_encodings": curve_encodings,
         "warnings": curve_warnings,

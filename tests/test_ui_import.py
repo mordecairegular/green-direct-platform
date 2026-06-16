@@ -1,5 +1,6 @@
 from concurrent.futures import Future
 from io import BytesIO
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from zipfile import ZipFile
@@ -735,6 +736,170 @@ def test_pilot_restore_summary_can_load_hourly_artifact_for_view_without_export(
         "hourly_detail_S0001"
     )
     assert access.result_store.read_audit_log(project.project_id)[-1].action == AuditAction.VIEW_ARTIFACT
+
+
+def test_pilot_restore_summary_can_rebuild_input_from_input_artifacts_and_recompute(
+    tmp_path,
+    monkeypatch,
+):
+    import green_direct.ui.app as app
+    from green_direct.batch.batch_runner import BatchResult
+    from green_direct.models.pilot_backend import ArtifactKind, AuditAction, Project, ProjectRole, StudyResultRecord, User
+    from green_direct.services import TechnicalStudyInput
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+
+    access = app._pilot_access_service()
+    access.registry.save_user(User("admin", "admin@example.local", "Admin"))
+    access.registry.save_user(User("analyst", "analyst@example.local", "Analyst"))
+    project = access.create_project(actor_user_id="admin", project=Project("project_1", "Pilot project"))
+    access.grant_project_role(
+        actor_user_id="admin",
+        project_id=project.project_id,
+        user_id="analyst",
+        role=ProjectRole.ANALYST,
+        can_export_artifacts=False,
+    )
+
+    def curve_payload(column: str, value: float) -> str:
+        frame = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=24, freq="h"),
+                column: [value] * 24,
+            }
+        )
+        return frame.to_csv(index=False)
+
+    summary_csv = (
+        "scenario_id,pv_capacity,wind_capacity,bess_power,bess_energy,green_load_rate\n"
+        "S0001,1.0,0.0,0.0,0.0,0.5\n"
+    )
+    config_snapshot = {
+        "study_id": "study_1",
+        "scenario_grid": {
+            "pv_capacity": {"start": 1, "end": 1, "step": 1},
+            "wind_capacity": {"start": 0, "end": 0, "step": 1},
+            "bess_power": {"start": 0, "end": 0, "step": 1},
+            "bess_duration_hours": [0],
+        },
+        "bess": {"soc_initial": 0.5, "soc_min": 0.1, "soc_max": 0.9},
+        "policy": {"allow_export": False},
+        "performance": {"parallel_workers": 1},
+        "cleaning": {"allow_negative_pu": True},
+        "time": {"dt_hours": 1.0, "supported_hours": [24], "validate_length": False},
+        "curve_columns": {
+            "load": {"time_col": "timestamp", "value_col": "load"},
+            "pv": {"time_col": "timestamp", "value_col": "pv"},
+            "wind": {"time_col": "timestamp", "value_col": "wind"},
+        },
+        "input_artifact_ids": {
+            "load": "input_curve_load",
+            "pv": "input_curve_pv",
+            "wind": "input_curve_wind",
+        },
+    }
+    access.result_store.store_artifact(
+        artifact_id="technical_summary",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_id="job_1",
+        kind=ArtifactKind.TECHNICAL_SUMMARY,
+        payload=summary_csv,
+        filename="technical_summary.csv",
+        content_type="text/csv",
+    )
+    access.result_store.store_artifact(
+        artifact_id="config_snapshot",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_id="job_1",
+        kind=ArtifactKind.CONFIG_SNAPSHOT,
+        payload=json.dumps(config_snapshot),
+        filename="config_snapshot.json",
+        content_type="application/json",
+    )
+    for curve_key, column, value in [
+        ("load", "load", 1.0),
+        ("pv", "pv", 0.5),
+        ("wind", "wind", 0.3),
+    ]:
+        access.result_store.store_artifact(
+            artifact_id=f"input_curve_{curve_key}",
+            project_id=project.project_id,
+            study_id="study_1",
+            job_id="job_1",
+            kind=ArtifactKind.INPUT_CURVE,
+            payload=curve_payload(column, value),
+            filename=f"input_curve_{curve_key}.csv",
+            content_type="text/csv",
+        )
+    record = StudyResultRecord(
+        result_id="technical_result",
+        project_id=project.project_id,
+        study_id="study_1",
+        created_by_job_id="job_1",
+        technical_summary_artifact_id="technical_summary",
+    )
+    access.result_store.save_result_record(record)
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.PILOT_USER_ID_KEY: "analyst",
+                app.PILOT_ACTIVE_PROJECT_ID_KEY: project.project_id,
+                app.PILOT_ACTIVE_PROJECT_CAN_EXPORT_KEY: False,
+            }
+
+    dummy = DummyStreamlit()
+    app._pilot_restore_technical_summary_to_session(
+        dummy,
+        access=access,
+        actor_user_id="analyst",
+        record=record,
+    )
+
+    restored = app._restore_technical_study_input_from_pilot_artifacts(dummy)
+    inputs = dummy.session_state[app.TECHNICAL_STUDY_INPUT_KEY]
+
+    assert restored is True
+    assert isinstance(inputs, TechnicalStudyInput)
+    assert inputs.load_value_col == "load"
+    assert inputs.pv_value_col == "pv"
+    assert inputs.wind_value_col == "wind"
+    assert inputs.validate_length is False
+    assert inputs.time_params.supported_hours == (24,)
+    assert inputs.policy_params.allow_export is False
+
+    hourly = pd.DataFrame({"scenario_id": ["S0001"], "hour_index": [0], "load_power": [1.0]})
+    captured = {}
+
+    def fake_regenerate(inputs_arg, *, scenario_id, summary):
+        captured["inputs"] = inputs_arg
+        captured["scenario_id"] = scenario_id
+        return SimpleNamespace(hourly_detail=hourly)
+
+    monkeypatch.setattr(app, "run_hourly_detail_for_scenario", fake_regenerate)
+    monkeypatch.setattr(app, "_clear_chart_export_cache", lambda st: None)
+    monkeypatch.setattr(app, "_save_runtime_snapshot", lambda st: None)
+
+    message = app._append_hourly_detail_to_current_result(
+        dummy,
+        "S0001",
+        dummy.session_state["batch_result"].summary,
+    )
+    next_batch = dummy.session_state["batch_result"]
+    saved_hourly = access.result_store.load_artifact(project.project_id, "study_1", "hourly_detail_S0001")
+    audit_actions = [event.action for event in access.result_store.read_audit_log(project.project_id)]
+
+    assert "S0001" in message
+    assert captured["inputs"] is inputs
+    assert captured["scenario_id"] == "S0001"
+    assert isinstance(next_batch, BatchResult)
+    assert next_batch.hourly_details["S0001"].equals(hourly)
+    assert saved_hourly.kind == ArtifactKind.HOURLY_DETAIL
+    assert AuditAction.VIEW_ARTIFACT in audit_actions
+    assert AuditAction.DOWNLOAD_ARTIFACT not in audit_actions
 
 
 def test_streamlit_app_shows_pilot_login_gate_when_enabled(tmp_path, monkeypatch):
