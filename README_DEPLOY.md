@@ -61,6 +61,21 @@ docker compose logs -f green-direct
 docker compose down
 ```
 
+## 2.1 托管平台快速公网测试
+
+如果目标是尽快做邀请制公网内测，优先使用成熟平台承载公网入口和容器运行，不建议把当前 Streamlit 应用直接部署到 Vercel 或 Cloudflare Pages/Workers 作为主机。当前应用是长运行 Python Web 进程，并依赖本地 pilot store；更适合 Docker Web Service + 持久磁盘。
+
+推荐路线：
+
+```text
+Cloudflare DNS / HTTPS / Access
+  -> Render Web Service
+  -> Dockerfile
+  -> persistent disk mounted at /data
+```
+
+仓库已提供 `render.yaml`，可在 Render 中用 Blueprint 创建服务。详细步骤见 `docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md`。
+
 ## 3. 默认安全设置
 
 `docker-compose.yml` 默认设置：

@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: green-direct-internal-pilot
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: GREEN_DIRECT_ENABLE_PILOT_AUTH
+        value: "1"
+      - key: GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT
+        value: "0"
+      - key: GREEN_DIRECT_PILOT_STORE_DIR
+        value: /data/pilot_store
+      - key: GREEN_DIRECT_MAX_UPLOAD_MB
+        value: "20"
+      - key: GREEN_DIRECT_MAX_SCENARIOS_PER_RUN
+        value: "20000"
+      - key: STREAMLIT_SERVER_ADDRESS
+        value: 0.0.0.0
+      - key: STREAMLIT_SERVER_PORT
+        value: "8503"
+      - key: STREAMLIT_SERVER_HEADLESS
+        value: "true"
+      - key: STREAMLIT_BROWSER_GATHER_USAGE_STATS
+        value: "false"
+      - key: PYTHONPATH
+        value: /app/src
+      - key: PORT
+        value: "8503"
+      - key: BROWSER_PATH
+        value: /usr/bin/chromium
+    disk:
+      name: green-direct-pilot-store
+      mountPath: /data
+      sizeGB: 10

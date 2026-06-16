@@ -6,7 +6,8 @@
 2. 方案遍历与经济性测算性能专项；
 3. 在不改变计算口径的前提下提升 Streamlit UI；
 4. 后台账户、Job 和 `ResultStore` 架构设计；
-5. 受控公网内测 Route A 的部署与安全缺口跟踪。
+5. 受控公网内测 Route A 的部署与安全缺口跟踪；
+6. 托管平台公网测试演练。
 
 ## 1. 对现有 GPT 提示词的判断
 
@@ -17,6 +18,7 @@
 - 明确审查范围：要求 Claude Code 先确认当前分支、最近提交和工作区状态；
 - 明确修复权限：P0/P1 可直接修，但任何计算口径变化必须先说明原因，并同步测试和文档；
 - 明确 UI 边界：只优化当前 Streamlit 工程工作台，不重写为新前端，不把全量枚举表变成主入口；
+- 明确部署路线：当前短期公网测试优先用容器/PaaS 托管应用本体、Cloudflare 做 DNS/HTTPS/Access，不要盲目改成 Vercel 或 Cloudflare Pages/Workers 原生应用；
 - 明确交付证据：每轮都要给文件、行号、复现路径、验证命令和浏览器检查结果。
 
 ## 2. 使用顺序
@@ -27,14 +29,15 @@
 2. 再发送“上线前 review/debug 提示词”；
 3. 如果 review 没有发现会阻断试用的计算口径或权限问题，再发送“性能专项提示词”；
 4. 如果 P0/P1 清零或已有明确修复计划，再发送“UI 提升提示词”；
-5. 如果要继续推进多人后台，再发送“后台账户、Job 和 ResultStore 架构提示词”。
+5. 如果要继续推进多人后台，再发送“后台账户、Job 和 ResultStore 架构提示词”；
+6. 如果要直接公网试用，再单独发送“托管平台部署演练提示词”。
 
 不要把第 2 步、第 3 步和第 4 步合并。审查阶段要保守，性能阶段要可量化，UI 阶段要有设计判断，混在一起容易漏掉真正的上线风险或把视觉优化误当成上线能力。
 
 ## 3. 上下文读取提示词
 
 ```text
-请先不要改代码。请阅读 AGENTS.md、CLAUDE.md、notes/HANDOFF_FOR_NEW_MACHINE.md、notes/PRODUCT_POLISH_LOG.md、docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md、docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md、docs/PERFORMANCE_OPTIMIZATION_PLAN.md、docs/SOFTWARE_OVERVIEW_AND_INTERFACE.md、docs/ECONOMY_RECOMMENDATION_V1_MAP.md、docs/CHART_MODULE_CURRENT_LOGIC.md、docs/WEB_APP_WORKFLOW_AND_UI_RESTRUCTURE.md，以及 notes/architecture_reframe_20260519/ 下的文档。
+请先不要改代码。请阅读 AGENTS.md、CLAUDE.md、notes/HANDOFF_FOR_NEW_MACHINE.md、notes/PRODUCT_POLISH_LOG.md、docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md、docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md、docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md、docs/PERFORMANCE_OPTIMIZATION_PLAN.md、docs/SOFTWARE_OVERVIEW_AND_INTERFACE.md、docs/ECONOMY_RECOMMENDATION_V1_MAP.md、docs/CHART_MODULE_CURRENT_LOGIC.md、docs/WEB_APP_WORKFLOW_AND_UI_RESTRUCTURE.md，以及 notes/architecture_reframe_20260519/ 下的文档。
 
 读完后请用中文简要说明：
 1. 当前项目定位；
@@ -231,4 +234,50 @@ python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/tes
 6. 迁移风险。
 
 不要改变当前 V0.1 计算口径。不要为了后台架构一次性重写整个项目。
+```
+
+## 8. 托管平台部署演练提示词
+
+```text
+请做一次“受控公网内测托管平台部署演练”审查。目标是尽快把当前 Streamlit + Docker 应用放到公网邀请制测试，但不要为了适配平台重写核心计算或 UI。
+
+请先阅读：
+- README_DEPLOY.md
+- render.yaml
+- docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md
+- docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md
+- SECURITY.md
+- Dockerfile
+- docker-compose.yml
+- .env.example
+
+判断边界：
+1. 当前应用是长运行 Streamlit Python Web 进程，不适合直接部署到 Vercel Functions 或 Cloudflare Pages/Workers 作为主机；
+2. 短期推荐容器/PaaS 托管应用本体，Cloudflare 负责 DNS、HTTPS、Access 和入口防护；
+3. 如果要改架构，优先把本地 store 换成数据库/对象存储和后台 worker，再考虑前端重写。
+
+请检查：
+1. `render.yaml` 是否与 Dockerfile、健康检查、端口、环境变量和 `/data/pilot_store` 一致；
+2. `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 和 `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0` 是否在托管平台默认生效；
+3. persistent disk 是否挂载到 `/data`，pilot store 是否不在 Git 仓库路径；
+4. 平台管理员 bootstrap 命令是否能在 Render Shell/一次性 Job 中执行；
+5. Cloudflare Access 门禁与应用内登录是否形成双层门禁；
+6. 重启后用户、项目、任务、结果和审计日志是否仍可保留；
+7. 备份/恢复、日志脱敏、上传文件大小、导出权限和不可导出用户是否有实测清单。
+
+如果你可以访问托管平台或本机 Docker，请实际执行：
+1. docker compose build
+2. docker compose up -d
+3. 创建平台管理员
+4. 登录，创建项目，运行一个最小样例
+5. docker compose restart 后确认数据仍存在
+6. docker compose down
+
+如果不能访问托管平台，请只做仓库内配置审查，不要臆造已经部署成功。
+
+输出：
+1. P0/P1/P2 findings；
+2. 可直接修复的小配置问题；
+3. 仍需人工在平台控制台完成的步骤；
+4. 建议的公网内测域名、Access 策略和回滚方案。
 ```

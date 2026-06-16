@@ -4579,3 +4579,22 @@ exchange_import_shortfall_energy == 0
 - `python -m compileall -q src/green_direct/services/pilot_access.py src/green_direct/cli.py tests/test_pilot_access.py tests/test_cli.py` 通过；
 - `python -m green_direct.cli pilot-admin complete-worker-job --help` 和 `python -m green_direct.cli pilot-admin fail-worker-job --help` 通过；
 - `pytest -q` 通过，323 项通过。
+
+### 2026-06-16 托管平台公网内测路线
+
+用户提出希望直接上公网测试，并倾向使用 Vercel、Cloudflare 等成熟平台能力，避免从零自研部署能力；同时追问当前 Streamlit 长进程 + 本地项目库模型如果不合适是否可以改。
+
+本轮判断：
+- 当前 Streamlit + Docker + 本地 pilot store 形态不适合直接用 Vercel 或 Cloudflare Pages/Workers 作为主机；
+- 成熟平台应分工使用：容器/PaaS 平台负责运行 Python Web 进程和持久盘，Cloudflare 负责 DNS、HTTPS、Access 和入口防护；
+- 可以改架构，但短期公网内测不应先推倒 Streamlit 前台；优先改存储/任务层，把本地 store 演进到数据库、对象存储和后台 worker，再考虑 Next.js/FastAPI 等前后端拆分。
+
+本轮实现：
+- 新增 `render.yaml`，作为 Render Blueprint 的第一版入口；
+- 新增 `docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md`，给出 Render + persistent disk + Cloudflare Access 的推荐路线，并列出 Fly.io、Railway、Cloud Run 等替代平台边界；
+- 更新 `README_DEPLOY.md`、`docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md` 和 `notes/HANDOFF_FOR_NEW_MACHINE.md`，把公网测试从“自建服务器优先”调整为“托管平台优先，Cloudflare 做入口”。
+
+边界说明：
+- 该路线不改变计算口径和代码运行逻辑；
+- 仍需在真实托管平台完成构建、管理员初始化、持久盘重启验证、Cloudflare Access 门禁和备份恢复演练；
+- 本地 JSON store 仍不是长期正式数据库，后续应继续推进 `ResultStore` / `JobStore` 的数据库化和 artifact 对象存储化。
