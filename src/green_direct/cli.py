@@ -33,6 +33,7 @@ from green_direct.services import (
     LocalResultStore,
     execute_next_worker_job,
     execute_worker_loop,
+    run_pilot_store_doctor,
 )
 
 DEFAULT_PILOT_STORE_DIR = Path(".runtime") / "pilot_store"
@@ -588,6 +589,18 @@ def _cmd_fail_stale_jobs(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_store_doctor(args: argparse.Namespace) -> int:
+    result = run_pilot_store_doctor(args.store_dir)
+    if bool(args.json):
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2, sort_keys=True))
+    else:
+        print(f"pilot_store_doctor\tstatus={result.status}\tstore_dir={result.store_dir}")
+        print("status\tname\tmessage")
+        for check in result.checks:
+            print(f"{check.status}\t{check.name}\t{check.message}")
+    return 0 if result.status == "pass" else 1
+
+
 def _add_common_store_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--store-dir",
@@ -611,6 +624,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     pilot_admin = subparsers.add_parser("pilot-admin", help="Internal pilot account administration.")
     pilot_admin_sub = pilot_admin.add_subparsers(dest="pilot_admin_command")
+
+    doctor = pilot_admin_sub.add_parser(
+        "doctor",
+        help="Check pilot store directory writability, locks, metadata, and audit logs.",
+    )
+    _add_common_store_arg(doctor)
+    doctor.add_argument("--json", action="store_true", help="Print machine-readable JSON output.")
+    doctor.set_defaults(func=_cmd_store_doctor)
 
     bootstrap = pilot_admin_sub.add_parser("bootstrap", help="Create the first platform admin.")
     _add_common_store_arg(bootstrap)

@@ -12,9 +12,10 @@
 2. 等 GitHub Actions `Internal Pilot Quality Gate` 跑通。
 3. 在 Render 选择 Blueprint / Import Git Repository，导入同一个 GitHub 仓库和分支。
 4. 确认 Render 创建的是 Docker Web Service，并挂载 `/data` persistent disk。
-5. 在 Render Web Service Shell 初始化平台管理员，再登录应用创建 3-5 个首批内测账号。
-6. 把 Render 自定义域名接入 Cloudflare DNS / HTTPS / Access，只放行内测邮箱。
-7. 用手机 4G/5G 完成第 6 节验收后，再把链接发给真实同事。
+5. 在 Render Web Service Shell 先运行 `pilot-admin doctor --store-dir /data/pilot_store --json`，通过后再初始化平台管理员。
+6. 登录应用创建 3-5 个首批内测账号。
+7. 把 Render 自定义域名接入 Cloudflare DNS / HTTPS / Access，只放行内测邮箱。
+8. 用手机 4G/5G 完成第 6 节验收后，再把链接发给真实同事。
 
 如果未来把前台改成 Next.js/React，Vercel 可以成为前端托管平台；但当前第一版公网试用仍以 Render 承载 Streamlit/Docker 应用本体，Cloudflare 做入口门禁。
 
@@ -58,6 +59,7 @@ GitHub private repository
 6. 确认关键环境变量：登录门禁为 `1`，runtime snapshot 为 `0`，单次技术方案数上限为 `20000`，经济性现金流保留阈值为 `1000`，保留数量为 `20`。
 7. 部署完成后，访问 Render 默认域名。
 8. 若显示应用登录页，说明公网入口已通。
+9. 在 Render Web Service Shell 运行 `pilot-admin doctor --store-dir /data/pilot_store --json`，确认 persistent disk、JSON metadata、payload 写入、协作锁和审计 JSONL 都正常。
 
 当前 `render.yaml` 只创建 Web Service。按需逐小时明细和固定价/网页组价年度现金流后台任务已有 `run-worker-loop`，但本地 file store 版在 Render 上不应简单拆成另一个独立 Worker Service 共享 `/data/pilot_store`；该类持久盘绑定在服务侧，正式拆分 worker 前应先迁移到数据库/对象存储，或改用同一主机/Compose 共享卷方案。第一次移动网络试用可先保留同步补算 fallback；必要时平台管理员可在应用内“平台管理 -> 任务运维”手动处理一个排队任务，也可在同一服务环境里执行 `run-worker-once`。
 
@@ -109,6 +111,7 @@ Cloudflare Access 是公网入口第一层门禁；应用内账号是第二层�
 - 不可导出用户不能下载 06 页导出和 artifact；
 - 普通用户看不到其他人的项目；
 - 创建项目、运行小样例、重启服务后项目仍存在；
+- Render Shell 中 `pilot-admin doctor --store-dir /data/pilot_store --json` 返回 `status=pass`；
 - 平台管理页“审计日志”和 CLI 审计抽查都能看到登录、项目、下载、artifact 操作；
 - 如测试后台逐小时明细或年度现金流补算，确认 queued job 会出现在欢迎页任务面板，并由平台管理页“任务运维”、`run-worker-once` 或 `run-worker-loop` 处理完成；
 - `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0`；

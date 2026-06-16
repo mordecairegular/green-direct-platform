@@ -29,6 +29,11 @@ from green_direct.services.pilot_study_persistence import (
     recommendation_result_fingerprint,
     technical_input_fingerprint,
 )
+from green_direct.services.pilot_store_doctor import (
+    PilotStoreDoctorCheck,
+    PilotStoreDoctorResult,
+    run_pilot_store_doctor,
+)
 from green_direct.services.pilot_worker import (
     PilotWorkerExecutionResult,
     PilotWorkerLoopResult,
@@ -72,6 +77,8 @@ __all__ = [
     "PilotAdminError",
     "PilotLoginSession",
     "PilotSessionRecord",
+    "PilotStoreDoctorCheck",
+    "PilotStoreDoctorResult",
     "PilotWorkerExecutionResult",
     "PilotWorkerLoopResult",
     "PersistedEconomicStudy",
@@ -105,6 +112,7 @@ __all__ = [
     "persist_technical_study_result",
     "queue_job_with_input_artifact",
     "recommendation_result_fingerprint",
+    "run_pilot_store_doctor",
     "run_hourly_detail_for_scenario",
     "run_economic_study",
     "run_technical_study",

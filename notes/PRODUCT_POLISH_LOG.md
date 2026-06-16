@@ -5274,6 +5274,33 @@ profile / benchmark：
 - `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 通过，`failed_count=0`，包含 `smoke:streamlit`；
 - `git diff --check` 通过，仅有 Windows 换行转换提示。
 
+### 2026-06-17 pilot store 运行时 doctor
+
+本轮继续补公网/多人试用部署演练需要的服务器侧工具。此前已有静态 preflight、Streamlit smoke、备份/恢复脚本和本地 store 协作锁，但 Render persistent disk 或自有服务器目录真正挂载后，仍缺一个 bootstrap 前可运行的运行时检查入口；如果 `/data/pilot_store` 权限、JSON metadata、协作锁或审计日志有问题，管理员可能会在错误目录里创建首个账号，后续恢复会很麻烦。
+
+实现：
+- 新增 `src/green_direct/services/pilot_store_doctor.py`，提供 `run_pilot_store_doctor()`；
+- `pilot-admin doctor --store-dir <dir> --json` 不要求已有平台管理员，可在 bootstrap 前运行；
+- doctor 检查 store 目录可用性、JSON 原子写入/读取、payload 文件写入、协作文件锁可 acquire/block/release、既有 metadata JSON 可解析、全局/项目审计 JSONL 可解析；
+- CLI 普通输出为 TSV，`--json` 输出 `status`、`store_dir` 和各检查项，任一检查失败时进程退出码为 1；
+- README、内部部署 runbook、托管平台路线、移动网络试用清单、软件接口总览、受控公网审计矩阵、TODO 和 handoff 已同步。
+
+边界：
+- doctor 不读取明文密码或 token，也不替代企业监控、数据库健康检查、备份完整性校验或安全扫描；
+- 它只能发现本地文件 store 的基础可用性和明显 JSON 损坏，不保证业务数据语义完整；
+- 这不改变 V0.1 技术仿真、经济性 V1、推荐 V1 排序或 UI 工作流；
+- 若未来迁移 SQLite/Postgres / 对象存储，需要新增对应数据库和对象存储 doctor。
+
+验证：
+- `python -m pytest tests\test_pilot_store_doctor.py tests\test_cli.py::test_cli_pilot_admin_doctor_json_pass_and_fail -q` 通过，4 项通过；
+- `python -m compileall -q src\green_direct\services\pilot_store_doctor.py src\green_direct\services\__init__.py src\green_direct\cli.py tests\test_pilot_store_doctor.py tests\test_cli.py` 通过；
+- `$env:PYTHONPATH='src'; python -m green_direct.cli pilot-admin doctor --help` 通过；
+- `$env:PYTHONPATH='src'; python -m green_direct.cli pilot-admin doctor --store-dir .runtime\doctor_smoke --json` 通过，`status=pass`；
+- `python -m pytest tests\test_cli.py tests\test_pilot_store_doctor.py tests\test_local_store_utils.py -q` 通过，20 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `python -m pytest -q` 通过，371 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 通过，`failed_count=0`，包含 `smoke:streamlit`。
+
 ### 2026-06-16 本地文件 store 协作锁第一版
 
 本轮继续扫内部 10-20 人公网试用的工程化风险。前序已把 JSON 元数据写入改成临时文件 + 原子替换，能降低半写损坏；但当 Streamlit Web 进程、`run-worker-loop` 或管理员 CLI 同时修改账号、任务、结果或审计元数据时，仍可能发生读改写窗口竞争，尤其是多个 worker 同时认领同一个 queued job。

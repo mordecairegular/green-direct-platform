@@ -1045,6 +1045,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 
 `src/green_direct/cli.py` 已提供最小 `pilot-admin` 命令行入口，作为管理员 UI 落地前的本地运维工具：
 
+- `doctor`：检查本地 pilot store 目录、JSON 原子写入/读取、payload 写入、协作文件锁、既有 metadata JSON 和审计 JSONL，可在首个管理员 bootstrap 前运行；
 - `bootstrap`：创建首个平台管理员；
 - `create-user`：创建用户并可设置初始密码；
 - `reset-password`：重置用户密码，并撤销该用户有效会话；
@@ -1064,6 +1065,8 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `fail-stale-jobs`：由平台管理员把超时未 heartbeat 的 running 任务标记为 failed，并写入项目级 `COMPLETE_JOB` 审计。
 
 密码参数支持 `--password-env`，优先从环境变量读取，避免把密码直接写入命令历史。该 CLI 使用与服务层相同的本地 store，不替代后续 Streamlit 管理员页面。
+
+`src/green_direct/services/pilot_store_doctor.py` 提供 `run_pilot_store_doctor()`，用于服务器部署、Render persistent disk 挂载和备份恢复后的运行时自检。该检查不读取明文密码或 token，不要求平台管理员存在；它只验证本地存储目录和元数据文件的基本可用性，不能替代正式数据库健康检查、备份校验或监控告警。
 
 `src/green_direct/ui/app.py` 已接入可选内部试用登录门禁：
 

@@ -86,6 +86,17 @@ python scripts\smoke_streamlit_app.py
 
 该脚本会启用 pilot 登录门禁、关闭 runtime snapshot、使用临时 pilot store，启动 Streamlit 并检查 `/_stcore/health`，成功或失败后都会自动停止进程。
 
+如果已经准备了正式试用数据目录，先检查 pilot store 可写、JSON 元数据可读、payload 文件可写、协作锁和审计 JSONL 是否正常：
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m green_direct.cli pilot-admin doctor `
+    --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --json
+```
+
+`doctor` 不需要已有平台管理员，适合在 bootstrap 前后、Render persistent disk 挂载后、备份恢复后运行。返回 `status=fail` 时不要继续创建账号或启动 worker。
+
 也可以运行完整部署 preflight：
 
 ```powershell

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import json
 
 import pytest
 
@@ -19,6 +20,24 @@ from green_direct.services import LocalJobStore, LocalPilotAuth, LocalPilotRegis
 
 def _store_arg(tmp_path):
     return ["--store-dir", str(tmp_path)]
+
+
+def test_cli_pilot_admin_doctor_json_pass_and_fail(tmp_path, capsys):
+    assert main(["pilot-admin", "doctor", *_store_arg(tmp_path), "--json"]) == 0
+    output = capsys.readouterr().out
+    data = json.loads(output)
+    assert data["status"] == "pass"
+    assert data["store_dir"] == str(tmp_path.resolve())
+    assert {check["name"]: check["status"] for check in data["checks"]}["store:lock"] == "pass"
+
+    bad_path = tmp_path / "auth" / "credentials" / "broken.json"
+    bad_path.parent.mkdir(parents=True, exist_ok=True)
+    bad_path.write_text("{not json", encoding="utf-8")
+
+    assert main(["pilot-admin", "doctor", *_store_arg(tmp_path), "--json"]) == 1
+    failed = json.loads(capsys.readouterr().out)
+    assert failed["status"] == "fail"
+    assert any(check["name"] == "store:json_metadata" and check["status"] == "fail" for check in failed["checks"])
 
 
 def test_cli_pilot_admin_bootstrap_create_reset_disable_user(tmp_path, monkeypatch, capsys):

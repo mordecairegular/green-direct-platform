@@ -98,7 +98,17 @@ Vercel 可以作为未来正式化后的前端托管平台：例如将前端改�
    - mount path: `/data`
    - app store: `/data/pilot_store`
 9. 部署完成后访问 Render 默认域名，确认登录页出现。
-10. 用 Render Shell 初始化平台管理员。不要用 Render One-Off Job 初始化本地 file store 版 pilot store；持久盘应在 Web Service 运行环境中访问。
+10. 用 Render Shell 检查 pilot store。不要用 Render One-Off Job 初始化本地 file store 版 pilot store；持久盘应在 Web Service 运行环境中访问。
+
+```bash
+python -m green_direct.cli pilot-admin doctor \
+  --store-dir /data/pilot_store \
+  --json
+```
+
+若返回 `status=fail`，先修复 persistent disk 挂载、目录权限或损坏 metadata，不要继续 bootstrap。
+
+11. 用 Render Shell 初始化平台管理员。
 
 ```bash
 GREEN_DIRECT_ADMIN_PASSWORD='replace-with-one-time-password' \
@@ -110,7 +120,7 @@ python -m green_direct.cli pilot-admin bootstrap \
   --password-env GREEN_DIRECT_ADMIN_PASSWORD
 ```
 
-11. 登录后立刻重置强密码，并创建第一批内测用户。
+12. 登录后立刻重置强密码，并创建第一批内测用户。
 
 若要在自有 VM 或 Docker Compose 环境中启用最小后台 worker，管理员初始化完成后启动：
 
@@ -175,6 +185,7 @@ Streamlit UI
 - 下载和关键操作可在平台管理页“审计日志”或 CLI 审计抽查中查到；
 - `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0`；
 - `GREEN_DIRECT_PILOT_STORE_DIR` 不在 Git 仓库目录内；
+- `pilot-admin doctor --store-dir /data/pilot_store --json` 返回 `status=pass`；
 - 备份/恢复至少演练一次。
 
 ## 8. 仍然不能省略的边界
