@@ -283,7 +283,7 @@ def test_pilot_technical_result_helper_persists_and_attaches_refs(tmp_path, monk
     from green_direct.batch.batch_runner import BatchResult
     from green_direct.models.diagnostics import InputDiagnostics
     from green_direct.models.pilot_backend import ArtifactKind, Project, User
-    from green_direct.services.study_runner import StudyResult, TechnicalStudyResult
+    from green_direct.services.study_runner import StudyResult, TechnicalStudyInput, TechnicalStudyResult
 
     monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
     monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
@@ -315,7 +315,20 @@ def test_pilot_technical_result_helper_persists_and_attaches_refs(tmp_path, monk
             }
 
     dummy = DummyStreamlit()
-    persisted = app._persist_pilot_technical_result_if_enabled(dummy, technical_result)
+    technical_input = TechnicalStudyInput(
+        load_source=b"timestamp,load\n2026-01-01 00:00:00,1\n",
+        pv_source=b"timestamp,pv\n2026-01-01 00:00:00,0.5\n",
+        wind_source=b"timestamp,wind\n2026-01-01 00:00:00,0.3\n",
+        load_time_col="timestamp",
+        load_value_col="load",
+        pv_time_col="timestamp",
+        pv_value_col="pv",
+        wind_time_col="timestamp",
+        wind_value_col="wind",
+        scenario_grid={"pv_capacity": {"start": 5, "end": 5, "step": 1}},
+    )
+
+    persisted = app._persist_pilot_technical_result_if_enabled(dummy, technical_result, technical_input)
     study_result = app._study_result_with_pilot_refs(StudyResult.from_technical(technical_result), persisted)
 
     assert persisted is not None
@@ -323,6 +336,7 @@ def test_pilot_technical_result_helper_persists_and_attaches_refs(tmp_path, monk
     assert study_result.result_store_refs["technical_job_id"] == persisted.job.job_id
     assert study_result.result_store_refs["technical_summary_artifact_id"] == "technical_summary"
     assert study_result.result_store_refs["config_snapshot_artifact_id"] == "config_snapshot"
+    assert study_result.result_store_refs["input_curve_load_artifact_id"] == "input_curve_load"
     assert app.PILOT_RESULT_STORE_NOTICE_KEY in dummy.session_state
     assert (
         app._pilot_access_service()
@@ -602,7 +616,10 @@ def test_pilot_restore_technical_summary_rebuilds_summary_only_session(tmp_path)
         study_id="study_1",
         job_id="job_1",
         kind=ArtifactKind.CONFIG_SNAPSHOT,
-        payload='{"study_id":"study_1","scenario_grid":{"pv_capacity":[5]}}',
+        payload=(
+            '{"study_id":"study_1","scenario_grid":{"pv_capacity":[5]},'
+            '"input_artifact_ids":{"load":"input_curve_load"}}'
+        ),
         filename="config_snapshot.json",
         content_type="application/json",
     )
@@ -639,6 +656,7 @@ def test_pilot_restore_technical_summary_rebuilds_summary_only_session(tmp_path)
     assert dummy.session_state["config_snapshot"]["restored_from_result_store"]["summary_only"] is True
     assert isinstance(dummy.session_state["study_result"], StudyResult)
     assert dummy.session_state["study_result"].result_store_refs["technical_job_id"] == "job_1"
+    assert dummy.session_state["study_result"].result_store_refs["input_curve_load_artifact_id"] == "input_curve_load"
     assert "economy_v1_result" not in dummy.session_state
     assert app.TECHNICAL_STUDY_INPUT_KEY not in dummy.session_state
     assert app.PROJECT_PRICE_CURVE_DATA_KEY not in dummy.session_state

@@ -2028,6 +2028,8 @@ def _study_result_with_pilot_refs(study_result: StudyResult, persisted) -> Study
         "technical_summary_artifact_id": persisted.technical_summary_artifact.artifact_id,
         "config_snapshot_artifact_id": persisted.config_snapshot_artifact.artifact_id,
     }
+    for curve_key, artifact in sorted(getattr(persisted, "input_curve_artifacts", {}).items()):
+        refs[f"input_curve_{curve_key}_artifact_id"] = artifact.artifact_id
     return replace(study_result, result_store_refs=refs)
 
 
@@ -2075,7 +2077,7 @@ def _current_pilot_study_id(st) -> str | None:
     return None
 
 
-def _persist_pilot_technical_result_if_enabled(st, technical_result) -> object | None:
+def _persist_pilot_technical_result_if_enabled(st, technical_result, technical_input=None) -> object | None:
     if not _pilot_auth_enabled():
         return None
     actor_user_id = _current_pilot_user_id(st)
@@ -2088,6 +2090,7 @@ def _persist_pilot_technical_result_if_enabled(st, technical_result) -> object |
             actor_user_id=actor_user_id,
             project_id=project_id,
             technical_result=technical_result,
+            technical_input=technical_input,
         )
     except Exception as exc:  # noqa: BLE001 - persistence failure should not discard the computed study
         if isinstance(exc, (PilotAccessError, FileExistsError, FileNotFoundError, ValueError, OSError)):
@@ -2492,6 +2495,10 @@ def _pilot_restore_technical_summary_result(
         refs[f"hourly_detail_artifact_id_{scenario_id}"] = artifact_id
     if config_restored:
         refs["config_snapshot_artifact_id"] = "config_snapshot"
+        input_artifact_ids = config_snapshot.get("input_artifact_ids")
+        if isinstance(input_artifact_ids, dict):
+            for curve_key, artifact_id in sorted(input_artifact_ids.items()):
+                refs[f"input_curve_{curve_key}_artifact_id"] = str(artifact_id)
     study_result = replace(StudyResult.from_technical(technical_result), result_store_refs=refs)
     return {
         "batch_result": batch_result,
@@ -8079,7 +8086,7 @@ def _render_simulation_page(st) -> None:
                     },
                 )
                 technical_result = run_technical_study(technical_input)
-            persisted_result = _persist_pilot_technical_result_if_enabled(st, technical_result)
+            persisted_result = _persist_pilot_technical_result_if_enabled(st, technical_result, technical_input)
             study_result = StudyResult.from_technical(technical_result)
             if persisted_result is not None:
                 study_result = _study_result_with_pilot_refs(study_result, persisted_result)
@@ -8202,7 +8209,7 @@ def _render_simulation_page(st) -> None:
                 f"计算完成：{technical_result.scenario_count}/{technical_result.scenario_count}"
             )
 
-            persisted_result = _persist_pilot_technical_result_if_enabled(st, technical_result)
+            persisted_result = _persist_pilot_technical_result_if_enabled(st, technical_result, technical_input)
             study_result = StudyResult.from_technical(technical_result)
             if persisted_result is not None:
                 study_result = _study_result_with_pilot_refs(study_result, persisted_result)

@@ -3923,3 +3923,31 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_ui_import.py::test_large_run_detail_retention_plan_switches_to_summary_first tests/test_ui_import.py::test_technical_workload_estimate_scales_with_detail_retention_and_workers tests/test_ui_import.py::test_large_run_confirmation_helpers_require_and_reset_by_signature tests/test_ui_import.py::test_simulation_scenario_count_limit_uses_environment_guardrail tests/test_ui_import.py::test_scenario_count_limit_notice_blocks_oversized_pool tests/test_ui_import.py::test_technical_next_button_does_not_mutate_radio_state_after_instantiation -q` 通过，6 项通过；
 - `python -m compileall -q src scripts tests` 通过；
 - `python -m pytest -q` 通过，290 项通过。
+
+### 2026-06-16 技术三曲线 input artifact 留存第一版
+
+本轮继续推进受控公网内测 Route A 的“项目/Run 级可复盘”缺口。此前技术 summary、config snapshot 和按需 hourly detail 已能写入 `ResultStore`，但原始负荷/光伏/风电曲线只保存在当前浏览器会话里的 `TechnicalStudyInput`，历史 summary-only 恢复后仍缺少受控输入来源。
+
+本轮判断：
+- 原始输入文件属于敏感项目数据，不应永久默认保留；第一版采用 artifact retention，默认 30 天过期；
+- input artifact 只在技术仿真成功并写入项目结果时保存，仍受项目登录和角色权限控制；
+- 审计日志只记录 artifact 类型、曲线类型、留存策略和大小，不记录曲线内容。
+
+本轮实现：
+- `persist_technical_study_result()` 新增可选 `technical_input` 参数；
+- 传入 `technical_input` 时，会把负荷、光伏、风电三条输入曲线分别写成 `ArtifactKind.INPUT_CURVE`：`input_curve_load`、`input_curve_pv`、`input_curve_wind`；
+- input curve artifact 默认 30 天过期，写入时记录 `sha256`、`size_bytes`、`retention_policy` 和 `expires_at`；
+- `config_snapshot.json` 会额外写入 `input_artifact_ids`，历史技术 summary 恢复时会把这些 id 带回 `StudyResult.result_store_refs`；
+- Streamlit Demo 和正式技术仿真完成后，启用内部登录且有当前项目时，会把当前 `TechnicalStudyInput` 传给持久化 helper；
+- `StudyResult.result_store_refs` 会包含 `input_curve_load_artifact_id` / `input_curve_pv_artifact_id` / `input_curve_wind_artifact_id`，给后续跨会话按需补算留入口。
+
+边界说明：
+- 当前只是保存并恢复索引，尚未实现“从 input artifact 重建 `TechnicalStudyInput` 并跨会话补算缺失 hourly detail”的动作；
+- 下网电价曲线、schema 验证报告、经济性年度现金流、图表包和报告仍未完整 artifact 化；
+- 当前仍是本地文件版 store，不是数据库事务、对象存储生命周期或定时清理服务。
+
+验证：
+- `python -m pytest tests/test_pilot_study_persistence.py::test_persist_technical_study_result_writes_job_artifacts_and_record tests/test_pilot_study_persistence.py::test_persist_technical_study_result_rejects_viewer tests/test_ui_import.py::test_pilot_technical_result_helper_persists_and_attaches_refs tests/test_ui_import.py::test_pilot_restore_technical_summary_rebuilds_summary_only_session -q` 通过，4 项通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `python -m pytest tests/test_pilot_study_persistence.py tests/test_ui_import.py::test_pilot_technical_result_helper_persists_and_attaches_refs tests/test_ui_import.py::test_pilot_restore_technical_summary_rebuilds_summary_only_session -q` 通过，8 项通过；
+- `python -m pytest -q` 通过，290 项通过。

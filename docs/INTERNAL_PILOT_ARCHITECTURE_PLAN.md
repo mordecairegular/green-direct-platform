@@ -24,7 +24,7 @@
 - 产品仍只是绿电直连 / 源网荷储前期方案测算和政策指标初判工具，不接 EMS、SCADA、调度自动化、真实电表或任何生产控制网络；
 - 必须区分平台管理员、项目管理员、可计算不可导出用户、可计算可导出用户；当前 `ProjectMembership.can_export_artifacts` 已提供第一版“可导出/不可导出”后端授权位，但未来 API、反向代理下载和对象存储签名仍必须复用同一语义；
 - 上传、计算、结果查看、产物下载、管理员跨项目查看都应经过后端权限校验并写入审计日志；
-- 原始上传文件、逐小时明细和导出文件需要保留期限和清理机制，项目元数据、参数快照、结果摘要和审计日志应更长时间保留；当前只完成了本地 artifact payload 过期清理第一版，尚未覆盖原始上传文件和定时调度；
+- 原始上传文件、逐小时明细和导出文件需要保留期限和清理机制，项目元数据、参数快照、结果摘要和审计日志应更长时间保留；当前已完成技术三曲线 input artifact 和本地 artifact payload 过期清理第一版，尚未覆盖价格曲线、导出文件、关键 Run 保留和定时调度；
 - 公网内测前必须补充 `.env.example`、部署 runbook、HTTPS/反向代理说明、数据卷、备份/恢复和回滚说明；当前已有内部试用部署 runbook、本地 store 备份/恢复脚本、Dockerfile、docker-compose、`README_DEPLOY.md` 和 `SECURITY.md` 第一版，仍需在目标服务器实机演练，并补系统服务托管、日志轮转、监控告警和安全扫描。
 
 ## 2. 当前上线安全修正
@@ -48,6 +48,7 @@ PNG 图表包后台任务也按会话隔离：
 - 默认单文件上限 20MB，可用 `GREEN_DIRECT_MAX_UPLOAD_MB` 调整；
 - 技术曲线只允许 CSV，下网电价曲线允许 CSV/XLSX/XLSM；
 - 合法上传文件的文件名、后缀、大小和 SHA256 会写入技术仿真的 `config_snapshot["upload_file_metadata"]`；
+- 启用内部登录并保存技术结果时，负荷、光伏和风电三条技术曲线会作为 `ArtifactKind.INPUT_CURVE` 写入项目级 `ResultStore`，默认 30 天过期，并在 `config_snapshot["input_artifact_ids"]` 中留索引；
 - 非法文件只显示拒绝原因，不进入预览、曲线读取或价格曲线解析。
 
 2026-06-15 起，Streamlit 主界面已新增可选内部试用登录门禁：
@@ -258,20 +259,20 @@ PNG 图表包后台任务也按会话隔离：
 已落地第一条项目级结果写入路径，并在随后补到经济 summary 和推荐 portfolio：
 - `ArtifactKind.CONFIG_SNAPSHOT` 已加入后台模型；
 - `PilotAccessService` 已支持 `start_job()`、`update_job_progress()`、`succeed_job()` 和 `fail_job()`，任务状态变更要求发起人本人或项目管理员权限，完成/失败写入 `AuditLog.COMPLETE_JOB`；
-- `persist_technical_study_result()` 会把一次 `TechnicalStudyResult` 登记为 `technical_study` 类型同步 `Job`，写入 `technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord(result_id="technical_result")`；
+- `persist_technical_study_result()` 会把一次 `TechnicalStudyResult` 登记为 `technical_study` 类型同步 `Job`，写入三条 `input_curve_*.csv`、`technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord(result_id="technical_result")`；
 - Streamlit 02 页 Demo 和正式测算完成后，在启用内部登录且存在当前项目时，会调用该路径，并把结果引用挂到 `StudyResult.result_store_refs`。
 - `persist_economic_study_result()` 会把一次 `EconomicStudyResult` 登记为 `economic_study` 类型同步 `Job`，写入电源侧和同一主体经济性 summary；
 - `persist_recommendation_study_result()` 会把一次 `RecommendationStudyResult` 登记为 `recommendation` 类型同步 `Job`，写入推荐组合和负荷侧明细；Streamlit 推荐页使用 fingerprint 去重，避免同一组合刷新时重复写入。
-- `LocalResultStore` 和 `PilotAccessService` 已支持按项目/研究列出结果索引；Streamlit 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引，并可加载下载已落盘的 summary / portfolio artifact；技术 summary 可 summary-only 恢复到当前会话，恢复时会带上已有 hourly artifact 索引。当前会话刚跑出的 summary-first 结果可按需补算单个方案明细，并把补算明细保存为默认 30 天过期的 hourly artifact；历史 summary-only 恢复如果已有 hourly artifact，可在图表/报告入口按网页查看权限加载；如果没有 hourly artifact 且没有原始输入 artifact，仍不能直接补算。
+- `LocalResultStore` 和 `PilotAccessService` 已支持按项目/研究列出结果索引；Streamlit 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引，并可加载下载已落盘的 summary / portfolio artifact；技术 summary 可 summary-only 恢复到当前会话，恢复时会带上已有 hourly artifact 和 input artifact 索引。当前会话刚跑出的 summary-first 结果可按需补算单个方案明细，并把补算明细保存为默认 30 天过期的 hourly artifact；历史 summary-only 恢复如果已有 hourly artifact，可在图表/报告入口按网页查看权限加载；如果只有 input artifact、没有 hourly artifact，当前仍未接入跨会话补算动作。
 
 仍未落地：
 - 后台 worker / 队列 / 取消闭环；
-- 技术仿真历史 summary-only 结果基于受控原始曲线/输入 artifact 的跨会话补算；
+- 技术仿真历史 summary-only 结果基于受控 input artifact 的跨会话补算动作；
 - 经济性年度现金流、图表包、报告产物写入 `ResultStore`；
 - 完整项目级任务状态页、完整历史结果恢复、删除、标记和跨项目搜索；
 - SQLite/Postgres 或对象存储适配、并发锁、备份和部署 runbook。
 
 下一阶段建议：
 1. 先做完整任务状态页和结果历史恢复/下载页，让用户可以在项目内找回已完成测算；
-2. 再把原始输入文件和经济性年度现金流纳入结果恢复链路，让缺少 hourly artifact 的历史结果也能受控补算；
+2. 再把基于 input artifact 的逐小时明细补算和经济性年度现金流纳入结果恢复链路，让缺少 hourly artifact 的历史结果也能受控补算；
 3. 最后把图表包和报告导出统一变成项目级 artifacts，并接入后台 worker。

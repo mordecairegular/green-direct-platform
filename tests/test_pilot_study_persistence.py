@@ -31,6 +31,7 @@ from green_direct.services.study_runner import (
     EconomicStudyResult,
     RecommendationInputSnapshot,
     RecommendationStudyResult,
+    TechnicalStudyInput,
     TechnicalStudyResult,
 )
 
@@ -70,6 +71,28 @@ def _technical_result(study_id: str = "study_1") -> TechnicalStudyResult:
             "scenario_grid": {"pv_capacity": {"start": 5, "end": 5, "step": 1}},
             "detail_retention": {"retain_hourly_details": False},
         },
+    )
+
+
+def _technical_input() -> TechnicalStudyInput:
+    timestamps = pd.date_range("2026-01-01", periods=24, freq="h")
+
+    def csv_payload(column: str, value: float) -> bytes:
+        return pd.DataFrame({"timestamp": timestamps, column: [value] * len(timestamps)}).to_csv(index=False).encode(
+            "utf-8"
+        )
+
+    return TechnicalStudyInput(
+        load_source=csv_payload("load", 1.0),
+        pv_source=csv_payload("pv", 0.5),
+        wind_source=csv_payload("wind", 0.3),
+        load_time_col="timestamp",
+        load_value_col="load",
+        pv_time_col="timestamp",
+        pv_value_col="pv",
+        wind_time_col="timestamp",
+        wind_value_col="wind",
+        scenario_grid={"pv_capacity": {"start": 5, "end": 5, "step": 1}},
     )
 
 
@@ -135,19 +158,28 @@ def test_persist_technical_study_result_writes_job_artifacts_and_record(tmp_path
         actor_user_id="admin",
         project_id=project.project_id,
         technical_result=technical_result,
+        technical_input=_technical_input(),
     )
 
     loaded_job = service.job_store.load_job(project.project_id, "study_1", persisted.job.job_id)
     summary_artifact = service.result_store.load_artifact(project.project_id, "study_1", "technical_summary")
     config_artifact = service.result_store.load_artifact(project.project_id, "study_1", "config_snapshot")
+    load_input_artifact = service.result_store.load_artifact(project.project_id, "study_1", "input_curve_load")
     result_record = service.result_store.load_result_record(project.project_id, "study_1", "technical_result")
+    config_payload = service.result_store.read_artifact_payload(config_artifact).decode("utf-8")
 
     assert loaded_job.status == JobStatus.SUCCEEDED
     assert loaded_job.input_fingerprint == technical_input_fingerprint(technical_result)
     assert summary_artifact.kind == ArtifactKind.TECHNICAL_SUMMARY
     assert config_artifact.kind == ArtifactKind.CONFIG_SNAPSHOT
+    assert load_input_artifact.kind == ArtifactKind.INPUT_CURVE
+    assert load_input_artifact.retention_policy == ArtifactRetentionPolicy.EXPIRE
+    assert load_input_artifact.expires_at is not None
+    assert "timestamp,load" in service.result_store.read_artifact_payload(load_input_artifact).decode("utf-8")
+    assert set(persisted.input_curve_artifacts) == {"load", "pv", "wind"}
     assert service.result_store.read_artifact_payload(summary_artifact).decode("utf-8").startswith("scenario_id")
-    assert '"study_id": "study_1"' in service.result_store.read_artifact_payload(config_artifact).decode("utf-8")
+    assert '"study_id": "study_1"' in config_payload
+    assert '"input_artifact_ids"' in config_payload
     assert result_record.created_by_job_id == persisted.job.job_id
     assert result_record.technical_summary_artifact_id == "technical_summary"
     assert any(
@@ -156,6 +188,12 @@ def test_persist_technical_study_result_writes_job_artifacts_and_record(tmp_path
     )
     assert any(
         event.action == AuditAction.COMPLETE_JOB
+        for event in service.result_store.read_audit_log(project.project_id)
+    )
+    assert any(
+        event.action == AuditAction.STORE_ARTIFACT
+        and event.target_id == "input_curve_load"
+        and event.metadata["curve"] == "load"
         for event in service.result_store.read_audit_log(project.project_id)
     )
 

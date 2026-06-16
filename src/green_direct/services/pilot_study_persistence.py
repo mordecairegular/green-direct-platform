@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+from pathlib import Path
 from uuid import uuid4
 
 from green_direct.models.pilot_backend import (
@@ -23,6 +24,7 @@ from green_direct.services.pilot_access import PilotAccessService
 from green_direct.services.study_runner import (
     EconomicStudyResult,
     RecommendationStudyResult,
+    TechnicalStudyInput,
     TechnicalStudyResult,
 )
 
@@ -36,6 +38,7 @@ class PersistedTechnicalStudy:
     config_snapshot_artifact: JobArtifact
     result_record: StudyResultRecord
     input_fingerprint: str
+    input_curve_artifacts: dict[str, JobArtifact] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -124,9 +127,19 @@ def _technical_summary_csv(technical_result: TechnicalStudyResult) -> str:
     return technical_result.summary.to_csv(index=False)
 
 
-def _config_snapshot_json(technical_result: TechnicalStudyResult) -> str:
+def _config_snapshot_json(
+    technical_result: TechnicalStudyResult,
+    *,
+    input_artifact_ids: dict[str, str] | None = None,
+) -> str:
+    config_snapshot = json_value(technical_result.config_snapshot)
+    if input_artifact_ids:
+        config_snapshot = {
+            **config_snapshot,
+            "input_artifact_ids": dict(sorted(input_artifact_ids.items())),
+        }
     return json.dumps(
-        json_value(technical_result.config_snapshot),
+        config_snapshot,
         ensure_ascii=False,
         indent=2,
         sort_keys=True,
@@ -143,12 +156,72 @@ def _hourly_detail_expiry(retention_days: int) -> tuple[ArtifactRetentionPolicy,
     return ArtifactRetentionPolicy.EXPIRE, datetime.now(timezone.utc) + timedelta(days=int(retention_days))
 
 
+def _source_payload_bytes(source) -> bytes:
+    if isinstance(source, bytes):
+        return source
+    if isinstance(source, bytearray):
+        return bytes(source)
+    if isinstance(source, (str, Path)):
+        return Path(source).read_bytes()
+    if hasattr(source, "getvalue"):
+        value = source.getvalue()
+        return value.encode("utf-8") if isinstance(value, str) else bytes(value)
+    if hasattr(source, "read"):
+        position = None
+        if hasattr(source, "tell") and hasattr(source, "seek"):
+            try:
+                position = source.tell()
+                source.seek(0)
+            except (OSError, ValueError):
+                position = None
+        value = source.read()
+        if position is not None:
+            try:
+                source.seek(position)
+            except (OSError, ValueError):
+                pass
+        return value.encode("utf-8") if isinstance(value, str) else bytes(value)
+    raise ValueError(f"Unsupported input curve source type: {type(source).__name__}")
+
+
+def _input_curve_payloads(inputs: TechnicalStudyInput) -> dict[str, bytes]:
+    return {
+        "load": _source_payload_bytes(inputs.load_source),
+        "pv": _source_payload_bytes(inputs.pv_source),
+        "wind": _source_payload_bytes(inputs.wind_source),
+    }
+
+
+def _audit_stored_artifact(
+    *,
+    access_service: PilotAccessService,
+    actor_user_id: str,
+    artifact: JobArtifact,
+    metadata: dict,
+) -> None:
+    access_service.result_store.append_audit_log(
+        AuditLog(
+            event_id=f"audit_{uuid4().hex[:16]}",
+            actor_user_id=actor_user_id,
+            action=AuditAction.STORE_ARTIFACT,
+            project_id=artifact.project_id,
+            study_id=artifact.study_id,
+            job_id=artifact.job_id,
+            target_type="artifact",
+            target_id=artifact.artifact_id,
+            metadata=metadata,
+        )
+    )
+
+
 def persist_technical_study_result(
     *,
     access_service: PilotAccessService,
     actor_user_id: str,
     project_id: str,
     technical_result: TechnicalStudyResult,
+    technical_input: TechnicalStudyInput | None = None,
+    input_retention_days: int = 30,
 ) -> PersistedTechnicalStudy:
     """Persist one technical study summary under a project-scoped Job."""
 
@@ -181,6 +254,38 @@ def persist_technical_study_result(
             total=technical_result.scenario_count,
             message="technical study result ready",
         )
+        input_curve_artifacts: dict[str, JobArtifact] = {}
+        input_artifact_ids: dict[str, str] = {}
+        if technical_input is not None:
+            retention_policy, expires_at = _hourly_detail_expiry(input_retention_days)
+            for curve_key, payload in _input_curve_payloads(technical_input).items():
+                artifact_id = f"input_curve_{curve_key}"
+                artifact = access_service.result_store.store_artifact(
+                    artifact_id=artifact_id,
+                    project_id=project_id,
+                    study_id=technical_result.study_id,
+                    job_id=running.job_id,
+                    kind=ArtifactKind.INPUT_CURVE,
+                    payload=payload,
+                    filename=f"{artifact_id}.csv",
+                    content_type="text/csv",
+                    retention_policy=retention_policy,
+                    expires_at=expires_at,
+                )
+                _audit_stored_artifact(
+                    access_service=access_service,
+                    actor_user_id=actor_user_id,
+                    artifact=artifact,
+                    metadata={
+                        "kind": artifact.kind.value,
+                        "curve": curve_key,
+                        "retention_policy": artifact.retention_policy.value,
+                        "size_bytes": artifact.size_bytes,
+                    },
+                )
+                input_curve_artifacts[curve_key] = artifact
+                input_artifact_ids[curve_key] = artifact.artifact_id
+
         summary_artifact = access_service.result_store.store_artifact(
             artifact_id="technical_summary",
             project_id=project_id,
@@ -197,7 +302,7 @@ def persist_technical_study_result(
             study_id=technical_result.study_id,
             job_id=running.job_id,
             kind=ArtifactKind.CONFIG_SNAPSHOT,
-            payload=_config_snapshot_json(technical_result),
+            payload=_config_snapshot_json(technical_result, input_artifact_ids=input_artifact_ids),
             filename="config_snapshot.json",
             content_type="application/json",
         )
@@ -235,6 +340,7 @@ def persist_technical_study_result(
         config_snapshot_artifact=config_artifact,
         result_record=record,
         input_fingerprint=input_fingerprint,
+        input_curve_artifacts=input_curve_artifacts,
     )
 
 

@@ -100,7 +100,8 @@ python -m pytest -q
    - 项目角色是否被误当作完整公网内测角色体系，尤其是否缺少可导出/不可导出用户授权；
    - BETA_USER_NO_EXPORT 是否能通过直接 URL、缓存、artifact 读取或未来 API 绕过导出限制；
    - 上传文件是否限制类型、大小和 schema，文件路径是否按用户/项目/Run 隔离且不落入 Git 仓库；
-   - `JobArtifact.retention_policy` / `expires_at` / `purged_at` 和 `pilot-admin purge-expired-artifacts` 是否只删除到期 payload、保留元数据并写入审计；原始上传文件、图表包、报告和关键 Run 是否仍缺留存策略；
+   - 技术三曲线 input artifact 是否按项目/研究隔离保存、默认到期、只记录脱敏审计 metadata，并能在历史 summary-only 恢复时带回索引；
+   - `JobArtifact.retention_policy` / `expires_at` / `purged_at` 和 `pilot-admin purge-expired-artifacts` 是否只删除到期 payload、保留元数据并写入审计；价格曲线、图表包、报告和关键 Run 是否仍缺留存策略；
    - 日志和错误提示是否可能包含原始曲线、明文 token、服务器绝对路径或敏感项目名；
    - 是否已有 `.env.example`、部署说明、HTTPS/反向代理、数据卷、备份、恢复和回滚说明。
 

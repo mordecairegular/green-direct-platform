@@ -62,7 +62,7 @@
 - Streamlit 主 UI 已新增最小“平台管理”页：平台管理员可创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并在“项目和成员”中维护项目成员角色；普通用户看不到该入口。
 - Streamlit 主 UI 已新增项目工作区门禁：启用 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，登录用户必须先创建或选择有效项目才能进入六步业务工作流；切换项目会清理当前测算结果和下载缓存。
 - `ProjectMembership.can_export_artifacts` 已作为第一版独立导出授权位；平台管理页可维护“允许下载/导出项目结果”，历史 artifact payload 读取和 06 导出页会按该字段拦截，成功和拒绝下载都会写入审计。
-- 上传入口已新增第一版文件门禁：技术曲线只允许 CSV，下网电价曲线允许 CSV/XLSX/XLSM，默认单文件上限 20MB，可通过 `GREEN_DIRECT_MAX_UPLOAD_MB` 调整；合法上传文件的文件名、后缀、大小和 SHA256 会写入技术仿真配置快照。
+- 上传入口已新增第一版文件门禁：技术曲线只允许 CSV，下网电价曲线允许 CSV/XLSX/XLSM，默认单文件上限 20MB，可通过 `GREEN_DIRECT_MAX_UPLOAD_MB` 调整；合法上传文件的文件名、后缀、大小和 SHA256 会写入技术仿真配置快照。启用内部试用登录并保存技术结果时，负荷/光伏/风电三条技术输入曲线会作为 `ArtifactKind.INPUT_CURVE` 保存，默认 30 天过期，并写 `STORE_ARTIFACT` 审计。
 - Artifact 留存清理已新增第一版：`JobArtifact` 包含 `retention_policy`、`expires_at`、`purged_at`；`LocalResultStore.purge_expired_artifacts()` 会删除到期 payload 并保留元数据；`pilot-admin purge-expired-artifacts` 由平台管理员执行并写入 `DELETE_ARTIFACT` 审计。
 - 内部试用部署材料已新增第一版：`.env.example`、`docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md`、`scripts/backup_pilot_store.ps1` 和 `scripts/restore_pilot_store.ps1`，覆盖环境变量、账号 bootstrap、启动、备份、恢复、过期清理、冒烟检查和回滚边界。
 - 受控公网内测审计矩阵已新增第一版：`docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md`，用于逐项跟踪 Route A 要求中已满足、部分满足和未满足的 P0 项。
@@ -94,7 +94,7 @@
 - 先用受控内网/VPN/反向代理做内部试用；
 - 如果开放公网访问，只按“受控公网内测 Route A”推进：关闭开放注册，用户由管理员创建或邀请，保留不接真实电力控制系统的边界说明；
 - 继续收口导出授权：已完成 membership 级 `can_export_artifacts` 第一版，下一步需要让未来 API、图表/报告项目级 artifacts、反向代理下载路径和数据库适配全部复用同一后端策略；
-- 继续补文件安全和留存策略：已完成上传类型/大小第一层门禁、hash 记录、artifact payload 到期清理和按需 hourly artifact 第一版；下一步让原始上传文件、现金流、图表包和报告存在仓库外受控目录，并补跨会话加载、定时清理、关键 Run 保留和恢复策略；
+- 继续补文件安全和留存策略：已完成上传类型/大小第一层门禁、hash 记录、技术三曲线 input artifact、artifact payload 到期清理和按需 hourly artifact 第一版；下一步让价格曲线、现金流、图表包和报告存在仓库外受控目录，并补基于 input artifact 的跨会话明细补算、定时清理、关键 Run 保留和恢复策略；
 - 继续补部署材料：已完成 `.env.example`、内部试用 runbook、pilot store 备份/恢复脚本、Dockerfile、docker-compose、`README_DEPLOY.md` 和 `SECURITY.md` 第一版；下一步在目标服务器实机演练 Docker build/up、HTTPS 反向代理、日志轮转、健康检查、监控告警和恢复演练；
 - 下一阶段把 `pilot_backend` 模型、`LocalPilotRegistry`、`LocalPilotAuth`、`LocalPilotAdminService`、`LocalJobStore`、`LocalResultStore` 和 `PilotAccessService` 接入轻量 SQLite/Postgres、完整后台任务状态页和正式项目结果存储；
 - 下一阶段把技术仿真、经济性测算和图表导出提交为项目级 `Job`，并把产物写入 `ResultStore`；
