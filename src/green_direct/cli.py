@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import getpass
@@ -281,6 +282,35 @@ def _format_job_progress(job: Job) -> str:
     return ""
 
 
+def _format_audit_metadata(event: AuditLog) -> str:
+    return json.dumps(event.metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _cmd_list_audit_events(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    services.admin.list_users(actor_user_id=args.actor_user_id)
+    if args.limit < 1:
+        raise ValueError("--limit must be positive.")
+    actions = set(getattr(args, "action", None) or [])
+    events = services.result_store.read_audit_log(args.project_id)
+    if actions:
+        events = [event for event in events if event.action.value in actions]
+    events = sorted(
+        events,
+        key=lambda event: (event.created_at, event.event_id),
+        reverse=not bool(args.oldest_first),
+    )
+    events = events[: args.limit]
+    print("created_at\taction\tactor_user_id\tproject_id\tstudy_id\tjob_id\ttarget_type\ttarget_id\tmetadata")
+    for event in events:
+        print(
+            f"{event.created_at.isoformat()}\t{event.action.value}\t{event.actor_user_id}\t"
+            f"{event.project_id or ''}\t{event.study_id or ''}\t{event.job_id or ''}\t"
+            f"{event.target_type or ''}\t{event.target_id or ''}\t{_format_audit_metadata(event)}"
+        )
+    return 0
+
+
 def _cmd_list_jobs(args: argparse.Namespace) -> int:
     services = _pilot_services(args.store_dir)
     services.admin.list_users(actor_user_id=args.actor_user_id)
@@ -468,6 +498,23 @@ def build_parser() -> argparse.ArgumentParser:
     list_sessions.add_argument("--user-id", required=True)
     list_sessions.add_argument("--active-only", action="store_true")
     list_sessions.set_defaults(func=_cmd_list_sessions)
+
+    list_audit_events = pilot_admin_sub.add_parser(
+        "list-audit-events",
+        help="List global or project-scoped audit events.",
+    )
+    _add_common_store_arg(list_audit_events)
+    _add_actor_arg(list_audit_events)
+    list_audit_events.add_argument("--project-id", help="Read a project-scoped audit log. Omit for global audit.")
+    list_audit_events.add_argument(
+        "--action",
+        action="append",
+        choices=[action.value for action in AuditAction],
+        help="Filter by audit action. May be provided multiple times.",
+    )
+    list_audit_events.add_argument("--limit", type=int, default=50, help="Maximum events to print. Default: 50.")
+    list_audit_events.add_argument("--oldest-first", action="store_true", help="Print oldest events first.")
+    list_audit_events.set_defaults(func=_cmd_list_audit_events)
 
     list_projects = pilot_admin_sub.add_parser("list-projects", help="List projects.")
     _add_common_store_arg(list_projects)

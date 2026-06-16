@@ -190,7 +190,28 @@ python -m green_direct.cli pilot-admin fail-stale-jobs `
 
 该命令会把超过阈值未 heartbeat 的 running 任务标记为 `failed`，写入项目级 `COMPLETE_JOB` 审计，并保留原 `worker_id`、最后 heartbeat 和错误说明。它只修复任务元数据，不会终止操作系统进程，也不代表已经有正式后台队列、重试或资源回收。
 
-## 11. 冒烟检查
+## 11. 审计日志抽查
+
+管理员可抽查全局审计或指定项目审计：
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m green_direct.cli pilot-admin list-audit-events `
+    --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --actor-user-id admin `
+    --limit 20
+
+python -m green_direct.cli pilot-admin list-audit-events `
+    --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --actor-user-id admin `
+    --project-id project_1 `
+    --action download_artifact `
+    --limit 20
+```
+
+不传 `--project-id` 时读取全局审计日志；传入 `--project-id` 时读取该项目的项目级审计日志。输出为 TSV，包含时间、动作、执行人、项目/研究/任务线索、目标对象和脱敏 metadata。该命令是本地运维抽查入口，不替代正式审计后台、跨项目聚合搜索或集中日志平台。
+
+## 12. 冒烟检查
 
 每次上线或回滚后至少检查：
 - 未登录用户只能看到登录页；
@@ -198,14 +219,14 @@ python -m green_direct.cli pilot-admin fail-stale-jobs `
 - 普通用户必须选择或创建项目后才进入六步工作流；
 - Demo 技术仿真、经济性测算、方案推荐能跑通；
 - 禁止导出的项目成员不能下载历史 artifact 或 06 页导出文件；
-- `pilot-admin list-users`、`list-projects`、`list-project-members`、`list-jobs`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
+- `pilot-admin list-users`、`list-projects`、`list-project-members`、`list-audit-events`、`list-jobs`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
 - 新运行日志不包含明文密码、明文 token、原始曲线内容。
 
-## 12. 回滚
+## 13. 回滚
 
 回滚前先备份当前 store。代码回滚应优先切换到上一份已验证源码目录或上一提交，不要删除 pilot store。若新版本写入了旧版本不认识的 metadata，应先用恢复目录核查旧版本能否读取关键结果，再切换生产入口。
 
-## 13. 仍未完成的生产化事项
+## 14. 仍未完成的生产化事项
 
 - 正式后台 worker、排队、worker 级取消、重试和限流；当前仅有活动任务取消元数据和 stale running 置失败运维入口；
 - SQLite/Postgres 或对象存储适配；

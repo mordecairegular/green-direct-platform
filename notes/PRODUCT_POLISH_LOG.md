@@ -4442,3 +4442,31 @@ exchange_import_shortfall_energy == 0
 - `pytest tests/test_pilot_admin.py tests/test_cli.py -q` 通过，19 项通过；
 - `python -m compileall -q src scripts tests` 通过；
 - `pytest -q` 通过，317 项通过。
+
+### 2026-06-16 pilot-admin 审计日志抽查入口
+
+本轮继续补内部试用上线前的后台可核查闭环。此前账号、项目、任务、artifact 和下载动作已经陆续写入 `AuditLog`，但服务器侧管理员缺少一个轻量入口来抽查全局审计或指定项目审计。对 10-20 人 pilot 来说，这会影响上线后排查“谁做了什么”的能力，也会让后续 Claude Code review 难以直接验证审计证据。
+
+本轮判断：
+- 不新增新的审计存储模型，继续复用 `LocalResultStore.read_audit_log()`；
+- CLI 只做平台管理员可用的只读抽查，不替代正式审计后台、跨项目聚合搜索或集中日志；
+- 不改变既有 `AuditAction` 语义，不补写历史审计，也不碰技术仿真、经济性或推荐口径；
+- 输出采用 TSV，便于复制到 Excel 或命令行过滤。
+
+本轮实现：
+- `pilot-admin list-audit-events`：可查看全局审计；指定 `--project-id` 时查看项目级审计；
+- 支持重复 `--action` 过滤、`--limit` 限制条数、`--oldest-first` 切换排序；
+- 输出时间、动作、执行人、项目/研究/任务线索、目标对象和压缩 JSON metadata；
+- `tests/test_cli.py` 覆盖全局审计、项目级审计、action 过滤和非法 limit；
+- 软件接口总览、内部试用 runbook、受控公网审计矩阵、预发布质量审查、架构计划、Claude Code 提示词、TODO 和 handoff 已同步。
+
+边界说明：
+- 不传 `--project-id` 时只读取全局审计日志，不等于跨所有项目聚合；
+- 项目级审计需要管理员知道 `project_id`，后续正式后台仍需提供搜索、过滤和导出；
+- 原始文件查看、未来 API/反向代理下载和对象存储签名 URL 仍必须继续接入同一权限/审计语义。
+
+验证：
+- `pytest tests/test_cli.py -q` 通过，9 项通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `python -m green_direct.cli pilot-admin --help` 和 `python -m green_direct.cli pilot-admin list-audit-events --help` 通过；
+- `pytest -q` 通过，318 项通过。

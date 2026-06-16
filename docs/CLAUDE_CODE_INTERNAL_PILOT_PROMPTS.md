@@ -77,6 +77,7 @@ python -m pytest -q
    - 新技术仿真后旧导出缓存是否失效；
    - 欢迎页活动任务和任务状态明细是否只展示当前项目任务，取消入口是否仍走后端权限和审计；
    - `Job.worker_id` / `last_heartbeat_at`、`pilot-admin list-jobs` 和 `pilot-admin fail-stale-jobs` 是否能先查看超时 running 元数据、再转为 failed，并保留项目级审计；
+   - `pilot-admin list-audit-events` 是否只能由平台管理员读取，并能分别抽查全局审计和项目级审计；
    - 长任务失败、取消、重复点击、页面切换后的状态是否可恢复或可解释。
 3. 计算口径风险：
    - V0.1 储能只能由富余新能源充电；
@@ -213,7 +214,7 @@ python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/tes
 1. User、Role、Project、ProjectMembership；
 2. ProjectStudy、StudyResult、ResultStore；
 3. Job、JobStatus、JobArtifact，包含 worker heartbeat、stale running cleanup 和未来真正 worker 的状态契约；
-4. AuditLog；
+4. AuditLog，包括 `pilot-admin list-audit-events` 这类本地抽查入口与未来正式审计后台的边界；
 5. 技术仿真、经济性测算、推荐组合、PNG/HTML/Excel/Markdown 导出的后台任务化；
 6. 输入文件、结果文件和下载文件的隔离策略；
 7. 可导出/不可导出用户的后端授权策略；

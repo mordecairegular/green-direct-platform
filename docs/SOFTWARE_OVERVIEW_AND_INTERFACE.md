@@ -1039,7 +1039,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `list_users()`：平台管理员列出用户；
 - `create_project()` / `archive_project()` / `list_projects()` / `list_project_memberships()` / `grant_project_role()` / `disable_project_membership()`：平台管理员创建或归档项目，并维护项目成员角色和导出授权。
 
-`LocalPilotAdminService` 会写入 `CREATE_USER` / `UPDATE_USER` / `UPDATE_MEMBERSHIP` 审计事件，并阻止停用或降级最后一个活跃平台管理员。它是后续 Streamlit 管理页和数据库适配器应复用的账号/项目成员管理语义，不是完整企业 IAM。
+`LocalPilotAdminService` 会写入 `CREATE_USER` / `UPDATE_USER` / `CREATE_PROJECT` / `UPDATE_PROJECT` / `UPDATE_MEMBERSHIP` 审计事件，并阻止停用或降级最后一个活跃平台管理员。它是后续 Streamlit 管理页和数据库适配器应复用的账号/项目成员管理语义，不是完整企业 IAM。
 
 `src/green_direct/cli.py` 已提供最小 `pilot-admin` 命令行入口，作为管理员 UI 落地前的本地运维工具：
 
@@ -1049,6 +1049,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `disable-user`：停用用户并撤销有效会话；
 - `grant-platform-admin` / `revoke-platform-admin`：授予或撤销平台管理员；
 - `list-users` / `list-sessions`：查看用户和会话；
+- `list-audit-events`：查看全局或指定项目的审计事件，可按 `AuditAction` 和条数过滤；
 - `list-projects` / `list-project-members`：查看项目和项目成员；
 - `create-project` / `archive-project`：创建项目并给 owner 初始项目 admin，或归档项目；
 - `grant-project-role` / `disable-project-member`：授予或更新项目角色、禁用项目成员；
@@ -1160,6 +1161,12 @@ python -m green_direct.cli pilot-admin grant-project-role `
     --user-id analyst_01 `
     --role analyst `
     --cannot-export-artifacts
+
+python -m green_direct.cli pilot-admin list-audit-events `
+    --store-dir .runtime/pilot_store `
+    --actor-user-id admin `
+    --project-id project_1 `
+    --limit 20
 
 python -m green_direct.cli pilot-admin list-jobs `
     --store-dir .runtime/pilot_store `

@@ -7,6 +7,7 @@ from green_direct.models.pilot_backend import (
     ArtifactKind,
     ArtifactRetentionPolicy,
     AuditAction,
+    AuditLog,
     Job,
     JobStatus,
     JobType,
@@ -188,6 +189,102 @@ def test_cli_pilot_admin_grant_revoke_and_list_sessions(tmp_path, monkeypatch, c
         ]
     ) == 0
     assert LocalPilotRegistry(tmp_path).load_user("ops").is_platform_admin is False
+
+
+def test_cli_pilot_admin_lists_audit_events(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ADMIN_PASSWORD", "admin-password")
+    assert main(
+        [
+            "pilot-admin",
+            "bootstrap",
+            *_store_arg(tmp_path),
+            "--user-id",
+            "admin",
+            "--login-name",
+            "admin@example.local",
+            "--display-name",
+            "Admin",
+            "--password-env",
+            "ADMIN_PASSWORD",
+        ]
+    ) == 0
+    capsys.readouterr()
+
+    store = LocalResultStore(tmp_path)
+    store.append_audit_log(
+        AuditLog(
+            event_id="event_global",
+            actor_user_id="admin",
+            action=AuditAction.UPDATE_USER,
+            target_type="user",
+            target_id="analyst",
+            metadata={"source": "test"},
+            created_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        )
+    )
+    store.append_audit_log(
+        AuditLog(
+            event_id="event_project",
+            actor_user_id="admin",
+            action=AuditAction.UPDATE_MEMBERSHIP,
+            project_id="project_1",
+            target_type="project_membership",
+            target_id="member_1",
+            metadata={"role": "analyst"},
+            created_at=datetime(2020, 1, 2, tzinfo=timezone.utc),
+        )
+    )
+
+    assert main(
+        [
+            "pilot-admin",
+            "list-audit-events",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--action",
+            "update_user",
+            "--oldest-first",
+        ]
+    ) == 0
+    global_output = capsys.readouterr().out
+    assert "created_at\taction\tactor_user_id\tproject_id\tstudy_id\tjob_id\ttarget_type\ttarget_id\tmetadata" in global_output
+    assert "2020-01-01T00:00:00+00:00\tupdate_user\tadmin\t\t\t\tuser\tanalyst\t{\"source\":\"test\"}" in global_output
+    assert "project_1" not in global_output
+
+    assert main(
+        [
+            "pilot-admin",
+            "list-audit-events",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--project-id",
+            "project_1",
+            "--action",
+            "update_membership",
+            "--limit",
+            "1",
+        ]
+    ) == 0
+    project_output = capsys.readouterr().out
+    assert "project_1" in project_output
+    assert "{\"role\":\"analyst\"}" in project_output
+    assert "update_user" not in project_output
+    assert "{\"source\":\"test\"}" not in project_output
+
+    assert main(
+        [
+            "pilot-admin",
+            "list-audit-events",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--limit",
+            "0",
+        ]
+    ) == 1
+    assert "--limit must be positive." in capsys.readouterr().err
 
 
 def test_cli_pilot_admin_manages_project_memberships(tmp_path, monkeypatch, capsys):
