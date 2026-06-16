@@ -71,7 +71,7 @@ Vercel 可以作为未来正式化后的前端托管平台：例如将前端改�
 ## 3. Render 部署步骤
 
 1. 把当前分支推到 GitHub/GitLab。
-2. 推送前运行 `python scripts\smoke_streamlit_app.py`，确认本地服务器口径能启动并通过 `/_stcore/health`。
+2. 推送前运行 `python scripts\preflight_internal_pilot_deploy.py --run-smoke`，确认部署配置、本地服务器口径和 `/_stcore/health` 都通过。
 3. 在 Render 新建 Blueprint，选择本仓库。
 4. Render 读取仓库根目录 `render.yaml`，创建 `green-direct-internal-pilot`。
 5. 确认环境变量：

@@ -86,6 +86,14 @@ python scripts\smoke_streamlit_app.py
 
 该脚本会启用 pilot 登录门禁、关闭 runtime snapshot、使用临时 pilot store，启动 Streamlit 并检查 `/_stcore/health`，成功或失败后都会自动停止进程。
 
+也可以运行完整部署 preflight：
+
+```powershell
+python scripts\preflight_internal_pilot_deploy.py --run-smoke
+```
+
+preflight 会检查部署文件、Docker/Render 安全默认值、`.dockerignore`、持久盘路径和可选 Streamlit smoke。
+
 ## 3. 默认安全设置
 
 `docker-compose.yml` 默认设置：

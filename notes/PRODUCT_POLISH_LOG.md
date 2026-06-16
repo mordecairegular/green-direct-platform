@@ -4643,3 +4643,26 @@ exchange_import_shortfall_energy == 0
 - `pytest tests/test_deployment_artifacts.py -q` 通过，4 项通过；
 - `python -m compileall -q scripts/smoke_streamlit_app.py tests/test_deployment_artifacts.py` 通过；
 - `pytest -q` 通过，325 项通过。
+
+### 2026-06-16 内测部署 preflight 脚本
+
+为降低“推上 GitHub/Render 后才发现部署配置漏项”的风险，本轮新增部署 preflight，把此前散落在文档中的检查项固化为可重复命令。
+
+本轮实现：
+- 新增 `scripts/preflight_internal_pilot_deploy.py`；
+- 默认检查必需文件、`.dockerignore`、Dockerfile 安全默认值、docker-compose 环境变量/volume、Render runtime/env/disk/health 配置；
+- `--run-smoke` 可串联 `scripts/smoke_streamlit_app.py`，同时验证本地 Streamlit 服务器口径；
+- `--json` 可用于 CI 或 Claude Code 审查时读取机器可读结果；
+- `tests/test_deployment_artifacts.py` 增加 preflight 静态检查测试；
+- 部署 README、移动网络试用清单、托管平台部署路线、Claude Code 提示词和 handoff 已同步。
+
+边界说明：
+- preflight 只证明仓库配置与本地 smoke 可用；
+- 仍必须在 Render/Cloudflare 真实环境完成构建、持久盘、管理员初始化、Access 门禁和手机移动网络访问验收。
+
+验证：
+- `python scripts/preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `python scripts/preflight_internal_pilot_deploy.py --run-smoke` 通过，包含 `smoke:streamlit`；
+- `pytest tests/test_deployment_artifacts.py -q` 通过，5 项通过；
+- `python -m compileall -q scripts/preflight_internal_pilot_deploy.py scripts/smoke_streamlit_app.py tests/test_deployment_artifacts.py` 通过；
+- `pytest -q` 通过，326 项通过。

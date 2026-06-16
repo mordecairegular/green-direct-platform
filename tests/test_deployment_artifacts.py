@@ -56,3 +56,25 @@ def test_streamlit_smoke_script_import_check_runs():
     )
 
     assert "import-ok" in completed.stdout
+
+
+def test_internal_pilot_preflight_runs_static_checks_json():
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "preflight_internal_pilot_deploy.py"),
+            "--json",
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = yaml.safe_load(completed.stdout)
+    assert payload["status"] == "pass"
+    assert payload["failed_count"] == 0
+    check_names = {check["name"] for check in payload["checks"]}
+    assert "render:runtime" in check_names
+    assert "compose:volume" in check_names
+    assert "dockerfile:PORT=8503" in check_names

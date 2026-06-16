@@ -35,7 +35,7 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 
 结果：
 
-- 全量测试通过：325 项通过；
+- 全量测试通过：326 项通过；
 - `src scripts tests` 编译检查通过；
 - 源码树下 CLI 启动口径验证通过；
 - `git diff --check` 没有实际空白错误，仅有 Windows 换行转换提示；
