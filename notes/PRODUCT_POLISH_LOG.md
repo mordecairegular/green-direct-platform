@@ -4669,3 +4669,23 @@ exchange_import_shortfall_energy == 0
 - `pytest tests/test_deployment_artifacts.py -q` 通过，6 项通过；
 - `python -m compileall -q scripts/preflight_internal_pilot_deploy.py tests/test_deployment_artifacts.py` 通过；
 - `pytest -q` 通过，327 项通过。
+
+### 2026-06-16 经济性批量评价共享上下文
+
+本轮继续推进经济性测算性能优化，把上一轮“同一方案内固定开销”进一步上提为“同一批次全方案共享上下文”。
+
+本轮实现：
+- 电源侧 `evaluate_batch_economy()` 会为本次 `EconomicParams` 构建 `_PowerEconomyContext`，并在每个方案评价中复用运营年限范围、折现因子、其他经营收入年度表、送出线路和其他固定资产的 VAT/折旧拆分；
+- 同一主体 `evaluate_batch_single_entity_pre_tax_economy()` 会构建 `_SingleEntityEconomyContext`，复用折现因子、其他经营收入年度表、固定资产投资基础，以及默认外部购电净成本和含税现金节费价格；
+- 单方案公开调用方式保持不变；批量入口通过内部 `_context` 传递预处理结果；
+- 不改变技术仿真调度、经济性 V1 年度现金流字段、FNPV/FIRR/回收期或推荐排序口径。
+
+benchmark：
+- 改前：`python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 8 --wind-count 8 --bess-power-count 3 --durations 0,2 --skip-full-retention --json`，189 个方案，经济性 summary-only 约 0.7345 秒；
+- 改后：同一命令，经济性 summary-only 约 0.6019 秒；
+- 同一组 benchmark 的技术 summary-first 分别约 3.9943 秒和 3.7992 秒，属于运行波动，不能归因于本轮经济性改动。
+
+验证：
+- `pytest tests/test_economy_v1.py tests/test_single_entity_economy.py tests/test_study_runner.py tests/test_performance_benchmark_script.py -q` 通过，43 项通过；
+- `python -m compileall -q src\green_direct\economy\economic_evaluator.py src\green_direct\economy\single_entity_evaluator.py scripts\benchmark_internal_pilot_performance.py` 通过；
+- `git diff --check` 没有实际空白错误，仅有 Windows 换行转换提示。

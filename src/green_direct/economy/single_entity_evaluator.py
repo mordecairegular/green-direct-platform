@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Iterable, Mapping
 
 import pandas as pd
@@ -48,6 +50,49 @@ def _bess_replacement_basis(amount_with_vat: float, params: EconomicParams) -> f
     return basis
 
 
+@dataclass(frozen=True)
+class _SingleEntityEconomyContext:
+    """Precomputed values shared by every scenario in one single-entity run."""
+
+    operation_year_range: tuple[int, ...]
+    discount_factors: tuple[float, ...]
+    other_revenue_by_year: tuple[tuple[float, float, float], ...]
+    line_capex_with_vat: float
+    other_capex_with_vat: float
+    line_investment_basis: float
+    other_investment_basis: float
+    net_avoided_grid_cost_price: float
+    avoided_grid_purchase_cash_price: float
+
+
+@lru_cache(maxsize=64)
+def _single_entity_economy_context(
+    economic_params: EconomicParams,
+    avoided_grid_params: AvoidedGridPurchaseParams,
+) -> _SingleEntityEconomyContext:
+    operation_years = int(economic_params.operation_years)
+    return _SingleEntityEconomyContext(
+        operation_year_range=tuple(range(1, operation_years + 1)),
+        discount_factors=_discount_factors(operation_years, float(economic_params.discount_rate)),
+        other_revenue_by_year=_other_revenue_schedule(
+            economic_params.other_operating_revenues,
+            operation_years,
+        ),
+        line_capex_with_vat=economic_params.dedicated_connection_line_investment_with_vat,
+        other_capex_with_vat=economic_params.other_fixed_asset_investment_with_vat,
+        line_investment_basis=_investment_basis(
+            economic_params.dedicated_connection_line_investment_with_vat,
+            economic_params,
+        ),
+        other_investment_basis=_investment_basis(
+            economic_params.other_fixed_asset_investment_with_vat,
+            economic_params,
+        ),
+        net_avoided_grid_cost_price=calc_net_avoided_grid_cost_price(avoided_grid_params),
+        avoided_grid_purchase_cash_price=calc_avoided_grid_purchase_cash_price(avoided_grid_params),
+    )
+
+
 def evaluate_single_entity_pre_tax_economy(
     summary: Mapping[str, Any] | pd.Series,
     avoided_grid_params: AvoidedGridPurchaseParams,
@@ -55,6 +100,7 @@ def evaluate_single_entity_pre_tax_economy(
     *,
     validate_params: bool = True,
     retain_annual_cashflow: bool = True,
+    _context: _SingleEntityEconomyContext | None = None,
 ) -> EconomicResult:
     """Evaluate same-investor incremental pre-tax cash flow for one scenario.
 
@@ -66,6 +112,7 @@ def evaluate_single_entity_pre_tax_economy(
     if validate_params:
         validate_avoided_grid_purchase_params(avoided_grid_params)
     economic_params = params or EconomicParams()
+    context = _context or _single_entity_economy_context(economic_params, avoided_grid_params)
     summary_map: Mapping[str, Any] = summary.to_dict() if isinstance(summary, pd.Series) else summary
     scenario_id = _scenario_id(summary_map)
 
@@ -83,8 +130,8 @@ def evaluate_single_entity_pre_tax_economy(
     wind_capex_with_vat = wind_capacity * economic_params.wind_capex_per_kw_with_vat
     pv_capex_with_vat = pv_capacity * economic_params.pv_capex_per_kw_with_vat
     bess_capex_with_vat = bess_energy * economic_params.bess_capex_per_kwh_with_vat
-    line_capex_with_vat = economic_params.dedicated_connection_line_investment_with_vat
-    other_capex_with_vat = economic_params.other_fixed_asset_investment_with_vat
+    line_capex_with_vat = context.line_capex_with_vat
+    other_capex_with_vat = context.other_capex_with_vat
     construction_cash_outflow_with_vat = (
         wind_capex_with_vat
         + pv_capex_with_vat
@@ -96,8 +143,8 @@ def evaluate_single_entity_pre_tax_economy(
         _investment_basis(wind_capex_with_vat, economic_params)
         + _investment_basis(pv_capex_with_vat, economic_params)
         + _investment_basis(bess_capex_with_vat, economic_params)
-        + _investment_basis(line_capex_with_vat, economic_params)
-        + _investment_basis(other_capex_with_vat, economic_params)
+        + context.line_investment_basis
+        + context.other_investment_basis
     )
 
     wind_om_cost = wind_capacity * economic_params.wind_om_cost_per_kw_year
@@ -110,12 +157,12 @@ def evaluate_single_entity_pre_tax_economy(
     net_avoided_grid_cost_price = _override_value(
         summary_map,
         "net_avoided_grid_cost_price_effective",
-        calc_net_avoided_grid_cost_price(avoided_grid_params),
+        context.net_avoided_grid_cost_price,
     )
     avoided_grid_purchase_cash_price = _override_value(
         summary_map,
         "avoided_grid_purchase_cash_price_effective",
-        calc_avoided_grid_purchase_cash_price(avoided_grid_params),
+        context.avoided_grid_purchase_cash_price,
     )
     self_use_saving = _override_value(
         summary_map,
@@ -152,10 +199,7 @@ def evaluate_single_entity_pre_tax_economy(
         bess_replacement_cash_outflow_with_vat,
         economic_params,
     )
-    other_revenue_by_year = _other_revenue_schedule(
-        economic_params.other_operating_revenues,
-        int(economic_params.operation_years),
-    )
+    other_revenue_by_year = context.other_revenue_by_year
 
     rows: list[dict[str, Any]] | None = [] if retain_annual_cashflow else None
     years: list[int] = []
@@ -191,7 +235,7 @@ def evaluate_single_entity_pre_tax_economy(
         }
     )
 
-    for operation_year in range(1, economic_params.operation_years + 1):
+    for operation_year in context.operation_year_range:
         _, other_revenue_without_vat, _ = other_revenue_by_year[operation_year]
         replacement_basis = bess_replacement_basis if operation_year in replacement_year_set else 0.0
         replacement_cash_outflow = (
@@ -229,10 +273,7 @@ def evaluate_single_entity_pre_tax_economy(
             }
         )
 
-    discount_factors = _discount_factors(
-        int(economic_params.operation_years),
-        float(economic_params.discount_rate),
-    )
+    discount_factors = context.discount_factors
     discounted_cashflows = [
         cashflow * discount_factors[year]
         for year, cashflow in zip(years, cashflows)
@@ -297,15 +338,18 @@ def evaluate_batch_single_entity_pre_tax_economy(
     results: list[dict[str, Any]] = []
     annual_cashflows: dict[str, pd.DataFrame] = {}
     retained_scenario_ids = {str(scenario_id) for scenario_id in annual_cashflow_scenario_ids or []}
+    economic_params = params or EconomicParams()
     validate_avoided_grid_purchase_params(avoided_grid_params)
+    context = _single_entity_economy_context(economic_params, avoided_grid_params)
     for row in _summary_records(summary):
         retain_cashflow = retain_annual_cashflows or _scenario_id(row) in retained_scenario_ids
         result = evaluate_single_entity_pre_tax_economy(
             row,
             avoided_grid_params=avoided_grid_params,
-            params=params,
+            params=economic_params,
             validate_params=False,
             retain_annual_cashflow=retain_cashflow,
+            _context=context,
         )
         results.append(result.metrics)
         if retain_cashflow:

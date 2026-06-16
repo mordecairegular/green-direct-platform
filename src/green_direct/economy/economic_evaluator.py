@@ -173,6 +173,49 @@ def _discount_factors(operation_years: int, discount_rate: float) -> tuple[float
     return tuple(1 / ((1 + discount_rate) ** year) for year in range(operation_years + 1))
 
 
+@dataclass(frozen=True)
+class _PowerEconomyContext:
+    """Precomputed values shared by every scenario in one power-side economy run."""
+
+    operation_years: int
+    operation_year_range: tuple[int, ...]
+    other_revenue_by_year: tuple[tuple[float, float, float], ...]
+    discount_factors: tuple[float, ...]
+    dedicated_connection_line_with_vat: float
+    other_fixed_asset_with_vat: float
+    dedicated_connection_line_input_vat: float
+    other_input_vat: float
+    dedicated_connection_line_depreciation_annual: float
+    other_fixed_asset_depreciation_annual: float
+
+
+@lru_cache(maxsize=64)
+def _power_economy_context(params: EconomicParams) -> _PowerEconomyContext:
+    operation_years = int(params.operation_years)
+    dedicated_connection_line_depreciation_basis, dedicated_connection_line_input_vat = split_amount_with_vat(
+        params.dedicated_connection_line_investment_with_vat,
+        params.construction_input_vat_rate,
+        deductible_or_taxable=params.construction_input_vat_deductible,
+    )
+    other_depreciation_basis, other_input_vat = split_amount_with_vat(
+        params.other_fixed_asset_investment_with_vat,
+        params.construction_input_vat_rate,
+        deductible_or_taxable=params.construction_input_vat_deductible,
+    )
+    return _PowerEconomyContext(
+        operation_years=operation_years,
+        operation_year_range=tuple(range(1, operation_years + 1)),
+        other_revenue_by_year=_other_revenue_schedule(params.other_operating_revenues, operation_years),
+        discount_factors=_discount_factors(operation_years, float(params.discount_rate)),
+        dedicated_connection_line_with_vat=params.dedicated_connection_line_investment_with_vat,
+        other_fixed_asset_with_vat=params.other_fixed_asset_investment_with_vat,
+        dedicated_connection_line_input_vat=dedicated_connection_line_input_vat,
+        other_input_vat=other_input_vat,
+        dedicated_connection_line_depreciation_annual=dedicated_connection_line_depreciation_basis / 20,
+        other_fixed_asset_depreciation_annual=other_depreciation_basis / 20,
+    )
+
+
 def _linear_rates(start: float, end: float, count: int) -> list[float]:
     if count <= 1:
         return [start]
@@ -310,10 +353,12 @@ def evaluate_scenario_economy(
     params: EconomicParams | None = None,
     *,
     retain_annual_cashflow: bool = True,
+    _context: _PowerEconomyContext | None = None,
 ) -> EconomicResult:
     """Evaluate V1 annual project cash flow for one technical scenario."""
 
     economic_params = params or EconomicParams()
+    context = _context or _power_economy_context(economic_params)
     summary_map: Mapping[str, Any] = summary.to_dict() if isinstance(summary, pd.Series) else summary
     scenario_id = _scenario_id(summary_map)
 
@@ -327,8 +372,8 @@ def evaluate_scenario_economy(
     wind_capex_with_vat = wind_capacity * economic_params.wind_capex_per_kw_with_vat
     pv_capex_with_vat = pv_capacity * economic_params.pv_capex_per_kw_with_vat
     bess_capex_with_vat = bess_energy * economic_params.bess_capex_per_kwh_with_vat
-    dedicated_connection_line_with_vat = economic_params.dedicated_connection_line_investment_with_vat
-    other_fixed_asset_with_vat = economic_params.other_fixed_asset_investment_with_vat
+    dedicated_connection_line_with_vat = context.dedicated_connection_line_with_vat
+    other_fixed_asset_with_vat = context.other_fixed_asset_with_vat
     construction_cash_outflow = (
         wind_capex_with_vat
         + pv_capex_with_vat
@@ -352,18 +397,12 @@ def evaluate_scenario_economy(
         economic_params.construction_input_vat_rate,
         deductible_or_taxable=economic_params.construction_input_vat_deductible,
     )
-    dedicated_connection_line_depreciation_basis, dedicated_connection_line_input_vat = split_amount_with_vat(
-        dedicated_connection_line_with_vat,
-        economic_params.construction_input_vat_rate,
-        deductible_or_taxable=economic_params.construction_input_vat_deductible,
-    )
-    other_depreciation_basis, other_input_vat = split_amount_with_vat(
-        other_fixed_asset_with_vat,
-        economic_params.construction_input_vat_rate,
-        deductible_or_taxable=economic_params.construction_input_vat_deductible,
-    )
     construction_input_vat = (
-        wind_input_vat + pv_input_vat + bess_input_vat + dedicated_connection_line_input_vat + other_input_vat
+        wind_input_vat
+        + pv_input_vat
+        + bess_input_vat
+        + context.dedicated_connection_line_input_vat
+        + context.other_input_vat
     )
 
     replacement_years = _replacement_operation_years(summary_map, economic_params)
@@ -380,10 +419,7 @@ def evaluate_scenario_economy(
         economic_params.bess_replacement_input_vat_rate,
         deductible_or_taxable=economic_params.bess_replacement_input_vat_deductible,
     )
-    other_revenue_by_year = _other_revenue_schedule(
-        economic_params.other_operating_revenues,
-        int(economic_params.operation_years),
-    )
+    other_revenue_by_year = context.other_revenue_by_year
     grid_export_revenue_with_vat = _override_value(
         summary_map,
         "grid_export_revenue_with_vat_override",
@@ -416,8 +452,8 @@ def evaluate_scenario_economy(
     wind_depreciation_annual = wind_depreciation_basis / 20
     pv_depreciation_annual = pv_depreciation_basis / 20
     bess_depreciation_annual = bess_depreciation_basis / 20
-    dedicated_connection_line_depreciation_annual = dedicated_connection_line_depreciation_basis / 20
-    other_fixed_asset_depreciation_annual = other_depreciation_basis / 20
+    dedicated_connection_line_depreciation_annual = context.dedicated_connection_line_depreciation_annual
+    other_fixed_asset_depreciation_annual = context.other_fixed_asset_depreciation_annual
 
     rows: list[dict[str, Any]] | None = [] if retain_annual_cashflow else None
     years: list[int] = []
@@ -481,7 +517,7 @@ def evaluate_scenario_economy(
     )
     vat_credit_begin = construction_input_vat
 
-    for operation_year in range(1, economic_params.operation_years + 1):
+    for operation_year in context.operation_year_range:
         other_revenue_with_vat, other_revenue_without_vat, other_output_vat = other_revenue_by_year[operation_year]
         operating_revenue_with_vat = (
             grid_export_revenue_with_vat + self_use_revenue_with_vat + other_revenue_with_vat
@@ -523,7 +559,7 @@ def evaluate_scenario_economy(
             replacement_years=replacement_years,
             replacement_depreciation_basis=bess_replacement_depreciation_basis,
             operation_year=operation_year,
-            operation_years=economic_params.operation_years,
+            operation_years=context.operation_years,
         )
         depreciation = (
             wind_depreciation
@@ -614,10 +650,7 @@ def evaluate_scenario_economy(
         )
         vat_credit_begin = vat_credit_end
 
-    discount_factors = _discount_factors(
-        int(economic_params.operation_years),
-        float(economic_params.discount_rate),
-    )
+    discount_factors = context.discount_factors
     discounted_cashflows = [
         cashflow * discount_factors[year]
         for year, cashflow in zip(years, cashflows)
@@ -675,9 +708,16 @@ def evaluate_batch_economy(
     results: list[dict[str, Any]] = []
     annual_cashflows: dict[str, pd.DataFrame] = {}
     retained_scenario_ids = {str(scenario_id) for scenario_id in annual_cashflow_scenario_ids or []}
+    economic_params = params or EconomicParams()
+    context = _power_economy_context(economic_params)
     for row in _summary_records(summary):
         retain_cashflow = retain_annual_cashflows or _scenario_id(row) in retained_scenario_ids
-        result = evaluate_scenario_economy(row, params=params, retain_annual_cashflow=retain_cashflow)
+        result = evaluate_scenario_economy(
+            row,
+            params=economic_params,
+            retain_annual_cashflow=retain_cashflow,
+            _context=context,
+        )
         results.append(result.metrics)
         if retain_cashflow:
             annual_cashflows[result.scenario_id] = result.annual_cashflow
