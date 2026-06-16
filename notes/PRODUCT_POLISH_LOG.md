@@ -4524,3 +4524,30 @@ exchange_import_shortfall_energy == 0
 - `python -m compileall -q src scripts tests` 通过；
 - `python -m green_direct.cli pilot-admin claim-next-job --help` 通过；
 - `pytest -q` 通过，321 项通过。
+
+### 2026-06-16 worker heartbeat / 进度刷新入口
+
+本轮继续补 worker 元数据闭环。上一片已经能通过 `claim-next-job` 把 queued job 认领为 running，但如果 worker wrapper 无法周期性刷新 heartbeat，任务仍会很快变成疑似 stale，用户也看不到真实进度。完整 worker 还没落地前，先把“已认领 running job 如何更新 heartbeat/进度”接到服务层和 CLI。
+
+本轮判断：
+- heartbeat/progress 必须校验平台管理员和 `worker_id`，避免一个 worker 覆盖另一个 worker 的任务状态；
+- 该入口只更新 running job 元数据，不标记成功或失败，也不执行计算；
+- 未传 `current` / `message` 时应保留原进度和说明，支持纯 heartbeat；
+- 不新增审计动作，避免把高频 heartbeat 写成海量审计日志；任务状态 JSON 本身保存最新元数据。
+
+本轮实现：
+- `PilotAccessService.update_worker_job_progress()`：要求活跃平台管理员、running 状态、匹配 `worker_id`，然后更新 progress、message 和 heartbeat；
+- `pilot-admin heartbeat-job`：支持 `--worker-id`、`--project-id`、`--study-id`、`--job-id`、可选 `--current` / `--total` / `--message`；
+- `tests/test_pilot_access.py` 覆盖 worker 不匹配会拒绝、匹配 worker 可刷新 progress/heartbeat；
+- `tests/test_cli.py` 覆盖 `claim-next-job` 后通过 CLI 写 heartbeat/progress；
+- 软件接口总览、内部试用 runbook、性能路线、受控公网审计矩阵、上线前质量审查、架构计划、Claude Code 提示词、TODO 和 handoff 已同步。
+
+边界说明：
+- 这仍不是 worker 执行器，不会读取 input artifact、执行仿真、检查取消、写结果或生成报告；
+- 后续应继续补 worker 终态命令/服务方法：成功写 `COMPLETE_JOB`，失败写脱敏错误和 `COMPLETE_JOB`，并与 `ResultStore` artifact 写回串联。
+
+验证：
+- `pytest tests/test_pilot_access.py tests/test_cli.py -q` 通过，28 项通过；
+- `python -m compileall -q src/green_direct/services/pilot_access.py src/green_direct/cli.py tests/test_pilot_access.py tests/test_cli.py` 通过；
+- `python -m green_direct.cli pilot-admin heartbeat-job --help` 通过；
+- `pytest -q` 通过，322 项通过。

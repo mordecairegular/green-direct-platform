@@ -8,7 +8,7 @@ future admin screens or database-backed adapters can reuse the same contract.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Iterable
 from uuid import uuid4
 
@@ -463,6 +463,56 @@ class PilotAccessService:
             except ValueError:
                 continue
         return None
+
+    def _running_worker_job(
+        self,
+        *,
+        actor_user_id: str,
+        worker_id: str,
+        project_id: str,
+        study_id: str,
+        job_id: str,
+    ) -> Job:
+        self._platform_admin(actor_user_id)
+        job = self.job_store.load_job(project_id, study_id, job_id)
+        if job.status != JobStatus.RUNNING:
+            raise PilotAccessError("Worker can only update running jobs.")
+        if job.worker_id != worker_id:
+            raise PilotAccessError("Job is assigned to another worker.")
+        return job
+
+    def update_worker_job_progress(
+        self,
+        *,
+        actor_user_id: str,
+        worker_id: str,
+        project_id: str,
+        study_id: str,
+        job_id: str,
+        current: int | None = None,
+        total: int | None = None,
+        message: str | None = None,
+        heartbeat_at: datetime | None = None,
+    ) -> Job:
+        """Update progress and heartbeat for a running job owned by a trusted worker."""
+
+        job = self._running_worker_job(
+            actor_user_id=actor_user_id,
+            worker_id=worker_id,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=job_id,
+        )
+        return self.job_store.update_job_progress(
+            project_id,
+            study_id,
+            job_id,
+            current=job.progress_current if current is None else current,
+            total=total,
+            message=job.progress_message if message is None else message,
+            worker_id=worker_id,
+            heartbeat_at=heartbeat_at or datetime.now(timezone.utc),
+        )
 
     def update_job_progress(
         self,

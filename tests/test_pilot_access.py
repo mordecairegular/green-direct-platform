@@ -307,6 +307,60 @@ def test_platform_admin_claims_next_worker_job_and_skips_archived_projects(tmp_p
     assert service.job_store.load_job("project_archived", "study_1", "job_archived").status == JobStatus.QUEUED
 
 
+def test_platform_admin_updates_worker_job_progress_only_for_assigned_worker(tmp_path):
+    service = _service(tmp_path)
+    service.registry.save_user(
+        User("platform_admin", "platform-admin@example.local", "Platform Admin", is_platform_admin=True)
+    )
+    project = service.create_project(
+        actor_user_id="platform_admin",
+        project=Project("project_1", "Active project"),
+    )
+    service.job_store.submit_job(
+        Job(
+            job_id="job_1",
+            project_id=project.project_id,
+            study_id="study_1",
+            requested_by_user_id="platform_admin",
+            job_type=JobType.TECHNICAL_STUDY,
+        )
+    )
+    claimed = service.claim_next_job_for_worker(
+        actor_user_id="platform_admin",
+        worker_id="worker_1",
+        project_id=project.project_id,
+    )
+    assert claimed is not None
+
+    with pytest.raises(PilotAccessError, match="assigned to another worker"):
+        service.update_worker_job_progress(
+            actor_user_id="platform_admin",
+            worker_id="worker_2",
+            project_id=project.project_id,
+            study_id="study_1",
+            job_id="job_1",
+            current=1,
+        )
+
+    updated = service.update_worker_job_progress(
+        actor_user_id="platform_admin",
+        worker_id="worker_1",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_id="job_1",
+        current=2,
+        total=5,
+        message="running block 2/5",
+    )
+
+    assert updated.status == JobStatus.RUNNING
+    assert updated.progress_current == 2
+    assert updated.progress_total == 5
+    assert updated.progress_message == "running block 2/5"
+    assert updated.worker_id == "worker_1"
+    assert updated.last_heartbeat_at is not None
+
+
 def test_artifact_payload_read_requires_project_view_and_is_audited(tmp_path):
     service = _service(tmp_path)
     _create_project_with_members(service)

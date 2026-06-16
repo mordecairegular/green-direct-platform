@@ -381,6 +381,24 @@ def _cmd_claim_next_job(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_heartbeat_job(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    updated = services.access.update_worker_job_progress(
+        actor_user_id=args.actor_user_id,
+        worker_id=args.worker_id,
+        project_id=args.project_id,
+        study_id=args.study_id,
+        job_id=args.job_id,
+        current=args.current,
+        total=args.total,
+        message=args.message,
+        heartbeat_at=datetime.now(timezone.utc),
+    )
+    _print_job_header(include_stale=False)
+    _print_job_row(updated)
+    return 0
+
+
 def _cmd_purge_expired_artifacts(args: argparse.Namespace) -> int:
     services = _pilot_services(args.store_dir)
     services.admin.list_users(actor_user_id=args.actor_user_id)
@@ -645,6 +663,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Filter by job type. May be provided multiple times.",
     )
     claim_next_job.set_defaults(func=_cmd_claim_next_job)
+
+    heartbeat_job = pilot_admin_sub.add_parser(
+        "heartbeat-job",
+        help="Update heartbeat and optional progress for a claimed running job.",
+    )
+    _add_common_store_arg(heartbeat_job)
+    _add_actor_arg(heartbeat_job)
+    heartbeat_job.add_argument("--worker-id", required=True, help="Worker id assigned to the running job.")
+    heartbeat_job.add_argument("--project-id", required=True)
+    heartbeat_job.add_argument("--study-id", required=True)
+    heartbeat_job.add_argument("--job-id", required=True)
+    heartbeat_job.add_argument("--current", type=int, help="Current progress counter. Omit to keep existing value.")
+    heartbeat_job.add_argument("--total", type=int, help="Total progress counter. Omit to keep existing value.")
+    heartbeat_job.add_argument("--message", help="Progress message. Omit to keep existing value.")
+    heartbeat_job.set_defaults(func=_cmd_heartbeat_job)
 
     purge_artifacts = pilot_admin_sub.add_parser(
         "purge-expired-artifacts",

@@ -1055,6 +1055,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `grant-project-role` / `disable-project-member`：授予或更新项目角色、禁用项目成员；
 - `list-jobs`：查看全局或单项目任务元数据，可按状态筛选，并可标记是否超过 heartbeat 阈值；
 - `claim-next-job`：为受信任 worker 认领一个 queued job，写入 `worker_id` 和 heartbeat；该命令只改变任务元数据，不执行计算；
+- `heartbeat-job`：为已认领的 running job 刷新 heartbeat，并可更新进度计数和说明；该命令不标记任务成功或失败；
 - `purge-expired-artifacts`：由平台管理员清理已过期 artifact payload，保留元数据并写入项目级 `DELETE_ARTIFACT` 审计；
 - `fail-stale-jobs`：由平台管理员把超时未 heartbeat 的 running 任务标记为 failed，并写入项目级 `COMPLETE_JOB` 审计。
 
@@ -1182,6 +1183,17 @@ python -m green_direct.cli pilot-admin claim-next-job `
     --actor-user-id admin `
     --worker-id pilot-worker-1 `
     --job-type technical_study
+
+python -m green_direct.cli pilot-admin heartbeat-job `
+    --store-dir .runtime/pilot_store `
+    --actor-user-id admin `
+    --worker-id pilot-worker-1 `
+    --project-id project_1 `
+    --study-id study_1 `
+    --job-id job_1 `
+    --current 2 `
+    --total 5 `
+    --message "running block 2/5"
 
 python -m green_direct.cli pilot-admin purge-expired-artifacts `
     --store-dir .runtime/pilot_store `

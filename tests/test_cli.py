@@ -628,6 +628,38 @@ def test_cli_pilot_admin_claims_next_job_for_worker(tmp_path, monkeypatch, capsy
     assert main(
         [
             "pilot-admin",
+            "heartbeat-job",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--worker-id",
+            "worker_1",
+            "--project-id",
+            "project_active",
+            "--study-id",
+            "study_1",
+            "--job-id",
+            "job_technical",
+            "--current",
+            "2",
+            "--total",
+            "5",
+            "--message",
+            "running block 2/5",
+        ]
+    ) == 0
+    heartbeat_output = capsys.readouterr().out
+    assert "project_active\tstudy_1\tjob_technical\ttechnical_study\trunning" in heartbeat_output
+    assert "\t2/5\tworker_1\t" in heartbeat_output
+    updated = job_store.load_job("project_active", "study_1", "job_technical")
+    assert updated.progress_current == 2
+    assert updated.progress_total == 5
+    assert updated.progress_message == "running block 2/5"
+    assert updated.last_heartbeat_at is not None
+
+    assert main(
+        [
+            "pilot-admin",
             "claim-next-job",
             *_store_arg(tmp_path),
             "--actor-user-id",
@@ -811,7 +843,22 @@ def test_cli_pilot_admin_fails_stale_running_jobs_and_audits(tmp_path, monkeypat
 
 def test_cli_exposes_green_direct_console_script():
     parser = build_parser()
-    parsed = parser.parse_args(["pilot-admin", "claim-next-job", "--actor-user-id", "admin", "--worker-id", "worker_1"])
+    parsed = parser.parse_args(
+        [
+            "pilot-admin",
+            "heartbeat-job",
+            "--actor-user-id",
+            "admin",
+            "--worker-id",
+            "worker_1",
+            "--project-id",
+            "project_1",
+            "--study-id",
+            "study_1",
+            "--job-id",
+            "job_1",
+        ]
+    )
 
     assert parsed.command == "pilot-admin"
-    assert parsed.pilot_admin_command == "claim-next-job"
+    assert parsed.pilot_admin_command == "heartbeat-job"
