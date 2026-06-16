@@ -14,6 +14,7 @@ from typing import Iterable
 
 from green_direct.models.pilot_backend import Job, JobStatus, JobType
 from green_direct.services.local_store_utils import (
+    local_store_lock,
     read_json,
     validate_path_segment,
     write_json,
@@ -78,12 +79,18 @@ class LocalJobStore:
     def _job_path(self, project_id: str, study_id: str, job_id: str) -> Path:
         return self._jobs_dir(project_id, study_id) / f"{validate_path_segment(job_id, 'job_id')}.json"
 
-    def _save_job(self, job: Job, *, overwrite: bool = True) -> Job:
+    def _lock(self):
+        return local_store_lock(self.root, name="job_store")
+
+    def _save_job_unlocked(self, job: Job, *, overwrite: bool = True) -> Job:
         path = self._job_path(job.project_id, job.study_id, job.job_id)
         if path.exists() and not overwrite:
             raise FileExistsError(f"Job already exists: {job.job_id}")
         write_json(path, asdict(job))
         return job
+
+    def _load_job_unlocked(self, project_id: str, study_id: str, job_id: str) -> Job:
+        return _job_from_json(read_json(self._job_path(project_id, study_id, job_id)))
 
     def _all_jobs(self, *, statuses: Iterable[JobStatus | str] | None = None) -> list[Job]:
         accepted_statuses = _status_filter(statuses)
@@ -103,12 +110,13 @@ class LocalJobStore:
 
         if job.status != JobStatus.QUEUED:
             raise ValueError("Only queued jobs can be submitted.")
-        return self._save_job(job, overwrite=overwrite)
+        with self._lock():
+            return self._save_job_unlocked(job, overwrite=overwrite)
 
     def load_job(self, project_id: str, study_id: str, job_id: str) -> Job:
         """Load one job by project, study, and job id."""
 
-        return _job_from_json(read_json(self._job_path(project_id, study_id, job_id)))
+        return self._load_job_unlocked(project_id, study_id, job_id)
 
     def list_study_jobs(
         self,
@@ -176,20 +184,22 @@ class LocalJobStore:
         """
 
         accepted_types = _job_type_filter(job_types)
-        queued_jobs = self.list_jobs(project_id=project_id, statuses=[JobStatus.QUEUED])
-        for candidate in queued_jobs:
-            if accepted_types is not None and candidate.job_type not in accepted_types:
-                continue
-            try:
-                return self.start_job(
-                    candidate.project_id,
-                    candidate.study_id,
-                    candidate.job_id,
-                    started_at=claimed_at,
-                    worker_id=worker_id,
-                )
-            except ValueError:
-                continue
+        with self._lock():
+            queued_jobs = self.list_jobs(project_id=project_id, statuses=[JobStatus.QUEUED])
+            for candidate in queued_jobs:
+                if accepted_types is not None and candidate.job_type not in accepted_types:
+                    continue
+                current = self._load_job_unlocked(candidate.project_id, candidate.study_id, candidate.job_id)
+                if current.status != JobStatus.QUEUED:
+                    continue
+                try:
+                    claimed = current.start(
+                        started_at=claimed_at,
+                        worker_id=worker_id,
+                    )
+                except ValueError:
+                    continue
+                return self._save_job_unlocked(claimed)
         return None
 
     def start_job(
@@ -203,11 +213,12 @@ class LocalJobStore:
     ) -> Job:
         """Transition a queued job to running."""
 
-        job = self.load_job(project_id, study_id, job_id).start(
-            started_at=started_at,
-            worker_id=worker_id,
-        )
-        return self._save_job(job)
+        with self._lock():
+            job = self._load_job_unlocked(project_id, study_id, job_id).start(
+                started_at=started_at,
+                worker_id=worker_id,
+            )
+            return self._save_job_unlocked(job)
 
     def update_job_progress(
         self,
@@ -223,14 +234,15 @@ class LocalJobStore:
     ) -> Job:
         """Persist progress counters for a queued or running job."""
 
-        job = self.load_job(project_id, study_id, job_id).update_progress(
-            current=current,
-            total=total,
-            message=message,
-            worker_id=worker_id,
-            heartbeat_at=heartbeat_at,
-        )
-        return self._save_job(job)
+        with self._lock():
+            job = self._load_job_unlocked(project_id, study_id, job_id).update_progress(
+                current=current,
+                total=total,
+                message=message,
+                worker_id=worker_id,
+                heartbeat_at=heartbeat_at,
+            )
+            return self._save_job_unlocked(job)
 
     def succeed_job(
         self,
@@ -242,8 +254,9 @@ class LocalJobStore:
     ) -> Job:
         """Transition a running job to succeeded."""
 
-        job = self.load_job(project_id, study_id, job_id).succeed(finished_at=finished_at)
-        return self._save_job(job)
+        with self._lock():
+            job = self._load_job_unlocked(project_id, study_id, job_id).succeed(finished_at=finished_at)
+            return self._save_job_unlocked(job)
 
     def fail_job(
         self,
@@ -256,8 +269,9 @@ class LocalJobStore:
     ) -> Job:
         """Transition a running job to failed."""
 
-        job = self.load_job(project_id, study_id, job_id).fail(error_message, finished_at=finished_at)
-        return self._save_job(job)
+        with self._lock():
+            job = self._load_job_unlocked(project_id, study_id, job_id).fail(error_message, finished_at=finished_at)
+            return self._save_job_unlocked(job)
 
     def cancel_job(
         self,
@@ -269,8 +283,9 @@ class LocalJobStore:
     ) -> Job:
         """Cancel a queued or running job."""
 
-        job = self.load_job(project_id, study_id, job_id).cancel(finished_at=finished_at)
-        return self._save_job(job)
+        with self._lock():
+            job = self._load_job_unlocked(project_id, study_id, job_id).cancel(finished_at=finished_at)
+            return self._save_job_unlocked(job)
 
     def list_stale_running_jobs(
         self,
@@ -302,22 +317,16 @@ class LocalJobStore:
     ) -> list[Job]:
         """Mark stale running jobs failed and return the updated job records."""
 
-        failed: list[Job] = []
-        for stale_job in self.list_stale_running_jobs(
-            now=now,
-            stale_after_seconds=stale_after_seconds,
-            project_id=project_id,
-        ):
-            current = self.load_job(stale_job.project_id, stale_job.study_id, stale_job.job_id)
-            if not current.is_stale(now=now, stale_after_seconds=stale_after_seconds):
-                continue
-            failed.append(
-                self.fail_job(
-                    current.project_id,
-                    current.study_id,
-                    current.job_id,
-                    error_message,
-                    finished_at=now,
-                )
-            )
-        return failed
+        with self._lock():
+            failed: list[Job] = []
+            for stale_job in self.list_stale_running_jobs(
+                now=now,
+                stale_after_seconds=stale_after_seconds,
+                project_id=project_id,
+            ):
+                current = self._load_job_unlocked(stale_job.project_id, stale_job.study_id, stale_job.job_id)
+                if not current.is_stale(now=now, stale_after_seconds=stale_after_seconds):
+                    continue
+                failed_job = current.fail(error_message, finished_at=now)
+                failed.append(self._save_job_unlocked(failed_job))
+            return failed

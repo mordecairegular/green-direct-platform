@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import multiprocessing as mp
 
 import pytest
 
@@ -27,6 +28,18 @@ def _job(
         input_artifact_ids={"config": f"config_{job_id}"},
         queued_at=queued_at or _dt(1),
     )
+
+
+def _claim_job_in_process(root: str, worker_id: str, output_queue) -> None:
+    try:
+        store = LocalJobStore(root)
+        claimed = store.claim_next_queued_job(
+            worker_id=worker_id,
+            claimed_at=_dt(4),
+        )
+        output_queue.put((worker_id, claimed.job_id if claimed is not None else None, None))
+    except Exception as exc:  # pragma: no cover - surfaced through parent process assertion
+        output_queue.put((worker_id, None, repr(exc)))
 
 
 def test_job_store_submits_loads_and_lists_project_scoped_jobs(tmp_path):
@@ -163,6 +176,39 @@ def test_job_store_claims_oldest_queued_job_for_worker(tmp_path):
     assert next_technical is not None
     assert next_technical.job_id == "job_later"
     assert store.claim_next_queued_job(worker_id="worker_3", job_types=[JobType.REPORT_EXPORT]) is None
+
+
+def test_job_store_concurrent_claim_has_single_winner(tmp_path):
+    store = LocalJobStore(tmp_path)
+    store.submit_job(_job("job_1"))
+    ctx = mp.get_context("spawn")
+    output_queue = ctx.Queue()
+    processes = [
+        ctx.Process(target=_claim_job_in_process, args=(str(tmp_path), f"worker_{idx}", output_queue))
+        for idx in range(5)
+    ]
+
+    for process in processes:
+        process.start()
+    for process in processes:
+        process.join(timeout=15)
+
+    for process in processes:
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=5)
+        assert process.exitcode == 0
+
+    results = [output_queue.get(timeout=5) for _ in processes]
+    errors = [error for _, _, error in results if error is not None]
+    winners = [(worker_id, job_id) for worker_id, job_id, error in results if error is None and job_id is not None]
+
+    assert errors == []
+    assert len(winners) == 1
+    assert winners[0][1] == "job_1"
+    claimed = store.load_job("project_1", "study_1", "job_1")
+    assert claimed.status == JobStatus.RUNNING
+    assert claimed.worker_id == winners[0][0]
 
 
 def test_job_store_lists_and_fails_stale_running_jobs(tmp_path):

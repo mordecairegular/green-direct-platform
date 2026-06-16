@@ -5273,3 +5273,30 @@ profile / benchmark：
 - `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
 - `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 通过，`failed_count=0`，包含 `smoke:streamlit`；
 - `git diff --check` 通过，仅有 Windows 换行转换提示。
+
+### 2026-06-16 本地文件 store 协作锁第一版
+
+本轮继续扫内部 10-20 人公网试用的工程化风险。前序已把 JSON 元数据写入改成临时文件 + 原子替换，能降低半写损坏；但当 Streamlit Web 进程、`run-worker-loop` 或管理员 CLI 同时修改账号、任务、结果或审计元数据时，仍可能发生读改写窗口竞争，尤其是多个 worker 同时认领同一个 queued job。
+
+实现：
+- `local_store_utils.local_store_lock()` 新增基于锁目录的跨进程协作锁，带超时和 stale lock 清理；
+- `LocalJobStore` 的 `submit_job()`、`claim_next_queued_job()`、`start_job()`、`update_job_progress()`、`succeed_job()`、`fail_job()`、`cancel_job()` 和 `fail_stale_running_jobs()` 纳入同一 job store 锁，避免同一个 queued job 被多个本地 worker 同时成功认领；
+- `LocalPilotRegistry` 的用户、项目和成员关系写入 / 读改写路径纳入 registry 锁；
+- `LocalResultStore` 的 artifact 写入、过期清理、结果索引保存/标记/软删除和审计日志 append 纳入 result store 锁；
+- `tests/test_job_store.py` 新增 spawn 多进程并发认领测试：5 个进程同时抢同一个 queued job 时只有一个 winner；
+- README、安全说明、软件接口总览、部署 runbook、受控公网审计矩阵、上线前质量审查、TODO 和 handoff 已同步。
+
+边界：
+- 这是本地文件适配器的协作锁，不是数据库事务、正式队列、compare-and-swap、冲突合并或资源隔离；
+- 仍建议内部试用期最多启动一个 worker loop，避免把本地 JSON store 当成长期并发数据库；
+- 它不改变 V0.1 技术仿真、经济性 V1、推荐 V1 排序或 artifact 语义；
+- 后续 SQLite/Postgres / 对象存储适配仍应复用 `PilotAccessService` 权限与审计语义。
+
+验证：
+- `python -m pytest tests\test_local_store_utils.py tests\test_job_store.py -q` 通过，13 项通过；
+- `python -m pytest tests\test_local_store_utils.py tests\test_job_store.py tests\test_pilot_registry.py tests\test_result_store.py tests\test_pilot_access.py tests\test_pilot_admin.py -q` 通过，65 项通过；
+- `python -m compileall -q src\green_direct\services\local_store_utils.py src\green_direct\services\job_store.py src\green_direct\services\pilot_registry.py src\green_direct\services\result_store.py tests\test_local_store_utils.py tests\test_job_store.py` 通过；
+- `python -m pytest -q` 通过，367 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 通过，`failed_count=0`，包含 `smoke:streamlit`；
+- `git diff --check` 通过，仅有 Windows 换行转换提示。

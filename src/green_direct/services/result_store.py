@@ -22,6 +22,7 @@ from green_direct.models.pilot_backend import (
 )
 from green_direct.services.local_store_utils import (
     json_value,
+    local_store_lock,
     read_json,
     validate_path_segment,
     write_json,
@@ -62,6 +63,9 @@ class LocalResultStore:
             / f"{validate_path_segment(result_id, 'result_id')}.json"
         )
 
+    def _lock(self):
+        return local_store_lock(self.root, name="result_store")
+
     def store_artifact(
         self,
         *,
@@ -79,38 +83,39 @@ class LocalResultStore:
     ) -> JobArtifact:
         """Write an artifact payload and return its immutable index record."""
 
-        safe_filename = validate_path_segment(filename, "filename")
-        artifact_dir = self._artifact_dir(project_id, study_id, artifact_id)
-        payload_path = artifact_dir / safe_filename
-        metadata_path = artifact_dir / "artifact.json"
-        if (payload_path.exists() or metadata_path.exists()) and not overwrite:
-            raise FileExistsError(f"Artifact already exists: {artifact_id}")
+        with self._lock():
+            safe_filename = validate_path_segment(filename, "filename")
+            artifact_dir = self._artifact_dir(project_id, study_id, artifact_id)
+            payload_path = artifact_dir / safe_filename
+            metadata_path = artifact_dir / "artifact.json"
+            if (payload_path.exists() or metadata_path.exists()) and not overwrite:
+                raise FileExistsError(f"Artifact already exists: {artifact_id}")
 
-        data = payload.encode("utf-8") if isinstance(payload, str) else bytes(payload)
-        artifact_dir.mkdir(parents=True, exist_ok=True)
-        payload_path.write_bytes(data)
-        digest = hashlib.sha256(data).hexdigest()
-        storage_uri = (
-            f"local-result-store://{validate_path_segment(project_id, 'project_id')}/"
-            f"{validate_path_segment(study_id, 'study_id')}/artifacts/"
-            f"{validate_path_segment(artifact_id, 'artifact_id')}/{safe_filename}"
-        )
-        artifact = JobArtifact(
-            artifact_id=artifact_id,
-            project_id=project_id,
-            study_id=study_id,
-            job_id=job_id,
-            kind=kind,
-            storage_uri=storage_uri,
-            content_type=content_type,
-            sha256=digest,
-            size_bytes=len(data),
-            retention_policy=retention_policy,
-            expires_at=expires_at,
-            purged_at=None,
-        )
-        write_json(metadata_path, asdict(artifact))
-        return artifact
+            data = payload.encode("utf-8") if isinstance(payload, str) else bytes(payload)
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            payload_path.write_bytes(data)
+            digest = hashlib.sha256(data).hexdigest()
+            storage_uri = (
+                f"local-result-store://{validate_path_segment(project_id, 'project_id')}/"
+                f"{validate_path_segment(study_id, 'study_id')}/artifacts/"
+                f"{validate_path_segment(artifact_id, 'artifact_id')}/{safe_filename}"
+            )
+            artifact = JobArtifact(
+                artifact_id=artifact_id,
+                project_id=project_id,
+                study_id=study_id,
+                job_id=job_id,
+                kind=kind,
+                storage_uri=storage_uri,
+                content_type=content_type,
+                sha256=digest,
+                size_bytes=len(data),
+                retention_policy=retention_policy,
+                expires_at=expires_at,
+                purged_at=None,
+            )
+            write_json(metadata_path, asdict(artifact))
+            return artifact
 
     def load_artifact(self, project_id: str, study_id: str, artifact_id: str) -> JobArtifact:
         """Load an artifact index record without reading its binary payload."""
@@ -148,47 +153,49 @@ class LocalResultStore:
     def purge_expired_artifacts(self, *, now: datetime) -> list[JobArtifact]:
         """Delete expired artifact payloads while keeping artifact metadata."""
 
-        purged: list[JobArtifact] = []
-        projects_dir = self.root / "projects"
-        if not projects_dir.exists():
-            return []
-        for metadata_path in sorted(projects_dir.glob("*/studies/*/artifacts/*/artifact.json")):
-            data = read_json(metadata_path)
-            artifact = self.load_artifact(data["project_id"], data["study_id"], data["artifact_id"])
-            if not artifact.is_payload_available or not artifact.is_expired(now):
-                continue
-            artifact_dir = self._artifact_dir(artifact.project_id, artifact.study_id, artifact.artifact_id)
-            filename = validate_path_segment(artifact.storage_uri.rsplit("/", 1)[-1], "filename")
-            payload_path = artifact_dir / filename
-            if payload_path.exists():
-                payload_path.unlink()
-            purged_artifact = JobArtifact(
-                artifact_id=artifact.artifact_id,
-                project_id=artifact.project_id,
-                study_id=artifact.study_id,
-                job_id=artifact.job_id,
-                kind=artifact.kind,
-                storage_uri=artifact.storage_uri,
-                content_type=artifact.content_type,
-                sha256=artifact.sha256,
-                size_bytes=artifact.size_bytes,
-                retention_policy=artifact.retention_policy,
-                expires_at=artifact.expires_at,
-                purged_at=now,
-                created_at=artifact.created_at,
-            )
-            write_json(metadata_path, asdict(purged_artifact))
-            purged.append(purged_artifact)
-        return purged
+        with self._lock():
+            purged: list[JobArtifact] = []
+            projects_dir = self.root / "projects"
+            if not projects_dir.exists():
+                return []
+            for metadata_path in sorted(projects_dir.glob("*/studies/*/artifacts/*/artifact.json")):
+                data = read_json(metadata_path)
+                artifact = self.load_artifact(data["project_id"], data["study_id"], data["artifact_id"])
+                if not artifact.is_payload_available or not artifact.is_expired(now):
+                    continue
+                artifact_dir = self._artifact_dir(artifact.project_id, artifact.study_id, artifact.artifact_id)
+                filename = validate_path_segment(artifact.storage_uri.rsplit("/", 1)[-1], "filename")
+                payload_path = artifact_dir / filename
+                if payload_path.exists():
+                    payload_path.unlink()
+                purged_artifact = JobArtifact(
+                    artifact_id=artifact.artifact_id,
+                    project_id=artifact.project_id,
+                    study_id=artifact.study_id,
+                    job_id=artifact.job_id,
+                    kind=artifact.kind,
+                    storage_uri=artifact.storage_uri,
+                    content_type=artifact.content_type,
+                    sha256=artifact.sha256,
+                    size_bytes=artifact.size_bytes,
+                    retention_policy=artifact.retention_policy,
+                    expires_at=artifact.expires_at,
+                    purged_at=now,
+                    created_at=artifact.created_at,
+                )
+                write_json(metadata_path, asdict(purged_artifact))
+                purged.append(purged_artifact)
+            return purged
 
     def save_result_record(self, record: StudyResultRecord, *, overwrite: bool = False) -> StudyResultRecord:
         """Persist a study result index."""
 
         path = self._result_path(record.project_id, record.study_id, record.result_id)
-        if path.exists() and not overwrite:
-            raise FileExistsError(f"Result record already exists: {record.result_id}")
-        write_json(path, asdict(record))
-        return record
+        with self._lock():
+            if path.exists() and not overwrite:
+                raise FileExistsError(f"Result record already exists: {record.result_id}")
+            write_json(path, asdict(record))
+            return record
 
     def load_result_record(self, project_id: str, study_id: str, result_id: str) -> StudyResultRecord:
         """Load a study result index."""
@@ -231,16 +238,17 @@ class LocalResultStore:
 
         if not str(deleted_by_user_id).strip():
             raise ValueError("deleted_by_user_id must not be empty.")
-        record = self.load_result_record(project_id, study_id, result_id)
-        if record.is_deleted:
-            return record
-        deleted = replace(
-            record,
-            deleted_at=deleted_at or _utcnow(),
-            deleted_by_user_id=str(deleted_by_user_id),
-        )
-        write_json(self._result_path(project_id, study_id, result_id), asdict(deleted))
-        return deleted
+        with self._lock():
+            record = self.load_result_record(project_id, study_id, result_id)
+            if record.is_deleted:
+                return record
+            deleted = replace(
+                record,
+                deleted_at=deleted_at or _utcnow(),
+                deleted_by_user_id=str(deleted_by_user_id),
+            )
+            write_json(self._result_path(project_id, study_id, result_id), asdict(deleted))
+            return deleted
 
     def mark_result_record(
         self,
@@ -257,19 +265,20 @@ class LocalResultStore:
 
         if not str(marked_by_user_id).strip():
             raise ValueError("marked_by_user_id must not be empty.")
-        record = self.load_result_record(project_id, study_id, result_id)
-        if record.is_deleted:
-            raise ValueError("Deleted result records cannot be marked.")
-        clean_label = str(label).strip() if label is not None else ""
-        next_label = (clean_label or None) if is_pinned else None
-        updated = replace(
-            record,
-            pinned_at=(marked_at or _utcnow()) if is_pinned else None,
-            pinned_by_user_id=str(marked_by_user_id) if is_pinned else None,
-            label=next_label,
-        )
-        write_json(self._result_path(project_id, study_id, result_id), asdict(updated))
-        return updated
+        with self._lock():
+            record = self.load_result_record(project_id, study_id, result_id)
+            if record.is_deleted:
+                raise ValueError("Deleted result records cannot be marked.")
+            clean_label = str(label).strip() if label is not None else ""
+            next_label = (clean_label or None) if is_pinned else None
+            updated = replace(
+                record,
+                pinned_at=(marked_at or _utcnow()) if is_pinned else None,
+                pinned_by_user_id=str(marked_by_user_id) if is_pinned else None,
+                label=next_label,
+            )
+            write_json(self._result_path(project_id, study_id, result_id), asdict(updated))
+            return updated
 
     def _sort_result_records(
         self,
@@ -335,11 +344,12 @@ class LocalResultStore:
             path = self.root / "audit" / "global.jsonl"
         else:
             path = self._project_dir(event.project_id) / "audit.jsonl"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(json_value(asdict(event)), ensure_ascii=False, sort_keys=True))
-            handle.write("\n")
-        return event
+        with self._lock():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(json_value(asdict(event)), ensure_ascii=False, sort_keys=True))
+                handle.write("\n")
+            return event
 
     def read_audit_log(self, project_id: str | None = None) -> list[AuditLog]:
         """Read global or project-scoped audit events."""

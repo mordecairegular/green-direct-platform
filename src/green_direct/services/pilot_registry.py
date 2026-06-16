@@ -20,7 +20,7 @@ from green_direct.models.pilot_backend import (
     User,
     UserStatus,
 )
-from green_direct.services.local_store_utils import read_json, validate_path_segment, write_json
+from green_direct.services.local_store_utils import local_store_lock, read_json, validate_path_segment, write_json
 
 
 def _parse_datetime(value: str) -> datetime:
@@ -92,12 +92,19 @@ class LocalPilotRegistry:
         safe_user_id = validate_path_segment(user_id, "user_id")
         return f"{safe_project_id}__{safe_user_id}"
 
-    def save_user(self, user: User, *, overwrite: bool = False) -> User:
+    def _lock(self):
+        return local_store_lock(self.root, name="pilot_registry")
+
+    def _save_user_unlocked(self, user: User, *, overwrite: bool = False) -> User:
         path = self._user_path(user.user_id)
         if path.exists() and not overwrite:
             raise FileExistsError(f"User already exists: {user.user_id}")
         write_json(path, asdict(user))
         return user
+
+    def save_user(self, user: User, *, overwrite: bool = False) -> User:
+        with self._lock():
+            return self._save_user_unlocked(user, overwrite=overwrite)
 
     def load_user(self, user_id: str) -> User:
         return _user_from_json(read_json(self._user_path(user_id)))
@@ -109,21 +116,27 @@ class LocalPilotRegistry:
         return [_user_from_json(read_json(path)) for path in sorted(directory.glob("*.json"))]
 
     def disable_user(self, user_id: str) -> User:
-        user = self.load_user(user_id)
-        disabled = replace(user, status=UserStatus.DISABLED)
-        return self.save_user(disabled, overwrite=True)
+        with self._lock():
+            user = self.load_user(user_id)
+            disabled = replace(user, status=UserStatus.DISABLED)
+            return self._save_user_unlocked(disabled, overwrite=True)
 
     def enable_user(self, user_id: str) -> User:
-        user = self.load_user(user_id)
-        enabled = replace(user, status=UserStatus.ACTIVE)
-        return self.save_user(enabled, overwrite=True)
+        with self._lock():
+            user = self.load_user(user_id)
+            enabled = replace(user, status=UserStatus.ACTIVE)
+            return self._save_user_unlocked(enabled, overwrite=True)
 
-    def save_project(self, project: Project, *, overwrite: bool = False) -> Project:
+    def _save_project_unlocked(self, project: Project, *, overwrite: bool = False) -> Project:
         path = self._project_path(project.project_id)
         if path.exists() and not overwrite:
             raise FileExistsError(f"Project already exists: {project.project_id}")
         write_json(path, asdict(project))
         return project
+
+    def save_project(self, project: Project, *, overwrite: bool = False) -> Project:
+        with self._lock():
+            return self._save_project_unlocked(project, overwrite=overwrite)
 
     def load_project(self, project_id: str) -> Project:
         return _project_from_json(read_json(self._project_path(project_id)))
@@ -138,9 +151,22 @@ class LocalPilotRegistry:
         ]
 
     def archive_project(self, project_id: str) -> Project:
-        project = self.load_project(project_id)
-        archived = replace(project, status=ProjectStatus.ARCHIVED)
-        return self.save_project(archived, overwrite=True)
+        with self._lock():
+            project = self.load_project(project_id)
+            archived = replace(project, status=ProjectStatus.ARCHIVED)
+            return self._save_project_unlocked(archived, overwrite=True)
+
+    def _save_membership_unlocked(
+        self,
+        membership: ProjectMembership,
+        *,
+        overwrite: bool = False,
+    ) -> ProjectMembership:
+        path = self._membership_path(membership.project_id, membership.membership_id)
+        if path.exists() and not overwrite:
+            raise FileExistsError(f"Project membership already exists: {membership.membership_id}")
+        write_json(path, asdict(membership))
+        return membership
 
     def save_membership(
         self,
@@ -148,13 +174,10 @@ class LocalPilotRegistry:
         *,
         overwrite: bool = False,
     ) -> ProjectMembership:
-        self.load_project(membership.project_id)
-        self.load_user(membership.user_id)
-        path = self._membership_path(membership.project_id, membership.membership_id)
-        if path.exists() and not overwrite:
-            raise FileExistsError(f"Project membership already exists: {membership.membership_id}")
-        write_json(path, asdict(membership))
-        return membership
+        with self._lock():
+            self.load_project(membership.project_id)
+            self.load_user(membership.user_id)
+            return self._save_membership_unlocked(membership, overwrite=overwrite)
 
     def load_membership(self, project_id: str, membership_id: str) -> ProjectMembership:
         return _membership_from_json(read_json(self._membership_path(project_id, membership_id)))
@@ -186,32 +209,34 @@ class LocalPilotRegistry:
         role: ProjectRole | str,
         can_export_artifacts: bool | None = None,
     ) -> ProjectMembership:
-        self.load_project(project_id)
-        self.load_user(user_id)
-        existing = self.get_project_membership(project_id, user_id)
-        next_can_export = True if existing is None else existing.can_export_artifacts
-        if can_export_artifacts is not None:
-            next_can_export = bool(can_export_artifacts)
-        if existing is None:
-            membership = ProjectMembership(
-                membership_id=self._default_membership_id(project_id, user_id),
-                project_id=project_id,
-                user_id=user_id,
-                role=role,
-                can_export_artifacts=next_can_export,
-            )
-        else:
-            membership = replace(
-                existing,
-                role=ProjectRole(role),
-                status=MembershipStatus.ACTIVE,
-                can_export_artifacts=next_can_export,
-            )
-        return self.save_membership(membership, overwrite=existing is not None)
+        with self._lock():
+            self.load_project(project_id)
+            self.load_user(user_id)
+            existing = self.get_project_membership(project_id, user_id)
+            next_can_export = True if existing is None else existing.can_export_artifacts
+            if can_export_artifacts is not None:
+                next_can_export = bool(can_export_artifacts)
+            if existing is None:
+                membership = ProjectMembership(
+                    membership_id=self._default_membership_id(project_id, user_id),
+                    project_id=project_id,
+                    user_id=user_id,
+                    role=role,
+                    can_export_artifacts=next_can_export,
+                )
+            else:
+                membership = replace(
+                    existing,
+                    role=ProjectRole(role),
+                    status=MembershipStatus.ACTIVE,
+                    can_export_artifacts=next_can_export,
+                )
+            return self._save_membership_unlocked(membership, overwrite=existing is not None)
 
     def disable_membership(self, project_id: str, user_id: str) -> ProjectMembership:
-        membership = self.get_project_membership(project_id, user_id)
-        if membership is None:
-            raise FileNotFoundError(f"No project membership for user: {user_id}")
-        disabled = replace(membership, status=MembershipStatus.DISABLED)
-        return self.save_membership(disabled, overwrite=True)
+        with self._lock():
+            membership = self.get_project_membership(project_id, user_id)
+            if membership is None:
+                raise FileNotFoundError(f"No project membership for user: {user_id}")
+            disabled = replace(membership, status=MembershipStatus.DISABLED)
+            return self._save_membership_unlocked(disabled, overwrite=True)

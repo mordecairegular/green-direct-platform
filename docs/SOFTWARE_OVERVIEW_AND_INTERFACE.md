@@ -999,7 +999,7 @@ python -m pytest
 
 `JobArtifact` 已包含 `retention_policy`、`expires_at` 和 `purged_at`。过期清理只删除 payload 文件，保留 `artifact.json`、`storage_uri`、`sha256`、`size_bytes`、过期时间和清理时间，便于继续展示历史索引和审计线索；`read_artifact_payload()` 遇到已清理产物会返回明确错误。
 
-`LocalResultStore` 目前已接入技术仿真 summary/config、经济性 summary、推荐席位输入、已保留年度现金流、推荐 portfolio、HTML 图表包和 Markdown 报告的第一阶段写入和最小结果索引读取，并支持 artifact payload 留存清理、结果索引标记/置顶和结果索引软删除第一版；本地 JSON 元数据写入已使用临时文件原子替换，降低半写损坏风险，但仍不是正式数据库或对象存储。后续接入时，PNG/Excel/批量导出包、完整报告和完整历史结果恢复应逐步写入该 store 或其数据库/对象存储替代实现。
+`LocalResultStore` 目前已接入技术仿真 summary/config、经济性 summary、推荐席位输入、已保留年度现金流、推荐 portfolio、HTML 图表包和 Markdown 报告的第一阶段写入和最小结果索引读取，并支持 artifact payload 留存清理、结果索引标记/置顶和结果索引软删除第一版；本地 JSON 元数据写入已使用临时文件原子替换，关键结果、artifact 和审计写入也受第一版协作文件锁保护，降低半写损坏和本地多进程读改写竞争风险，但仍不是正式数据库或对象存储。后续接入时，PNG/Excel/批量导出包、完整报告和完整历史结果恢复应逐步写入该 store 或其数据库/对象存储替代实现。
 
 `src/green_direct/services/upload_policy.py` 已提供第一版上传安全门禁：
 
@@ -1087,7 +1087,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `list_stale_running_jobs()` / `fail_stale_running_jobs()`：按 `last_heartbeat_at` 或 `started_at` 判断超时 running 任务，并可批量标记失败；
 - 任务文件按 `projects/{project_id}/studies/{study_id}/jobs/{job_id}.json` 隔离，路径片段使用白名单校验。
 
-`LocalJobStore` 目前只保存任务元数据和本地认领原语，本身不做重试、不做 worker 级资源中断，也没有跨进程队列锁。`pilot_worker.execute_next_worker_job()` 已提供第一版 worker 执行路径，可处理 `technical_study/hourly_detail` 并写回逐小时明细 artifact，也可处理固定价/网页组价经济性结果的 `economic_study/annual_cashflow` 并写回所选方案年度现金流 artifact；`execute_worker_loop()` / `pilot-admin run-worker-loop` 可持续轮询并执行受支持任务，但仍不是正式后台队列。Streamlit 欢迎页已消费任务状态，显示活动任务、任务状态明细，并通过 `PilotAccessService.cancel_job()` 更新取消状态；平台管理页“任务运维”和 `pilot-admin fail-stale-jobs` 都可把进程中断后遗留的 running 元数据转成 failed，便于试用期恢复项目状态，但不会杀死或回收任何操作系统进程。后续接入正式后台时，应让前台提交 `Job`、轮询 `JobStatus`，由后台 worker 通过受控服务认领任务、写入 `worker_id` / heartbeat 和 `LocalResultStore` 或其替代存储。
+`LocalJobStore` 目前只保存任务元数据和本地认领原语，本身不做重试、不做 worker 级资源中断；任务提交、认领、进度、成功/失败/取消和 stale running 置失败已纳入第一版协作文件锁，降低多进程同时认领同一 queued job 或覆盖任务状态的风险，但仍不是正式队列、数据库事务或资源隔离。`pilot_worker.execute_next_worker_job()` 已提供第一版 worker 执行路径，可处理 `technical_study/hourly_detail` 并写回逐小时明细 artifact，也可处理固定价/网页组价经济性结果的 `economic_study/annual_cashflow` 并写回所选方案年度现金流 artifact；`execute_worker_loop()` / `pilot-admin run-worker-loop` 可持续轮询并执行受支持任务，但仍不是正式后台队列。Streamlit 欢迎页已消费任务状态，显示活动任务、任务状态明细，并通过 `PilotAccessService.cancel_job()` 更新取消状态；平台管理页“任务运维”和 `pilot-admin fail-stale-jobs` 都可把进程中断后遗留的 running 元数据转成 failed，便于试用期恢复项目状态，但不会杀死或回收任何操作系统进程。后续接入正式后台时，应让前台提交 `Job`、轮询 `JobStatus`，由后台 worker 通过受控服务认领任务、写入 `worker_id` / heartbeat 和 `LocalResultStore` 或其替代存储。
 
 `src/green_direct/services/pilot_access.py` 已提供第一版 `PilotAccessService`：
 
@@ -1104,7 +1104,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `record_transient_export_download()`：为尚未落盘为 artifact 的当前会话导出按钮记录下载审计，复用项目导出权限并写入 `DOWNLOAD_ARTIFACT`；
 - 创建项目、成员变更、提交任务、取消任务和产物读取/拒绝会写入 `AuditLog`。
 
-`PilotAccessService` 是权限和审计服务门面，不启动 worker、不做数据库事务或跨进程并发锁；后续 Streamlit 管理页、后台任务入口和 SQLite/Postgres 适配器应优先复用这层语义，避免直接绕过角色控制调用底层本地文件 store。
+`PilotAccessService` 是权限和审计服务门面，不启动 worker、不做数据库事务；底层本地文件 store 已提供第一版协作文件锁，但后续 Streamlit 管理页、后台任务入口和 SQLite/Postgres 适配器仍应优先复用这层语义，避免直接绕过角色控制调用底层 store。
 
 ## 23. 本地运行方式
 

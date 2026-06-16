@@ -71,9 +71,9 @@
 - 内部试用部署材料已新增第一版：`.env.example`、`docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md`、`scripts/backup_pilot_store.ps1` 和 `scripts/restore_pilot_store.ps1`，覆盖环境变量、账号 bootstrap、启动、备份、恢复、过期清理、冒烟检查和回滚边界。
 - 受控公网内测审计矩阵已新增第一版：`docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md`，用于逐项跟踪 Route A 要求中已满足、部分满足和未满足的 P0 项。
 - 性能基准脚本已新增第一版：`scripts/benchmark_internal_pilot_performance.py`，可对完整明细保留、summary-first 和经济性 summary-only 进行可重复耗时/内存记录。
-- 服务层已新增 `LocalJobStore`，支持本地 JSON 任务提交、读取、全局/项目/研究列表、状态筛选、queued job 认领、worker/heartbeat 元数据、进度更新、成功/失败/取消状态持久化、`input_artifact_ids` 输入引用持久化，以及超时 running 任务扫描和置失败；`queue_job_with_input_artifact()` 已可把一次后台任务请求 payload 保存为 `ArtifactKind.JOB_INPUT` 后再提交 queued job；`execute_next_worker_job()` / `pilot-admin run-worker-once` 已能执行 `technical_study/hourly_detail` 和固定价/网页组价 `economic_study/annual_cashflow` worker 链路，`execute_worker_loop()` / `pilot-admin run-worker-loop` 已能持续轮询受支持 queued job；Streamlit 平台管理页已有任务运维入口，可手动处理一个受支持 queued job，并恢复超时 running 任务元数据；暂未包含正式队列、重试、完整任务后台、数据库锁或 worker 级取消。
-- 服务层已新增 `PilotAccessService`，把项目角色权限、可见项目列表、任务提交/取消、worker 认领、worker heartbeat/进度、worker 成功/失败终态、任务输入 artifact 引用校验、产物读取和审计日志统一成可测试服务门面，暂未包含常驻 worker daemon、数据库事务或并发锁。
-- 本地 JSON store 共享写入 helper 已改为“写临时文件后原子替换”，降低账号、会话、任务、结果索引等 JSON 元数据半写损坏风险；这仍不等于数据库事务或跨进程并发锁。
+- 服务层已新增 `LocalJobStore`，支持本地 JSON 任务提交、读取、全局/项目/研究列表、状态筛选、queued job 认领、worker/heartbeat 元数据、进度更新、成功/失败/取消状态持久化、`input_artifact_ids` 输入引用持久化，以及超时 running 任务扫描和置失败；任务提交、认领、进度、终态和 stale cleanup 已纳入第一版协作文件锁；`queue_job_with_input_artifact()` 已可把一次后台任务请求 payload 保存为 `ArtifactKind.JOB_INPUT` 后再提交 queued job；`execute_next_worker_job()` / `pilot-admin run-worker-once` 已能执行 `technical_study/hourly_detail` 和固定价/网页组价 `economic_study/annual_cashflow` worker 链路，`execute_worker_loop()` / `pilot-admin run-worker-loop` 已能持续轮询受支持 queued job；Streamlit 平台管理页已有任务运维入口，可手动处理一个受支持 queued job，并恢复超时 running 任务元数据；暂未包含正式队列、重试、完整任务后台、数据库事务或 worker 级取消。
+- 服务层已新增 `PilotAccessService`，把项目角色权限、可见项目列表、任务提交/取消、worker 认领、worker heartbeat/进度、worker 成功/失败终态、任务输入 artifact 引用校验、产物读取和审计日志统一成可测试服务门面，暂未包含常驻 worker daemon 或数据库事务。
+- 本地 JSON store 共享写入 helper 已改为“写临时文件后原子替换”，并新增第一版协作文件锁保护 `LocalPilotRegistry`、`LocalJobStore`、`LocalResultStore` 的关键读改写路径；这仍不等于数据库事务、冲突合并或长期并发存储。
 - 技术仿真完成后已能在启用内部试用登录和当前项目时登记项目级同步 `Job`，并把 `technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord` 写入 `LocalResultStore`；经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio、按需补算的单方案逐小时明细、HTML 图表包和 Markdown 报告也已接入第一阶段项目级写入；PNG/Excel/批量包、完整报告和导出后台任务化仍待迁移。
 - Streamlit 欢迎页已新增“项目任务与结果”面板，可查看当前项目任务数、已保存结果数、最近任务和最近结果索引；已落盘的技术 summary、经济 summary、年度现金流、推荐席位输入、推荐 portfolio/detail 等 artifact 可加载下载；技术 summary 已支持 summary-only 恢复到当前会话，并保留已有 hourly artifact 和 input artifact 索引用于后续图表/报告入口加载或补算；同一 `study_id` 的技术 summary 已恢复后，经济结果可恢复 summary、已保存年度现金流和推荐席位输入，推荐 portfolio 可 portfolio-only 恢复到当前会话；项目 admin 可标记/置顶历史结果索引，也可软删除/隐藏历史结果索引并写审计，但不物理删除 artifact。当前仍不恢复推荐视角选择或重新排序工作台状态，完整历史结果恢复和后台任务状态页仍待实现。
 - Streamlit 欢迎页“项目任务与结果”面板已新增第一版“排队/运行中任务”区和“任务状态明细”区，可筛出当前项目活动任务，展示 worker/heartbeat/stale 元数据，并按项目角色允许 analyst 取消自己任务、admin 取消项目任务；取消动作仍通过 `PilotAccessService.cancel_job()` 做后端权限校验和审计。该入口只是任务状态控制面板第一步，还不是真正 worker 级资源中断、重试或排队系统。
@@ -87,7 +87,7 @@
 - 下一阶段把完整历史结果恢复、推荐视角选择与重新排序工作台状态、PNG/Excel/批量包、完整报告导出也提交为项目级后台 `Job`，并把对应 hourly/chart/report/export artifacts 写入 `ResultStore`；summary-first 经济运行的固定价/网页组价年度现金流已有按需 Job，逐时价格曲线年度现金流需先把价格曲线和相关输入 artifact 化后再补。
 - 技术仿真已完成当前进程内 `ProcessPoolExecutor` 按方案块并行；下一步评估后台任务队列时继续沿用块级调度，保持 `scenario_id`、warning、error 和顺序稳定。
 - 经济性测算继续做 DataFrame/NumPy 批量化和后台 Job 化；完整年度现金流已可先只对报告方案、推荐组合或用户指定方案生成。
-- 本地 JSON 写入已做原子替换；下一步仍需补数据库/跨进程锁/并发冲突策略。
+- 本地 JSON 写入已做原子替换，关键 store 写路径已有协作文件锁；下一步仍需补数据库事务、冲突合并和长期并发存储策略。
 - 后续再评估 Numba、编译化调度内核或更高性能的数据结构。
 
 ### 2.1 内部 10-20 人试用上线架构

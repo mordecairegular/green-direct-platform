@@ -264,7 +264,7 @@ python -m green_direct.cli pilot-admin run-worker-loop `
     --poll-interval-seconds 5
 ```
 
-`run-worker-loop` 会反复执行与 `run-worker-once` 相同的受支持任务。可用 `--max-jobs` 做有限批处理，用 `--idle-exit-after` 在连续空轮询后退出，便于 CI、脚本或一次性演练。Docker Compose 部署已提供可选 worker profile：先完成管理员初始化，再执行 `docker compose --profile worker up -d green-direct-worker`。当前本地 JSON store 仍不适合多 worker 并发写入；试用期建议最多启动一个 worker loop。
+`run-worker-loop` 会反复执行与 `run-worker-once` 相同的受支持任务。可用 `--max-jobs` 做有限批处理，用 `--idle-exit-after` 在连续空轮询后退出，便于 CI、脚本或一次性演练。Docker Compose 部署已提供可选 worker profile：先完成管理员初始化，再执行 `docker compose --profile worker up -d green-direct-worker`。当前本地 JSON store 已有第一版协作文件锁保护关键元数据读改写，但仍不是正式队列或数据库事务；试用期建议最多启动一个 worker loop。
 
 认领后，worker wrapper 可周期性刷新 heartbeat 和进度：
 

@@ -109,7 +109,7 @@
 
 ## 已知限制
 
-- 本地 JSON/file store 已有元数据原子写入保护，但没有数据库事务、并发锁、冲突合并和正式备份调度；
+- 本地 JSON/file store 已有元数据原子写入保护，并对账号/项目、任务、结果和审计等关键读改写路径增加第一版协作文件锁；这仍不是数据库事务、冲突合并、正式备份调度或高并发存储；
 - 计算任务仍主要在 Streamlit 进程内同步执行；当前已有按需 hourly detail、固定价/网页组价 annual cashflow 的 queued job 提交入口、one-shot worker、最小 `run-worker-loop` 轮询 worker、stale running 置失败入口和 failed/canceled 任务手动克隆重试入口，尚无正式队列、自动重试策略或 worker 级取消；
 - 历史 summary-only 结果可加载已有 hourly artifact；若原始 input artifact 仍可用，可同步补算或提交后台排队补算，缺少 input artifact 时不能跨会话补算逐小时明细；
 - 不是正式公网 SaaS 安全架构；

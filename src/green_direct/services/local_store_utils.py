@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from enum import Enum
 import json
 import os
 from pathlib import Path
 import re
+import time
 from typing import Any, Mapping
 from uuid import uuid4
 
@@ -52,3 +54,72 @@ def write_json(path: Path, payload: Mapping[str, Any]) -> None:
 
 def read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+@contextmanager
+def local_store_lock(
+    root: str | Path,
+    *,
+    name: str,
+    timeout_seconds: float = 10.0,
+    stale_after_seconds: float = 300.0,
+    poll_interval_seconds: float = 0.05,
+):
+    """Acquire a cooperative cross-process lock for a local file store.
+
+    This intentionally stays small and dependency-free for the internal pilot
+    adapter. It protects read-modify-write windows between local processes, but
+    it is not a replacement for database transactions or a real queue backend.
+    """
+
+    if timeout_seconds < 0:
+        raise ValueError("timeout_seconds must not be negative.")
+    if poll_interval_seconds <= 0:
+        raise ValueError("poll_interval_seconds must be positive.")
+
+    root_path = Path(root).resolve()
+    lock_name = validate_path_segment(name, "lock_name")
+    locks_dir = root_path / ".locks"
+    lock_dir = locks_dir / f"{lock_name}.lock"
+    owner_path = lock_dir / "owner.json"
+    locks_dir.mkdir(parents=True, exist_ok=True)
+
+    deadline = time.monotonic() + timeout_seconds
+    acquired = False
+    while True:
+        try:
+            lock_dir.mkdir()
+            owner = {
+                "pid": os.getpid(),
+                "lock_name": lock_name,
+                "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            }
+            owner_path.write_text(json.dumps(owner, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+            acquired = True
+            break
+        except FileExistsError:
+            if stale_after_seconds > 0:
+                try:
+                    age_seconds = time.time() - lock_dir.stat().st_mtime
+                except FileNotFoundError:
+                    continue
+                if age_seconds > stale_after_seconds:
+                    try:
+                        owner_path.unlink(missing_ok=True)
+                        lock_dir.rmdir()
+                    except OSError:
+                        pass
+                    continue
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Timed out waiting for local store lock: {lock_name}")
+            time.sleep(min(poll_interval_seconds, max(0.0, deadline - time.monotonic())))
+
+    try:
+        yield
+    finally:
+        if acquired:
+            try:
+                owner_path.unlink(missing_ok=True)
+                lock_dir.rmdir()
+            except OSError:
+                pass
