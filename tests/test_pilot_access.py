@@ -449,3 +449,45 @@ def test_result_record_delete_requires_project_admin_and_is_audited(tmp_path):
     assert audit.target_type == "result_record"
     assert audit.target_id == record.result_id
     assert audit.metadata["created_by_job_id"] == "job_1"
+
+
+def test_result_record_mark_requires_project_admin_and_is_audited(tmp_path):
+    service = _service(tmp_path)
+    _create_project_with_members(service)
+    record = service.result_store.save_result_record(
+        StudyResultRecord(
+            result_id="technical_result",
+            project_id="project_1",
+            study_id="study_1",
+            created_by_job_id="job_1",
+            technical_summary_artifact_id="technical_summary",
+        )
+    )
+
+    with pytest.raises(PilotAccessError, match="cannot manage"):
+        service.mark_result_record(
+            actor_user_id="analyst",
+            project_id="project_1",
+            study_id="study_1",
+            result_id=record.result_id,
+            is_pinned=True,
+            label="report candidate",
+        )
+
+    marked = service.mark_result_record(
+        actor_user_id="admin",
+        project_id="project_1",
+        study_id="study_1",
+        result_id=record.result_id,
+        is_pinned=True,
+        label="report candidate",
+    )
+
+    assert marked.is_pinned
+    assert marked.label == "report candidate"
+    audit = service.result_store.read_audit_log("project_1")[-1]
+    assert audit.action == AuditAction.UPDATE_RESULT_RECORD
+    assert audit.target_type == "result_record"
+    assert audit.target_id == record.result_id
+    assert audit.metadata["is_pinned"] is True
+    assert audit.metadata["label"] == "report candidate"

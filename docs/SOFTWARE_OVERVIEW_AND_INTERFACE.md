@@ -992,13 +992,14 @@ python -m pytest
 - `load_artifact()` / `read_artifact_payload()`：读取产物索引和 payload，读取时校验 SHA256；
 - `purge_expired_artifacts()`：删除已过期 artifact 的 payload，并保留 `artifact.json` 元数据；
 - `save_result_record()` / `load_result_record()`：保存和读取 `StudyResultRecord`；
-- `list_project_result_records()` / `list_study_result_records()`：按项目或研究列出结果索引，默认创建时间倒序；
+- `list_project_result_records()` / `list_study_result_records()`：按项目或研究列出结果索引，默认置顶优先、创建时间倒序；
+- `mark_result_record()`：标记/取消标记结果索引，便于把有效结论置顶；
 - `soft_delete_result_record()`：软删除结果索引，默认列表隐藏该记录，但不删除 artifact payload；
 - `append_audit_log()` / `read_audit_log()`：写入和读取项目级或全局审计事件。
 
 `JobArtifact` 已包含 `retention_policy`、`expires_at` 和 `purged_at`。过期清理只删除 payload 文件，保留 `artifact.json`、`storage_uri`、`sha256`、`size_bytes`、过期时间和清理时间，便于继续展示历史索引和审计线索；`read_artifact_payload()` 遇到已清理产物会返回明确错误。
 
-`LocalResultStore` 目前已接入技术仿真 summary/config、经济性 summary、推荐席位输入、已保留年度现金流、推荐 portfolio、HTML 图表包和 Markdown 报告的第一阶段写入和最小结果索引读取，并支持 artifact payload 留存清理和结果索引软删除第一版；本地 JSON 元数据写入已使用临时文件原子替换，降低半写损坏风险，但仍不是正式数据库或对象存储。后续接入时，PNG/Excel/批量导出包、完整报告和完整历史结果恢复应逐步写入该 store 或其数据库/对象存储替代实现。
+`LocalResultStore` 目前已接入技术仿真 summary/config、经济性 summary、推荐席位输入、已保留年度现金流、推荐 portfolio、HTML 图表包和 Markdown 报告的第一阶段写入和最小结果索引读取，并支持 artifact payload 留存清理、结果索引标记/置顶和结果索引软删除第一版；本地 JSON 元数据写入已使用临时文件原子替换，降低半写损坏风险，但仍不是正式数据库或对象存储。后续接入时，PNG/Excel/批量导出包、完整报告和完整历史结果恢复应逐步写入该 store 或其数据库/对象存储替代实现。
 
 `src/green_direct/services/upload_policy.py` 已提供第一版上传安全门禁：
 
@@ -1080,6 +1081,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `grant_project_role()` / `disable_project_membership()` / `archive_project()`：项目管理员权限下的成员和项目管理动作；
 - `submit_job()` / `list_project_jobs()` / `load_job()` / `cancel_job()`：带项目角色校验的任务操作；
 - `list_project_result_records()` / `list_study_result_records()`：带项目查看权限校验的结果索引列表；
+- `mark_result_record()`：仅项目 admin 可标记/置顶结果索引，并写入 `UPDATE_RESULT_RECORD` 审计；
 - `delete_result_record()`：仅项目 admin 可软删除/隐藏结果索引，并写入 `DELETE_RESULT_RECORD` 审计；
 - `load_artifact()`：带项目查看权限校验的产物索引读取；
 - `read_artifact_payload()`：带项目导出权限校验的产物 payload 读取，成功和拒绝都会写入 `DOWNLOAD_ARTIFACT` 审计；
@@ -1219,7 +1221,7 @@ Explicit export artifact
 边界：
 - 这仍是 Streamlit 进程内同步写入，不是真正后台 worker；
 - 当前不持久化全量逐小时明细、PNG/Excel/批量导出包或完整报告；当前会话内补算出的单方案 `hourly_detail` 已可在有项目结果索引时写入 `ResultStore`，导出页已可显式保存所选方案 HTML 图表包和简版 Markdown 报告；技术 summary 恢复也会带回 input artifact 索引，并可在三条 input artifact 未过期且快照含 `curve_columns` 时跨会话重新补算缺失明细；经济性结果可恢复 summary、已保存的年度现金流和 `recommendation_inputs.json`，但 summary-only 经济运行不会凭空恢复未保留的现金流；推荐 portfolio 可 portfolio-only 恢复，但不包含推荐视角选择或重新排序工作台状态；
-- 当前结果面板支持技术 summary-only 恢复、经济 summary-only 恢复、推荐 portfolio-only 恢复、已有 hourly artifact 加载、项目 admin 软删除/隐藏结果索引和活动任务取消入口，但不恢复完整历史 `StudyResult`，不标记结果，也不做跨项目搜索；取消入口只更新任务状态元数据，不代表已有后台 worker 级中断能力；
+- 当前结果面板支持技术 summary-only 恢复、经济 summary-only 恢复、推荐 portfolio-only 恢复、已有 hourly artifact 加载、项目 admin 标记/置顶结果索引、项目 admin 软删除/隐藏结果索引和活动任务取消入口，但不恢复完整历史 `StudyResult`，不做跨项目搜索；取消入口只更新任务状态元数据，不代表已有后台 worker 级中断能力；
 - `technical_input_fingerprint()` 目前基于 `config_snapshot` 生成稳定 sha256，用于追踪输入配置；原始上传曲线本身由 input curve artifact 的 `sha256` 和 `size_bytes` 记录；
 - `economic_input_fingerprint()` 基于经济参数、价格模式和 summary 形状生成；`recommendation_result_fingerprint()` 基于推荐结果表生成，用于 UI 内去重；
 - 后续后台任务、数据库适配和结果页读取应继续复用 `PilotAccessService`，不要直接绕过权限与审计门面调用底层 store。

@@ -4273,3 +4273,32 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_pilot_backend_models.py tests/test_result_store.py tests/test_pilot_access.py tests/test_ui_import.py::test_pilot_project_activity_frames_summarize_jobs_and_results tests/test_ui_import.py::test_pilot_history_artifact_refs_and_download_use_access_service -q` 通过，37 项通过；
 - `python -m compileall -q src scripts tests` 通过；
 - `python -m pytest -q` 通过，307 项通过。
+
+### 2026-06-16 历史结果索引标记/置顶
+
+本轮继续补项目历史结果管理。软删除解决了“误跑结果不再默认展示”的问题，但内部试用时更常见的是一个项目会反复跑多组方案，真正有效的结论需要被标记出来。否则欢迎页最近结果列表只按时间倒序，容易让试跑结果覆盖更有价值的报告候选版本。
+
+本轮判断：
+- 标记结果仍应是 `StudyResultRecord` 元数据，不应改动 artifact payload；
+- 标记权限先收紧到项目 `admin`，避免普通 analyst/viewer 改动项目公共结果判断；
+- 默认列表应置顶优先，再按创建时间倒序；
+- 该能力不是正式报告版本管理、审批流、发布状态或完整历史结果页。
+
+本轮实现：
+- `StudyResultRecord` 新增 `pinned_at`、`pinned_by_user_id` 和 `label`；
+- `LocalResultStore.mark_result_record()` 支持标记/取消标记，取消标记会清空备注；
+- `list_project_result_records()` 和 `list_study_result_records()` 默认按置顶优先排序；
+- `AuditAction` 新增 `UPDATE_RESULT_RECORD`；
+- `PilotAccessService.mark_result_record()` 仅允许项目 admin 操作，并写项目级审计；
+- Streamlit 欢迎页历史结果区新增“标记为重点结果”和可选备注输入，最近结果表显示“标记/备注”列。
+
+边界说明：
+- 标记不会锁定、复制或延长 artifact payload 留存周期；
+- 已软删除结果不能再标记；
+- 后续完整历史结果页仍需补正式报告版本、跨项目搜索、恢复/删除/标记集中管理和后台 Job 化。
+
+验证：
+- `python -m pytest tests/test_pilot_backend_models.py tests/test_result_store.py tests/test_pilot_access.py tests/test_ui_import.py::test_pilot_project_activity_frames_summarize_jobs_and_results tests/test_ui_import.py::test_pilot_result_history_frame_surfaces_pinned_records -q` 通过，40 项通过；
+- `python -m compileall -q src/green_direct/models/pilot_backend.py src/green_direct/services/result_store.py src/green_direct/services/pilot_access.py src/green_direct/ui/app.py tests/test_pilot_backend_models.py tests/test_result_store.py tests/test_pilot_access.py tests/test_ui_import.py` 通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `python -m pytest -q` 通过，311 项通过。

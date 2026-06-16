@@ -2994,18 +2994,24 @@ def _pilot_restore_recommendation_to_session(
     return restored
 
 
-def _pilot_result_history_frame(records: list[StudyResultRecord], *, limit: int = 8) -> pd.DataFrame:
-    sorted_records = sorted(
+def _sort_pilot_result_records(records: list[StudyResultRecord]) -> list[StudyResultRecord]:
+    return sorted(
         records,
-        key=lambda record: (record.created_at, record.study_id, record.result_id),
+        key=lambda record: (record.is_pinned, record.created_at, record.study_id, record.result_id),
         reverse=True,
     )
+
+
+def _pilot_result_history_frame(records: list[StudyResultRecord], *, limit: int = 8) -> pd.DataFrame:
+    sorted_records = _sort_pilot_result_records(records)
     rows = []
     for record in sorted_records[:limit]:
         rows.append(
             {
                 "result_id": record.result_id,
                 "study_id": record.study_id,
+                "标记": "重点" if record.is_pinned else "",
+                "备注": record.label or "",
                 "类型": _pilot_result_record_kind(record),
                 "产物数": _pilot_result_artifact_count(record),
                 "来源 Job": record.created_by_job_id,
@@ -3023,11 +3029,7 @@ def _render_pilot_result_artifact_downloads(
     records: list[StudyResultRecord],
     limit: int = 5,
 ) -> None:
-    sorted_records = sorted(
-        records,
-        key=lambda record: (record.created_at, record.study_id, record.result_id),
-        reverse=True,
-    )
+    sorted_records = _sort_pilot_result_records(records)
     records_with_artifacts = [record for record in sorted_records if _pilot_result_artifact_refs(record)]
     if not records_with_artifacts:
         return
@@ -3100,6 +3102,46 @@ def _render_pilot_result_artifact_downloads(
                 st.caption("恢复仅写入推荐组合 portfolio；推荐席位输入不会随之恢复。")
             if can_manage_project:
                 st.divider()
+                marker_pinned_key = (
+                    f"pilot_history_mark_pinned_{record.project_id}:{record.study_id}:{record.result_id}"
+                )
+                marker_label_key = (
+                    f"pilot_history_mark_label_{record.project_id}:{record.study_id}:{record.result_id}"
+                )
+                marker_save_key = (
+                    f"pilot_history_mark_save_{record.project_id}:{record.study_id}:{record.result_id}"
+                )
+                st.caption("项目管理员可把有效结论标记为重点结果，便于后续复核。")
+                marker_pinned = st.checkbox(
+                    "标记为重点结果",
+                    value=record.is_pinned,
+                    key=marker_pinned_key,
+                )
+                marker_label = st.text_input(
+                    "重点说明（可选）",
+                    value=record.label or "",
+                    key=marker_label_key,
+                    disabled=not marker_pinned,
+                )
+                if st.button("保存结果标记", key=marker_save_key):
+                    try:
+                        marked = access.mark_result_record(
+                            actor_user_id=actor_user_id,
+                            project_id=record.project_id,
+                            study_id=record.study_id,
+                            result_id=record.result_id,
+                            is_pinned=bool(marker_pinned),
+                            label=str(marker_label).strip() if marker_pinned else None,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - activity panel should surface storage/permission races
+                        if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
+                            st.warning(f"历史结果标记暂不能保存：{exc}")
+                            return
+                        raise
+                    st.session_state[PILOT_PROJECT_NOTICE_KEY] = (
+                        f"已更新历史结果标记：{marked.result_id}"
+                    )
+                    st.rerun()
                 confirm_delete_key = (
                     f"pilot_history_delete_confirm_{record.project_id}:{record.study_id}:{record.result_id}"
                 )

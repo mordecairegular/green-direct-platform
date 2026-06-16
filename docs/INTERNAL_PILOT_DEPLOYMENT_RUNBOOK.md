@@ -154,6 +154,6 @@ python -m green_direct.cli pilot-admin purge-expired-artifacts `
 - 正式后台 worker、排队、取消、重试和限流；
 - SQLite/Postgres 或对象存储适配；
 - 原始上传文件保存、留存和清理；
-- 完整历史结果恢复、删除、标记和跨项目搜索；
+- 完整历史结果恢复、跨项目搜索和报告版本管理；结果索引标记/置顶和软删除已有第一版；
 - 目标服务器上的 HTTPS/反向代理实机演练、系统服务托管、监控告警和集中日志；
 - CI/CD、版本化发布包和自动化端到端冒烟。

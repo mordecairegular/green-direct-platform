@@ -199,6 +199,31 @@ def test_result_record_soft_delete_marker_is_consistent():
         )
 
 
+def test_result_record_pinned_marker_is_consistent():
+    pinned = StudyResultRecord(
+        result_id="result_pinned",
+        project_id="project_1",
+        study_id="study_1",
+        created_by_job_id="job_1",
+        pinned_at=_dt(8),
+        pinned_by_user_id="admin",
+        label="  report candidate  ",
+    )
+
+    assert pinned.is_pinned
+    assert pinned.pinned_by_user_id == "admin"
+    assert pinned.label == "report candidate"
+
+    with pytest.raises(ValueError, match="pinned_at and pinned_by_user_id"):
+        StudyResultRecord(
+            result_id="result_bad_pin",
+            project_id="project_1",
+            study_id="study_1",
+            created_by_job_id="job_1",
+            pinned_at=_dt(8),
+        )
+
+
 def test_artifact_rejects_negative_size_and_empty_storage_uri():
     with pytest.raises(ValueError, match="size_bytes must be non-negative"):
         JobArtifact(

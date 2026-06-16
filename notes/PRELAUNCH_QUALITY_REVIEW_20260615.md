@@ -14,14 +14,14 @@
 - UI 大改造、方案图谱、经济性参数工作台与导出体验；
 - 大批量汇总优先 summary-only 路径、当前会话与基于 input artifact 的跨会话单方案逐小时明细按需补算、可选并行技术仿真和并行方案块提交；
 - 经济性批量评价性能优化；
-- 内部试用后台模型、结果存储、账号注册表、认证、可选 Streamlit 登录门禁、项目工作区门禁、最小平台账号/项目成员管理页、管理员服务、任务状态存储、权限审计门面，技术/经济 summary/已保留年度现金流/推荐席位输入/推荐 portfolio 持久化第一阶段，HTML 图表包 / Markdown 报告显式保存第一阶段，以及欢迎页任务/结果索引、结果索引软删除、已落盘 artifact 下载、技术 summary-only 恢复、经济 summary 和已保留年度现金流恢复、推荐席位输入恢复和推荐 portfolio-only 恢复面板；
+- 内部试用后台模型、结果存储、账号注册表、认证、可选 Streamlit 登录门禁、项目工作区门禁、最小平台账号/项目成员管理页、管理员服务、任务状态存储、权限审计门面，技术/经济 summary/已保留年度现金流/推荐席位输入/推荐 portfolio 持久化第一阶段，HTML 图表包 / Markdown 报告显式保存第一阶段，以及欢迎页任务/结果索引、结果索引标记/置顶、结果索引软删除、已落盘 artifact 下载、技术 summary-only 恢复、经济 summary 和已保留年度现金流恢复、推荐席位输入恢复和推荐 portfolio-only 恢复面板；
 - `pilot-admin` 命令行账号管理入口；
 - Artifact payload 留存清理第一版；
 - 内部试用 `.env.example`、部署 runbook 和 pilot store 备份/恢复脚本第一版；
 - 面向 Claude Code 的内部试用审查 / 后台架构 prompt 和跨机器 handoff 文档；
 - 已吸收用户补充的受控公网内测讨论稿方向：不接真实电力控制系统、不开放社会化注册、保留项目/Run/Artifact/AuditLog、后端控制导出权限、补文件安全和部署恢复边界。
 
-近期 checkpoint 已覆盖 CLI、认证、平台管理、项目工作区、大批量汇总优先模式，技术仿真 summary/config/input curves、经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio、HTML 图表包和 Markdown 报告写入项目级 `ResultStore`，项目内最近任务/结果索引、结果索引软删除、已落盘 artifact 下载、技术 summary-only 恢复、经济 summary 和已保留年度现金流恢复、推荐席位输入恢复、推荐 portfolio-only 恢复、已有 hourly artifact 加载、input artifact 恢复补算，到期 artifact payload 清理、并行技术仿真方案块提交，以及内部试用部署/备份/恢复第一版材料；具体提交以 `git log --oneline` 为准。
+近期 checkpoint 已覆盖 CLI、认证、平台管理、项目工作区、大批量汇总优先模式，技术仿真 summary/config/input curves、经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio、HTML 图表包和 Markdown 报告写入项目级 `ResultStore`，项目内最近任务/结果索引、结果索引标记/置顶、结果索引软删除、已落盘 artifact 下载、技术 summary-only 恢复、经济 summary 和已保留年度现金流恢复、推荐席位输入恢复、推荐 portfolio-only 恢复、已有 hourly artifact 加载、input artifact 恢复补算，到期 artifact payload 清理、并行技术仿真方案块提交，以及内部试用部署/备份/恢复第一版材料；具体提交以 `git log --oneline` 为准。
 
 ## 验证结果
 
@@ -35,7 +35,7 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 
 结果：
 
-- 全量测试通过：307 项通过；
+- 全量测试通过：311 项通过；
 - `src scripts tests` 编译检查通过；
 - 源码树下 CLI 启动口径验证通过；
 - `git diff --check` 没有实际空白错误，仅有 Windows 换行转换提示；
@@ -92,7 +92,7 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
    最小 Streamlit 平台管理页已经可维护账号和项目成员，但首个管理员创建、密码应急重置、过期 payload 清理和服务器端排障仍需要 CLI 或后续独立后台。
 
 5. 欢迎页“项目任务与结果”仍不是完整历史结果页。
-   它可以帮助内部试用用户确认当前项目已有任务和结果记录，下载已落盘的 summary / portfolio artifact，并 summary-only 恢复技术汇总；同一 `study_id` 的技术汇总已恢复后，也可恢复电源侧/同一主体经济汇总、已保留年度现金流和推荐席位输入，并 portfolio-only 恢复推荐组合；图表/报告入口可加载已有 hourly artifact 或从 input artifact 恢复输入后补算单方案明细；项目 admin 可软删除/隐藏结果索引并留下审计。但它仍不能恢复完整历史 `StudyResult`、推荐视角选择/重新排序工作台状态，不能标记报告版本或跨项目搜索。
+   它可以帮助内部试用用户确认当前项目已有任务和结果记录，下载已落盘的 summary / portfolio artifact，并 summary-only 恢复技术汇总；同一 `study_id` 的技术汇总已恢复后，也可恢复电源侧/同一主体经济汇总、已保留年度现金流和推荐席位输入，并 portfolio-only 恢复推荐组合；图表/报告入口可加载已有 hourly artifact 或从 input artifact 恢复输入后补算单方案明细；项目 admin 可标记/置顶结果索引，也可软删除/隐藏结果索引并留下审计。但它仍不能恢复完整历史 `StudyResult`、推荐视角选择/重新排序工作台状态，不能做正式报告版本管理或跨项目搜索。
 
 ### P2：后续质量改进
 
@@ -110,4 +110,4 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 3. 重点审查 `src/green_direct/ui/app.py` 是否存在跨用户状态、旧结果复用、价格曲线误用、导出缓存串会话；
 4. 重点审查 `src/green_direct/services/` 下本地后台服务的权限边界、路径校验、审计记录和失败场景；
 5. 重点审查受控公网内测 Route A 缺口：不可导出用户是否还能通过未来 API、项目级报告 artifact、缓存或反向代理路径绕过下载，普通用户是否能猜测他人 project/run/artifact，上传文件是否还能绕过大小/类型/schema 门禁，日志是否可能泄露原始曲线；
-6. 设计并实现下一阶段最小闭环：完整任务状态页 + 历史结果恢复/下载/删除 + 按需补算后台 Job 化 + 剩余图表/报告/批量导出项目级 artifacts + 部署 runbook 实机演练。
+6. 设计并实现下一阶段最小闭环：完整任务状态页 + 完整历史结果恢复/下载/报告版本管理 + 按需补算后台 Job 化 + 剩余图表/报告/批量导出项目级 artifacts + 部署 runbook 实机演练。

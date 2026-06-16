@@ -111,6 +111,7 @@ class AuditAction(str, Enum):
     DOWNLOAD_ARTIFACT = "download_artifact"
     DELETE_ARTIFACT = "delete_artifact"
     DELETE_RESULT_RECORD = "delete_result_record"
+    UPDATE_RESULT_RECORD = "update_result_record"
 
 
 @dataclass(frozen=True)
@@ -375,6 +376,9 @@ class StudyResultRecord:
     created_at: datetime = field(default_factory=_utcnow)
     deleted_at: datetime | None = None
     deleted_by_user_id: str | None = None
+    pinned_at: datetime | None = None
+    pinned_by_user_id: str | None = None
+    label: str | None = None
 
     def __post_init__(self) -> None:
         _require_text(self.result_id, "result_id")
@@ -383,10 +387,19 @@ class StudyResultRecord:
         _require_text(self.created_by_job_id, "created_by_job_id")
         _ensure_aware(self.created_at, "created_at")
         _ensure_aware(self.deleted_at, "deleted_at")
+        _ensure_aware(self.pinned_at, "pinned_at")
         if (self.deleted_at is None) != (self.deleted_by_user_id is None):
             raise ValueError("deleted_at and deleted_by_user_id must be set together.")
         if self.deleted_by_user_id is not None:
             _require_text(self.deleted_by_user_id, "deleted_by_user_id")
+        if (self.pinned_at is None) != (self.pinned_by_user_id is None):
+            raise ValueError("pinned_at and pinned_by_user_id must be set together.")
+        if self.pinned_by_user_id is not None:
+            _require_text(self.pinned_by_user_id, "pinned_by_user_id")
+        if self.label is not None:
+            label = str(self.label).strip()
+            _require_text(label, "label")
+            object.__setattr__(self, "label", label)
         object.__setattr__(self, "annual_cashflow_artifact_ids", dict(self.annual_cashflow_artifact_ids))
         object.__setattr__(self, "hourly_detail_artifact_ids", dict(self.hourly_detail_artifact_ids))
         object.__setattr__(self, "report_artifact_ids", dict(self.report_artifact_ids))
@@ -394,6 +407,10 @@ class StudyResultRecord:
     @property
     def is_deleted(self) -> bool:
         return self.deleted_at is not None
+
+    @property
+    def is_pinned(self) -> bool:
+        return self.pinned_at is not None
 
 
 @dataclass(frozen=True)

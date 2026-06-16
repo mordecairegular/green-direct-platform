@@ -474,6 +474,41 @@ def test_pilot_project_activity_frames_summarize_jobs_and_results():
     assert result_frame.iloc[0]["产物数"] == 2
 
 
+def test_pilot_result_history_frame_surfaces_pinned_records():
+    from datetime import datetime, timezone
+
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import StudyResultRecord
+
+    earlier = datetime(2026, 6, 15, 1, tzinfo=timezone.utc)
+    later = datetime(2026, 6, 15, 2, tzinfo=timezone.utc)
+    pinned_older = StudyResultRecord(
+        result_id="technical_result",
+        project_id="project_1",
+        study_id="study_1",
+        created_by_job_id="job_old",
+        technical_summary_artifact_id="technical_summary",
+        created_at=earlier,
+        pinned_at=later,
+        pinned_by_user_id="admin",
+        label="report candidate",
+    )
+    unpinned_newer = StudyResultRecord(
+        result_id="recommendation_result_job_new",
+        project_id="project_1",
+        study_id="study_1",
+        created_by_job_id="job_new",
+        recommendation_artifact_id="recommendation_portfolio_job_new",
+        created_at=later,
+    )
+
+    result_frame = app._pilot_result_history_frame([unpinned_newer, pinned_older])
+
+    assert result_frame.iloc[0]["result_id"] == "technical_result"
+    assert result_frame.iloc[0]["标记"] == "重点"
+    assert result_frame.iloc[0]["备注"] == "report candidate"
+
+
 def test_pilot_active_job_helpers_filter_and_gate_cancel():
     from datetime import datetime, timezone
 

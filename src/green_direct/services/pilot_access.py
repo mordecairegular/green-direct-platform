@@ -325,6 +325,43 @@ class PilotAccessService:
         )
         return deleted
 
+    def mark_result_record(
+        self,
+        *,
+        actor_user_id: str,
+        project_id: str,
+        study_id: str,
+        result_id: str,
+        is_pinned: bool,
+        label: str | None = None,
+    ) -> StudyResultRecord:
+        """Pin or unpin a result index after checking project admin permission."""
+
+        self.require_project_admin(actor_user_id=actor_user_id, project_id=project_id)
+        marked = self.result_store.mark_result_record(
+            project_id,
+            study_id,
+            result_id,
+            is_pinned=is_pinned,
+            marked_by_user_id=actor_user_id,
+            label=label,
+        )
+        self._audit(
+            actor_user_id=actor_user_id,
+            action=AuditAction.UPDATE_RESULT_RECORD,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=marked.created_by_job_id,
+            target_type="result_record",
+            target_id=result_id,
+            metadata={
+                "is_pinned": marked.is_pinned,
+                "label": marked.label,
+                "pinned_at": marked.pinned_at.isoformat() if marked.pinned_at else None,
+            },
+        )
+        return marked
+
     def cancel_job(self, *, actor_user_id: str, project_id: str, study_id: str, job_id: str) -> Job:
         """Cancel a queued/running job; analysts may cancel only their own jobs."""
 

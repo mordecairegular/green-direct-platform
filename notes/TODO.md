@@ -56,7 +56,7 @@
 - 经济性批量评价已做低风险底层提速：去除 `iterrows()`，缓存年度折现因子，NPV 使用等价 Horner 形式，同一主体批量评价减少重复参数校验；常规单符号变化现金流的 IRR 直接走二分快路径，多符号变化仍走原候选率扫描。
 - 经济性 summary-only 已避免为未保留方案构造完整年度现金流 `DataFrame`；未保留方案仍用同一现金流数组计算 FNPV、FIRR 和回收期，只对报告/推荐/用户指定方案保留完整年度现金流表。
 - 内部试用后台已新增持久化无关模型骨架：`User`、`Project`、`ProjectMembership`、`ProjectStudy`、`Job`、`JobArtifact`、`StudyResultRecord`、`AuditLog`。
-- 服务层已新增 `LocalResultStore`，支持按项目/研究保存产物、结果索引和审计日志；当前已接入技术/经济/推荐 summary 写入、最小结果索引读取和结果索引软删除，暂未接入数据库或完整历史结果恢复。
+- 服务层已新增 `LocalResultStore`，支持按项目/研究保存产物、结果索引和审计日志；当前已接入技术/经济/推荐 summary 写入、最小结果索引读取、结果索引软删除和结果标记/置顶，暂未接入数据库或完整历史结果恢复。
 - 服务层已新增 `LocalPilotRegistry`，支持本地 JSON 用户、项目和项目成员角色管理，不包含密码或登录会话。
 - 服务层已新增 `LocalPilotAuth`，支持本地密码哈希、登录会话、会话校验/撤销和登录审计；Streamlit 主 UI 已接入可选登录门禁和最小项目工作区门禁，但暂未接入正式身份系统。
 - 服务层已新增 `LocalPilotAdminService`，区分平台管理员和项目管理员，支持首个管理员 bootstrap、创建用户、重置密码、授予/撤销平台管理员、停用用户并撤销会话，也支持平台管理员查看项目、授予/禁用项目成员；Streamlit 已接入最小平台管理页。
@@ -74,7 +74,7 @@
 - 服务层已新增 `PilotAccessService`，把项目角色权限、可见项目列表、任务提交/取消、产物读取和审计日志统一成可测试服务门面，暂未包含 worker 调度、数据库事务或并发锁。
 - 本地 JSON store 共享写入 helper 已改为“写临时文件后原子替换”，降低账号、会话、任务、结果索引等 JSON 元数据半写损坏风险；这仍不等于数据库事务或跨进程并发锁。
 - 技术仿真完成后已能在启用内部试用登录和当前项目时登记项目级同步 `Job`，并把 `technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord` 写入 `LocalResultStore`；经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio、按需补算的单方案逐小时明细、HTML 图表包和 Markdown 报告也已接入第一阶段项目级写入；PNG/Excel/批量包、完整报告和导出后台任务化仍待迁移。
-- Streamlit 欢迎页已新增“项目任务与结果”面板，可查看当前项目任务数、已保存结果数、最近任务和最近结果索引；已落盘的技术 summary、经济 summary、年度现金流、推荐席位输入、推荐 portfolio/detail 等 artifact 可加载下载；技术 summary 已支持 summary-only 恢复到当前会话，并保留已有 hourly artifact 和 input artifact 索引用于后续图表/报告入口加载或补算；同一 `study_id` 的技术 summary 已恢复后，经济结果可恢复 summary、已保存年度现金流和推荐席位输入，推荐 portfolio 可 portfolio-only 恢复到当前会话；项目 admin 可软删除/隐藏历史结果索引并写审计，但不物理删除 artifact。当前仍不恢复推荐视角选择或重新排序工作台状态，完整历史结果恢复、结果标记和后台任务状态页仍待实现。
+- Streamlit 欢迎页已新增“项目任务与结果”面板，可查看当前项目任务数、已保存结果数、最近任务和最近结果索引；已落盘的技术 summary、经济 summary、年度现金流、推荐席位输入、推荐 portfolio/detail 等 artifact 可加载下载；技术 summary 已支持 summary-only 恢复到当前会话，并保留已有 hourly artifact 和 input artifact 索引用于后续图表/报告入口加载或补算；同一 `study_id` 的技术 summary 已恢复后，经济结果可恢复 summary、已保存年度现金流和推荐席位输入，推荐 portfolio 可 portfolio-only 恢复到当前会话；项目 admin 可标记/置顶历史结果索引，也可软删除/隐藏历史结果索引并写审计，但不物理删除 artifact。当前仍不恢复推荐视角选择或重新排序工作台状态，完整历史结果恢复和后台任务状态页仍待实现。
 - Streamlit 欢迎页“项目任务与结果”面板已新增第一版“排队/运行中任务”区，可筛出当前项目活动任务，并按项目角色允许 analyst 取消自己任务、admin 取消项目任务；取消动作仍通过 `PilotAccessService.cancel_job()` 做后端权限校验和审计。该入口只是任务状态控制面板第一步，还不是真正 worker 级资源中断、重试或排队系统。
 
 后续方向：
@@ -82,7 +82,7 @@
 - 大批量模式继续补 worker 级后台进度/取消闭环、性能基准记录和完整任务状态页；当前前台预计耗时与大任务确认已是第一版粗略护栏，后续可用服务器实测数据校准。
 - 把当前同步单方案逐小时明细补算继续升级为项目级后台任务；历史 summary-only 恢复后的 input artifact 补算已可用第一版，但还没有 worker 级进度、取消、重试和排队。
 - 用户选择代表方案、图表方案或导出方案后，已有项目级 hourly artifact 已可优先加载；下一步是没有 artifact 时提交后台按需补算任务。
-- 下一阶段把完整历史结果恢复、结果标记、推荐视角选择与重新排序工作台状态、PNG/Excel/批量包、完整报告导出也提交为项目级后台 `Job`，并把对应 hourly/chart/report/export artifacts 写入 `ResultStore`；summary-only 经济运行如需后补年度现金流，应作为按需 Job 生成。
+- 下一阶段把完整历史结果恢复、推荐视角选择与重新排序工作台状态、PNG/Excel/批量包、完整报告导出也提交为项目级后台 `Job`，并把对应 hourly/chart/report/export artifacts 写入 `ResultStore`；summary-only 经济运行如需后补年度现金流，应作为按需 Job 生成。
 - 技术仿真已完成当前进程内 `ProcessPoolExecutor` 按方案块并行；下一步评估后台任务队列时继续沿用块级调度，保持 `scenario_id`、warning、error 和顺序稳定。
 - 经济性测算继续做 DataFrame/NumPy 批量化和后台 Job 化；完整年度现金流已可先只对报告方案、推荐组合或用户指定方案生成。
 - 本地 JSON 写入已做原子替换；下一步仍需补数据库/跨进程锁/并发冲突策略。

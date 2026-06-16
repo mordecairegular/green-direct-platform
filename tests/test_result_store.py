@@ -261,6 +261,76 @@ def test_result_store_soft_deletes_result_records_without_removing_artifacts(tmp
     assert store.read_artifact_payload(store.load_artifact("project_1", "study_1", "technical_summary")) == b"summary"
 
 
+def test_result_store_marks_result_records_and_sorts_pinned_first(tmp_path):
+    store = LocalResultStore(tmp_path)
+    older = StudyResultRecord(
+        result_id="result_older",
+        project_id="project_1",
+        study_id="study_1",
+        created_by_job_id="job_1",
+        created_at=_dt(1),
+    )
+    newer = StudyResultRecord(
+        result_id="result_newer",
+        project_id="project_1",
+        study_id="study_1",
+        created_by_job_id="job_2",
+        created_at=_dt(2),
+    )
+    store.save_result_record(older)
+    store.save_result_record(newer)
+
+    marked = store.mark_result_record(
+        "project_1",
+        "study_1",
+        "result_older",
+        is_pinned=True,
+        marked_by_user_id="admin",
+        label="  report candidate  ",
+        marked_at=_dt(3),
+    )
+
+    assert marked.is_pinned
+    assert marked.label == "report candidate"
+    assert [record.result_id for record in store.list_project_result_records("project_1")] == [
+        "result_older",
+        "result_newer",
+    ]
+
+    unmarked = store.mark_result_record(
+        "project_1",
+        "study_1",
+        "result_older",
+        is_pinned=False,
+        marked_by_user_id="admin",
+        label="ignored when unpinned",
+        marked_at=_dt(4),
+    )
+
+    assert not unmarked.is_pinned
+    assert unmarked.label is None
+    assert [record.result_id for record in store.list_project_result_records("project_1")] == [
+        "result_newer",
+        "result_older",
+    ]
+
+    store.soft_delete_result_record(
+        "project_1",
+        "study_1",
+        "result_older",
+        deleted_by_user_id="admin",
+        deleted_at=_dt(5),
+    )
+    with pytest.raises(ValueError, match="Deleted result records cannot be marked"):
+        store.mark_result_record(
+            "project_1",
+            "study_1",
+            "result_older",
+            is_pinned=True,
+            marked_by_user_id="admin",
+        )
+
+
 def test_result_store_appends_project_and_global_audit_logs(tmp_path):
     store = LocalResultStore(tmp_path)
     project_event = AuditLog(

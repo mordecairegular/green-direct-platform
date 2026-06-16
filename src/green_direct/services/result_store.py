@@ -213,6 +213,9 @@ class LocalResultStore:
             created_at=datetime.fromisoformat(data["created_at"]),
             deleted_at=_parse_optional_datetime(data.get("deleted_at")),
             deleted_by_user_id=data.get("deleted_by_user_id"),
+            pinned_at=_parse_optional_datetime(data.get("pinned_at")),
+            pinned_by_user_id=data.get("pinned_by_user_id"),
+            label=data.get("label"),
         )
 
     def soft_delete_result_record(
@@ -239,6 +242,53 @@ class LocalResultStore:
         write_json(self._result_path(project_id, study_id, result_id), asdict(deleted))
         return deleted
 
+    def mark_result_record(
+        self,
+        project_id: str,
+        study_id: str,
+        result_id: str,
+        *,
+        is_pinned: bool,
+        marked_by_user_id: str,
+        label: str | None = None,
+        marked_at: datetime | None = None,
+    ) -> StudyResultRecord:
+        """Pin or unpin a result index without changing artifact payloads."""
+
+        if not str(marked_by_user_id).strip():
+            raise ValueError("marked_by_user_id must not be empty.")
+        record = self.load_result_record(project_id, study_id, result_id)
+        if record.is_deleted:
+            raise ValueError("Deleted result records cannot be marked.")
+        clean_label = str(label).strip() if label is not None else ""
+        next_label = (clean_label or None) if is_pinned else None
+        updated = replace(
+            record,
+            pinned_at=(marked_at or _utcnow()) if is_pinned else None,
+            pinned_by_user_id=str(marked_by_user_id) if is_pinned else None,
+            label=next_label,
+        )
+        write_json(self._result_path(project_id, study_id, result_id), asdict(updated))
+        return updated
+
+    def _sort_result_records(
+        self,
+        records: list[StudyResultRecord],
+        *,
+        include_study_id: bool,
+    ) -> list[StudyResultRecord]:
+        if include_study_id:
+            return sorted(
+                records,
+                key=lambda record: (record.is_pinned, record.created_at, record.study_id, record.result_id),
+                reverse=True,
+            )
+        return sorted(
+            records,
+            key=lambda record: (record.is_pinned, record.created_at, record.result_id),
+            reverse=True,
+        )
+
     def list_study_result_records(
         self,
         project_id: str,
@@ -257,7 +307,7 @@ class LocalResultStore:
         ]
         if not include_deleted:
             records = [record for record in records if not record.is_deleted]
-        return sorted(records, key=lambda record: (record.created_at, record.result_id), reverse=True)
+        return self._sort_result_records(records, include_study_id=False)
 
     def list_project_result_records(
         self,
@@ -276,7 +326,7 @@ class LocalResultStore:
         ]
         if not include_deleted:
             records = [record for record in records if not record.is_deleted]
-        return sorted(records, key=lambda record: (record.created_at, record.study_id, record.result_id), reverse=True)
+        return self._sort_result_records(records, include_study_id=True)
 
     def append_audit_log(self, event: AuditLog) -> AuditLog:
         """Append one audit event as JSONL."""
