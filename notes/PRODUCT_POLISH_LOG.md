@@ -4216,3 +4216,31 @@ exchange_import_shortfall_energy == 0
 - `python -m compileall -q src scripts tests` 通过；
 - `python -m pytest -q` 通过，302 项通过；
 - `git diff --check` 无实际空白错误，仅提示 Windows 换行转换。
+
+### 2026-06-16 本地 JSON store 原子写入
+
+本轮继续补内部 10-20 人试用的后台底座风险。当前账户、会话、任务、结果索引等本地 store 仍是 JSON 文件版，适合受控 pilot 和开发演示，但多人访问时最怕写入过程中进程中断或替换失败导致 JSON 文件半写、损坏或丢失旧记录。
+
+本轮判断：
+- 不在本轮引入 SQLite/Postgres，避免把范围扩大成数据库迁移；
+- 先在共享 `write_json()` helper 上做原子写入，让所有本地 JSON 元数据写入一起受益；
+- 原子写入只能降低半写损坏风险，不等于数据库事务、跨进程并发锁、冲突合并或正式备份策略。
+
+本轮实现：
+- `write_json()` 改为先写入同目录临时文件；
+- 写入后执行 flush 和 `fsync()`；
+- 再用 `Path.replace()` 原子替换目标 JSON；
+- 如果替换失败，旧 JSON 保持不变，并清理残留临时文件；
+- 新增测试覆盖成功写入清理临时文件，以及替换失败时保留旧 JSON。
+
+边界说明：
+- 该能力覆盖 `LocalPilotRegistry`、`LocalPilotAuth`、`LocalJobStore`、`LocalResultStore` 等所有复用 `write_json()` 的本地 JSON 元数据；
+- `append_audit_log()` 仍是 JSONL 追加，不等同于事务日志系统；
+- 正式多人/公网 Route A 仍应继续规划 SQLite/Postgres、对象存储、备份恢复和跨进程锁。
+
+验证：
+- `python -m pytest tests/test_local_store_utils.py tests/test_pilot_registry.py tests/test_pilot_auth.py tests/test_job_store.py tests/test_result_store.py -q` 通过，28 项通过；
+- `python -m compileall -q src/green_direct/services/local_store_utils.py tests/test_local_store_utils.py` 通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `python -m pytest -q` 通过，304 项通过；
+- `git diff --check` 无实际空白错误，仅提示 Windows 换行转换。

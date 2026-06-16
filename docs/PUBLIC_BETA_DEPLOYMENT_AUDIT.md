@@ -30,7 +30,7 @@
 - 技术仿真三条输入曲线已能随技术结果保存为 input artifact，历史 summary-only 结果可在 input artifact 未过期且 `config_snapshot` 带有 `curve_columns` 时恢复 `TechnicalStudyInput` 并补算单方案逐小时明细；HTML 图表包和 Markdown 报告已有显式保存第一版，但 PNG/Excel/批量包、价格曲线、完整报告和未来 API/反向代理下载尚未完整进入项目/Run 级 artifact 留存闭环；
 - input artifact 补算仍是 Streamlit 进程内同步动作，不是后台 Job；旧结果若缺少 `curve_columns` 或 input artifact 已清理，只能查看 summary 或已有 hourly artifact；
 - 计算仍主要在 Streamlit 进程内同步执行；已有活动任务查看/取消入口，但没有后台 worker、队列、worker 级取消和重试闭环；
-- 本地 JSON 文件 store 没有数据库事务、锁和并发写保护。
+- 本地 JSON 文件 store 已通过临时文件原子替换降低半写损坏风险，但仍没有数据库事务、跨进程锁和并发冲突处理。
 
 ## 2. P0 审计矩阵
 
@@ -47,7 +47,7 @@
 | 关键操作审计日志 | 部分满足 | 登录、项目、成员、任务、artifact 写入/网页查看/下载/清理、当前 06 页临时导出下载已审计 | 管理员跨项目查看、原始文件查看、未来 API/反向代理下载仍需补齐 | 扩充 `AuditAction` 覆盖面 |
 | Docker 可部署 | 第一版满足 | `Dockerfile`、`docker-compose.yml`、`README_DEPLOY.md` | 尚未在目标服务器完成构建/启动/恢复演练 | 实机运行 `docker compose build/up` 和数据卷恢复演练 |
 | HTTPS/反向代理/备份/恢复/回滚说明 | 部分满足 | 内部 runbook、PowerShell 备份/恢复脚本、`README_DEPLOY.md` | 缺少系统服务托管、集中日志、监控告警和自动恢复演练 | 在目标服务器补 Caddy/Nginx 配置、日志和监控 |
-| 核心算法回归通过 | 满足当前 checkpoint | 最近 `pytest -q` 为 302 passed | 后续改性能/后台时仍需重复验证 | 每个工程化切片后跑回归 |
+| 核心算法回归通过 | 满足当前 checkpoint | 最近 `pytest -q` 为 304 passed | 后续改性能/后台时仍需重复验证 | 每个工程化切片后跑回归 |
 
 ## 3. 推荐执行顺序
 
@@ -79,7 +79,7 @@
 5. **数据库/并发**
    - 内部 10-20 人可先评估 SQLite；
    - 若公网可访问，优先规划 PostgreSQL；
-   - 本地 JSON store 继续作为开发和小范围演示适配器，不作为长期并发存储。
+   - 本地 JSON store 已有原子写入保护，但继续作为开发和小范围演示适配器，不作为长期并发存储。
 
 ## 4. 给 Claude Code 的审计补充
 

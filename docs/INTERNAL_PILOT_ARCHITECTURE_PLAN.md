@@ -128,7 +128,7 @@ PNG 图表包后台任务也按会话隔离：
 - `purge_expired_artifacts()` 可删除已过期 artifact payload，同时保留元数据和历史索引；
 - 审计事件可按项目或全局写入 JSONL；
 - 路径片段使用白名单校验，防止把用户输入直接拼成越权文件路径；
-- 当前实现是本地文件适配器，不替代后续 SQLite/Postgres、对象存储或正式权限控制。
+- 当前实现是本地文件适配器；JSON 元数据写入已通过临时文件原子替换降低半写损坏风险，但不替代后续 SQLite/Postgres、对象存储或正式权限控制。
 
 已落地的第一步账户/项目注册表：
 
@@ -168,7 +168,7 @@ PNG 图表包后台任务也按会话隔离：
 - 支持提交、读取、按项目/研究列出任务，并可按 `queued`、`running`、`succeeded`、`failed`、`canceled` 状态筛选；
 - 支持 `start_job()`、`update_job_progress()`、`succeed_job()`、`fail_job()` 和 `cancel_job()`，状态合法性沿用 `Job` 模型；
 - 路径片段使用白名单校验，防止 `project_id`、`study_id`、`job_id` 被拼接成越权路径；
-- 当前实现只持久化任务状态，不包含 worker 调度、重试策略、并发锁、鉴权或管理员 UI；后续任务队列或数据库实现应沿用同一 `Job` 契约。
+- 当前实现只持久化任务状态；JSON 写入已使用原子替换，但仍不包含 worker 调度、重试策略、跨进程并发锁、鉴权或管理员 UI；后续任务队列或数据库实现应沿用同一 `Job` 契约。
 - Streamlit 欢迎页已消费该任务状态：可筛选 `queued` / `running` 活动任务并提供最小取消入口。但这只改变任务元数据状态，不代表已有 worker 级中断、重试或资源隔离。
 
 已落地的第一步权限与审计服务：
@@ -184,7 +184,7 @@ PNG 图表包后台任务也按会话隔离：
 - 产物索引读取仍要求项目查看权限；网页内恢复/图表查看 payload 使用 `read_artifact_payload_for_view()`，要求项目查看权限并写入 `VIEW_ARTIFACT` 审计；文件下载/导出 payload 使用 `read_artifact_payload()`，要求项目导出权限，成功和拒绝都会写入 `DOWNLOAD_ARTIFACT` 审计；当前 Streamlit 06 页尚未落盘的临时 CSV/Excel/ZIP/Markdown 下载使用 `record_transient_export_download()` 记录同类审计；
 - 停用用户、停用 membership、非成员、已归档项目的新任务提交会被拒绝；
 - 创建项目、成员变更、提交任务、取消任务、读取产物 payload 会写入 `AuditLog`；
-- 当前服务仍不包含 worker 调度、数据库事务或并发锁；它是当前 Streamlit 项目工作区、后续任务入口和 SQLite/Postgres 适配器应复用的权限/审计语义。
+- 当前服务仍不包含 worker 调度、数据库事务或跨进程并发锁；它是当前 Streamlit 项目工作区、后续任务入口和 SQLite/Postgres 适配器应复用的权限/审计语义。
 
 试用版已有本地文件版密码与会话服务，可先用于开发和受控内网演示；正式内网版仍应评估 SQLite/Postgres 会话表、企业微信、OIDC、LDAP 或公司统一身份。
 
@@ -271,7 +271,7 @@ PNG 图表包后台任务也按会话隔离：
 - 技术仿真历史 summary-only 结果基于受控 input artifact 的后台 Job 化补算动作；
 - 推荐视角选择/重新排序状态、PNG/Excel/批量导出包、完整报告产物写入 `ResultStore`；
 - 完整项目级任务状态页、推荐结果重新排序工作台恢复、删除、标记和跨项目搜索；
-- SQLite/Postgres 或对象存储适配、并发锁、备份和部署 runbook。
+- SQLite/Postgres 或对象存储适配、跨进程并发锁、备份和部署 runbook；本地 JSON 写入已有原子替换，但仍不是数据库事务。
 
 下一阶段建议：
 1. 先做完整任务状态页和结果历史恢复/下载页，让用户可以在项目内找回已完成测算；

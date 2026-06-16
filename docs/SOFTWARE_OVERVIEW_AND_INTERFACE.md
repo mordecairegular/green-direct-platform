@@ -997,7 +997,7 @@ python -m pytest
 
 `JobArtifact` 已包含 `retention_policy`、`expires_at` 和 `purged_at`。过期清理只删除 payload 文件，保留 `artifact.json`、`storage_uri`、`sha256`、`size_bytes`、过期时间和清理时间，便于继续展示历史索引和审计线索；`read_artifact_payload()` 遇到已清理产物会返回明确错误。
 
-`LocalResultStore` 目前已接入技术仿真 summary/config、经济性 summary、推荐席位输入、已保留年度现金流、推荐 portfolio、HTML 图表包和 Markdown 报告的第一阶段写入和最小结果索引读取，并支持 artifact payload 留存清理第一版；但仍不是正式数据库或对象存储。后续接入时，PNG/Excel/批量导出包、完整报告和完整历史结果恢复应逐步写入该 store 或其数据库/对象存储替代实现。
+`LocalResultStore` 目前已接入技术仿真 summary/config、经济性 summary、推荐席位输入、已保留年度现金流、推荐 portfolio、HTML 图表包和 Markdown 报告的第一阶段写入和最小结果索引读取，并支持 artifact payload 留存清理第一版；本地 JSON 元数据写入已使用临时文件原子替换，降低半写损坏风险，但仍不是正式数据库或对象存储。后续接入时，PNG/Excel/批量导出包、完整报告和完整历史结果恢复应逐步写入该 store 或其数据库/对象存储替代实现。
 
 `src/green_direct/services/upload_policy.py` 已提供第一版上传安全门禁：
 
@@ -1084,7 +1084,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `record_transient_export_download()`：为尚未落盘为 artifact 的当前会话导出按钮记录下载审计，复用项目导出权限并写入 `DOWNLOAD_ARTIFACT`；
 - 创建项目、成员变更、提交任务、取消任务和产物读取/拒绝会写入 `AuditLog`。
 
-`PilotAccessService` 是权限和审计服务门面，不启动 worker、不做数据库事务或并发锁；后续 Streamlit 管理页、后台任务入口和 SQLite/Postgres 适配器应优先复用这层语义，避免直接绕过角色控制调用底层本地文件 store。
+`PilotAccessService` 是权限和审计服务门面，不启动 worker、不做数据库事务或跨进程并发锁；后续 Streamlit 管理页、后台任务入口和 SQLite/Postgres 适配器应优先复用这层语义，避免直接绕过角色控制调用底层本地文件 store。
 
 ## 23. 本地运行方式
 

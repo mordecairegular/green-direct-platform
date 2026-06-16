@@ -5,9 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 import json
+import os
 from pathlib import Path
 import re
 from typing import Any, Mapping
+from uuid import uuid4
 
 
 _SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
@@ -34,10 +36,18 @@ def json_value(value: Any) -> Any:
 
 def write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(json_value(payload), ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
+    text = json.dumps(json_value(payload), ensure_ascii=False, indent=2, sort_keys=True)
+    tmp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        with tmp_path.open("w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        tmp_path.replace(path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
 
 
 def read_json(path: Path) -> dict[str, Any]:

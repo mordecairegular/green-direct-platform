@@ -72,6 +72,7 @@
 - 性能基准脚本已新增第一版：`scripts/benchmark_internal_pilot_performance.py`，可对完整明细保留、summary-first 和经济性 summary-only 进行可重复耗时/内存记录。
 - 服务层已新增 `LocalJobStore`，支持本地 JSON 任务提交、读取、项目/研究列表、状态筛选、进度更新、成功/失败/取消状态持久化，暂未包含 worker 调度、认证、管理员页面或数据库锁。
 - 服务层已新增 `PilotAccessService`，把项目角色权限、可见项目列表、任务提交/取消、产物读取和审计日志统一成可测试服务门面，暂未包含 worker 调度、数据库事务或并发锁。
+- 本地 JSON store 共享写入 helper 已改为“写临时文件后原子替换”，降低账号、会话、任务、结果索引等 JSON 元数据半写损坏风险；这仍不等于数据库事务或跨进程并发锁。
 - 技术仿真完成后已能在启用内部试用登录和当前项目时登记项目级同步 `Job`，并把 `technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord` 写入 `LocalResultStore`；经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio、按需补算的单方案逐小时明细、HTML 图表包和 Markdown 报告也已接入第一阶段项目级写入；PNG/Excel/批量包、完整报告和导出后台任务化仍待迁移。
 - Streamlit 欢迎页已新增“项目任务与结果”面板，可查看当前项目任务数、已保存结果数、最近任务和最近结果索引；已落盘的技术 summary、经济 summary、年度现金流、推荐席位输入、推荐 portfolio/detail 等 artifact 可加载下载；技术 summary 已支持 summary-only 恢复到当前会话，并保留已有 hourly artifact 和 input artifact 索引用于后续图表/报告入口加载或补算；同一 `study_id` 的技术 summary 已恢复后，经济结果可恢复 summary、已保存年度现金流和推荐席位输入，推荐 portfolio 可 portfolio-only 恢复到当前会话，但不恢复推荐视角选择或重新排序工作台状态；完整历史结果恢复、删除、标记和后台任务状态页仍待实现。
 - Streamlit 欢迎页“项目任务与结果”面板已新增第一版“排队/运行中任务”区，可筛出当前项目活动任务，并按项目角色允许 analyst 取消自己任务、admin 取消项目任务；取消动作仍通过 `PilotAccessService.cancel_job()` 做后端权限校验和审计。该入口只是任务状态控制面板第一步，还不是真正 worker 级资源中断、重试或排队系统。
@@ -84,6 +85,7 @@
 - 下一阶段把完整历史结果恢复/删除/标记、推荐视角选择与重新排序工作台状态、PNG/Excel/批量包、完整报告导出也提交为项目级后台 `Job`，并把对应 hourly/chart/report/export artifacts 写入 `ResultStore`；summary-only 经济运行如需后补年度现金流，应作为按需 Job 生成。
 - 技术仿真已完成当前进程内 `ProcessPoolExecutor` 按方案块并行；下一步评估后台任务队列时继续沿用块级调度，保持 `scenario_id`、warning、error 和顺序稳定。
 - 经济性测算继续做 DataFrame/NumPy 批量化和后台 Job 化；完整年度现金流已可先只对报告方案、推荐组合或用户指定方案生成。
+- 本地 JSON 写入已做原子替换；下一步仍需补数据库/跨进程锁/并发冲突策略。
 - 后续再评估 Numba、编译化调度内核或更高性能的数据结构。
 
 ### 2.1 内部 10-20 人试用上线架构
