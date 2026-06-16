@@ -214,7 +214,36 @@ def _git_output(args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True)
 
 
+def _configured_render_branch() -> str:
+    render = _load_yaml(ROOT / "render.yaml")
+    service = render["services"][0]
+    return str(service.get("branch", "")).strip()
+
+
 def _git_sync_checks(checks: list[dict[str, str]]) -> None:
+    try:
+        render_branch = _configured_render_branch()
+    except Exception as exc:  # noqa: BLE001 - report preflight parse failure
+        _check(False, checks, "git:render-branch", f"cannot read render.yaml branch: {exc}")
+        return
+    _check(bool(render_branch), checks, "git:render-branch", f"render.yaml branch is {render_branch}")
+
+    current_branch = _git_output(["branch", "--show-current"])
+    if current_branch.returncode != 0:
+        _check(False, checks, "git:branch", f"git branch failed: {current_branch.stderr.strip()}")
+        return
+    current_branch_name = current_branch.stdout.strip()
+    _record(
+        checks,
+        "git:branch",
+        "pass" if current_branch_name == render_branch else "fail",
+        (
+            f"current branch matches render.yaml branch {render_branch}"
+            if current_branch_name == render_branch
+            else f"current branch is {current_branch_name or '<detached>'}, but render.yaml deploys {render_branch}"
+        ),
+    )
+
     status = _git_output(["status", "--porcelain"])
     if status.returncode != 0:
         _check(False, checks, "git:status", f"git status failed: {status.stderr.strip()}")
@@ -233,6 +262,17 @@ def _git_sync_checks(checks: list[dict[str, str]]) -> None:
         return
     upstream_name = upstream.stdout.strip()
     _check(bool(upstream_name), checks, "git:upstream", f"current branch tracks {upstream_name}")
+    expected_upstream_suffix = f"/{render_branch}"
+    _record(
+        checks,
+        "git:upstream-branch",
+        "pass" if upstream_name.endswith(expected_upstream_suffix) else "fail",
+        (
+            f"upstream branch matches render.yaml branch {render_branch}"
+            if upstream_name.endswith(expected_upstream_suffix)
+            else f"upstream is {upstream_name}, but render.yaml deploys {render_branch}"
+        ),
+    )
 
     counts = _git_output(["rev-list", "--left-right", "--count", "@{u}...HEAD"])
     if counts.returncode != 0:

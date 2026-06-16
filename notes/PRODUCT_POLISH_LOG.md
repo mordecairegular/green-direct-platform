@@ -5521,3 +5521,19 @@ profile / benchmark：
 - 这是架构文档校准，不改变代码、计算口径、部署配置或 UI；
 - 当前本地 JSON store 仍只适合受控小范围内测，不是长期正式数据库；
 - 真实 Render/Cloudflare 部署仍需用户确认 push 后执行。
+
+### 2026-06-17 部署前 git sync 增加 Render 分支一致性检查
+
+本轮继续收紧“GitHub 私有仓库 -> Render Blueprint -> 同事移动网络试用”的发布闸。此前 `render.yaml` 已固定部署 `codex/UI`，但 `preflight_internal_pilot_deploy.py --require-git-sync` 只检查工作树是否干净、当前分支与 upstream 是否同步；如果开发者在错误本地分支运行该命令，仍可能只看到 ahead/behind 信息，而忽略 Render 实际部署的是另一个分支。
+
+实现：
+- `--require-git-sync` 新增读取 `render.yaml` 的部署分支；
+- 新增 `git:render-branch`、`git:branch` 和 `git:upstream-branch` 检查，确认 Render 配置分支、当前 Git 分支和 upstream 分支一致；
+- 保留原有 `git:clean`、`git:upstream` 和 `git:sync` 检查；
+- `tests/test_deployment_artifacts.py` 锁定新增检查名称，避免后续误删；
+- 部署 README、托管平台部署路线、移动网络试用清单、受控公网审计矩阵和 handoff 已同步。
+
+验证：
+- `python -m pytest tests\test_deployment_artifacts.py -q` 通过，10 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 本地按预期失败：新增 `git:render-branch`、`git:branch`、`git:upstream-branch` 均通过；当前未提交改动导致 `git:clean` 失败，本地仍 ahead upstream 导致 `git:sync` 失败。

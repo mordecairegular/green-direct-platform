@@ -183,3 +183,7 @@ def test_internal_pilot_preflight_exposes_git_sync_check():
 
     assert "--require-git-sync" in completed.stdout
     assert "--pilot-store-dir" in completed.stdout
+    script = (ROOT / "scripts" / "preflight_internal_pilot_deploy.py").read_text(encoding="utf-8")
+    assert "git:branch" in script
+    assert "git:render-branch" in script
+    assert "git:upstream-branch" in script
