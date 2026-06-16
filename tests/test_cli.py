@@ -660,6 +660,81 @@ def test_cli_pilot_admin_claims_next_job_for_worker(tmp_path, monkeypatch, capsy
     assert main(
         [
             "pilot-admin",
+            "complete-worker-job",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--worker-id",
+            "worker_1",
+            "--project-id",
+            "project_active",
+            "--study-id",
+            "study_1",
+            "--job-id",
+            "job_technical",
+        ]
+    ) == 0
+    complete_output = capsys.readouterr().out
+    assert "project_active\tstudy_1\tjob_technical\ttechnical_study\tsucceeded" in complete_output
+    assert job_store.load_job("project_active", "study_1", "job_technical").status == JobStatus.SUCCEEDED
+
+    assert main(
+        [
+            "pilot-admin",
+            "claim-next-job",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--worker-id",
+            "worker_2",
+            "--job-type",
+            "economic_study",
+        ]
+    ) == 0
+    assert "project_active\tstudy_1\tjob_economic\teconomic_study\trunning" in capsys.readouterr().out
+    assert main(
+        [
+            "pilot-admin",
+            "fail-worker-job",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--worker-id",
+            "worker_2",
+            "--project-id",
+            "project_active",
+            "--study-id",
+            "study_1",
+            "--job-id",
+            "job_economic",
+            "--error-message",
+            "sanitized worker failure",
+        ]
+    ) == 0
+    fail_output = capsys.readouterr().out
+    assert "project_active\tstudy_1\tjob_economic\teconomic_study\tfailed" in fail_output
+    failed = job_store.load_job("project_active", "study_1", "job_economic")
+    assert failed.status == JobStatus.FAILED
+    assert failed.error_message == "sanitized worker failure"
+    audit_events = LocalResultStore(tmp_path).read_audit_log("project_active")
+    assert any(
+        event.action == AuditAction.COMPLETE_JOB
+        and event.job_id == "job_technical"
+        and event.metadata["status"] == "succeeded"
+        and event.metadata["worker_id"] == "worker_1"
+        for event in audit_events
+    )
+    assert any(
+        event.action == AuditAction.COMPLETE_JOB
+        and event.job_id == "job_economic"
+        and event.metadata["status"] == "failed"
+        and event.metadata["worker_id"] == "worker_2"
+        for event in audit_events
+    )
+
+    assert main(
+        [
+            "pilot-admin",
             "claim-next-job",
             *_store_arg(tmp_path),
             "--actor-user-id",
@@ -846,7 +921,7 @@ def test_cli_exposes_green_direct_console_script():
     parsed = parser.parse_args(
         [
             "pilot-admin",
-            "heartbeat-job",
+            "fail-worker-job",
             "--actor-user-id",
             "admin",
             "--worker-id",
@@ -857,8 +932,10 @@ def test_cli_exposes_green_direct_console_script():
             "study_1",
             "--job-id",
             "job_1",
+            "--error-message",
+            "sanitized failure",
         ]
     )
 
     assert parsed.command == "pilot-admin"
-    assert parsed.pilot_admin_command == "heartbeat-job"
+    assert parsed.pilot_admin_command == "fail-worker-job"

@@ -4551,3 +4551,31 @@ exchange_import_shortfall_energy == 0
 - `python -m compileall -q src/green_direct/services/pilot_access.py src/green_direct/cli.py tests/test_pilot_access.py tests/test_cli.py` 通过；
 - `python -m green_direct.cli pilot-admin heartbeat-job --help` 通过；
 - `pytest -q` 通过，322 项通过。
+
+### 2026-06-16 worker 成功/失败终态入口
+
+本轮把 worker 元数据 lifecycle 从“认领 + heartbeat”补到“成功/失败终态”。如果没有终态入口，后续真实 worker 即使完成了计算，也只能停在 `running`，再依赖 stale cleanup 标记失败；这会让内部试用中的任务状态不可信。先把终态写入服务层和 CLI，有助于后续 worker wrapper 串起最小执行循环。
+
+本轮判断：
+- 终态入口必须校验平台管理员和匹配的 `worker_id`，避免错误 worker 结束他人任务；
+- 成功/失败应写入项目级 `COMPLETE_JOB` 审计；
+- 失败信息必须由 worker wrapper 传入脱敏错误，不能包含原始输入、路径、token、密码或完整堆栈；
+- 这仍只更新任务元数据，不执行计算、不写结果 artifact。
+
+本轮实现：
+- `PilotAccessService.succeed_worker_job()`：校验 running job 和 worker 后标记 `succeeded`，写 `COMPLETE_JOB` 审计；
+- `PilotAccessService.fail_worker_job()`：校验 running job 和 worker 后标记 `failed`，保存 error message，写 `COMPLETE_JOB` 审计；
+- `pilot-admin complete-worker-job` / `fail-worker-job`：提供 CLI 演练和后续 worker wrapper 调用入口；
+- `tests/test_pilot_access.py` 覆盖 worker 不匹配拒绝、成功/失败状态和审计 metadata；
+- `tests/test_cli.py` 覆盖从 claim、heartbeat、complete 到另一个 job 的 claim/fail 的 CLI 元数据流程；
+- 软件接口总览、内部试用 runbook、性能路线、受控公网审计矩阵、上线前质量审查、架构计划、Claude Code 提示词、TODO 和 handoff 已同步。
+
+边界说明：
+- worker 仍不会读取 input artifact、执行仿真/经济性/导出、检查取消或写回结果；
+- 下一步应补最小 worker wrapper/脚本或服务：认领 -> 读取 payload -> 执行一类任务 -> heartbeat -> 写 result/artifact -> 终态。
+
+验证：
+- `pytest tests/test_pilot_access.py tests/test_cli.py -q` 通过，29 项通过；
+- `python -m compileall -q src/green_direct/services/pilot_access.py src/green_direct/cli.py tests/test_pilot_access.py tests/test_cli.py` 通过；
+- `python -m green_direct.cli pilot-admin complete-worker-job --help` 和 `python -m green_direct.cli pilot-admin fail-worker-job --help` 通过；
+- `pytest -q` 通过，323 项通过。

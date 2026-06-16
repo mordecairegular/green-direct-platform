@@ -399,6 +399,37 @@ def _cmd_heartbeat_job(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_complete_worker_job(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    completed = services.access.succeed_worker_job(
+        actor_user_id=args.actor_user_id,
+        worker_id=args.worker_id,
+        project_id=args.project_id,
+        study_id=args.study_id,
+        job_id=args.job_id,
+        finished_at=datetime.now(timezone.utc),
+    )
+    _print_job_header(include_stale=False)
+    _print_job_row(completed)
+    return 0
+
+
+def _cmd_fail_worker_job(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    failed = services.access.fail_worker_job(
+        actor_user_id=args.actor_user_id,
+        worker_id=args.worker_id,
+        project_id=args.project_id,
+        study_id=args.study_id,
+        job_id=args.job_id,
+        error_message=args.error_message,
+        finished_at=datetime.now(timezone.utc),
+    )
+    _print_job_header(include_stale=False)
+    _print_job_row(failed)
+    return 0
+
+
 def _cmd_purge_expired_artifacts(args: argparse.Namespace) -> int:
     services = _pilot_services(args.store_dir)
     services.admin.list_users(actor_user_id=args.actor_user_id)
@@ -678,6 +709,31 @@ def build_parser() -> argparse.ArgumentParser:
     heartbeat_job.add_argument("--total", type=int, help="Total progress counter. Omit to keep existing value.")
     heartbeat_job.add_argument("--message", help="Progress message. Omit to keep existing value.")
     heartbeat_job.set_defaults(func=_cmd_heartbeat_job)
+
+    complete_worker_job = pilot_admin_sub.add_parser(
+        "complete-worker-job",
+        help="Mark a claimed running worker job as succeeded.",
+    )
+    _add_common_store_arg(complete_worker_job)
+    _add_actor_arg(complete_worker_job)
+    complete_worker_job.add_argument("--worker-id", required=True, help="Worker id assigned to the running job.")
+    complete_worker_job.add_argument("--project-id", required=True)
+    complete_worker_job.add_argument("--study-id", required=True)
+    complete_worker_job.add_argument("--job-id", required=True)
+    complete_worker_job.set_defaults(func=_cmd_complete_worker_job)
+
+    fail_worker_job = pilot_admin_sub.add_parser(
+        "fail-worker-job",
+        help="Mark a claimed running worker job as failed.",
+    )
+    _add_common_store_arg(fail_worker_job)
+    _add_actor_arg(fail_worker_job)
+    fail_worker_job.add_argument("--worker-id", required=True, help="Worker id assigned to the running job.")
+    fail_worker_job.add_argument("--project-id", required=True)
+    fail_worker_job.add_argument("--study-id", required=True)
+    fail_worker_job.add_argument("--job-id", required=True)
+    fail_worker_job.add_argument("--error-message", required=True, help="Sanitized worker failure message.")
+    fail_worker_job.set_defaults(func=_cmd_fail_worker_job)
 
     purge_artifacts = pilot_admin_sub.add_parser(
         "purge-expired-artifacts",

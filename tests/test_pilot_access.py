@@ -361,6 +361,91 @@ def test_platform_admin_updates_worker_job_progress_only_for_assigned_worker(tmp
     assert updated.last_heartbeat_at is not None
 
 
+def test_platform_admin_completes_or_fails_worker_jobs_and_audits(tmp_path):
+    service = _service(tmp_path)
+    service.registry.save_user(
+        User("platform_admin", "platform-admin@example.local", "Platform Admin", is_platform_admin=True)
+    )
+    project = service.create_project(
+        actor_user_id="platform_admin",
+        project=Project("project_1", "Active project"),
+    )
+    service.job_store.submit_job(
+        Job(
+            job_id="job_success",
+            project_id=project.project_id,
+            study_id="study_1",
+            requested_by_user_id="platform_admin",
+            job_type=JobType.TECHNICAL_STUDY,
+        )
+    )
+    service.job_store.submit_job(
+        Job(
+            job_id="job_failed",
+            project_id=project.project_id,
+            study_id="study_1",
+            requested_by_user_id="platform_admin",
+            job_type=JobType.ECONOMIC_STUDY,
+        )
+    )
+
+    service.claim_next_job_for_worker(
+        actor_user_id="platform_admin",
+        worker_id="worker_1",
+        project_id=project.project_id,
+        job_types=[JobType.TECHNICAL_STUDY],
+    )
+    with pytest.raises(PilotAccessError, match="assigned to another worker"):
+        service.succeed_worker_job(
+            actor_user_id="platform_admin",
+            worker_id="worker_2",
+            project_id=project.project_id,
+            study_id="study_1",
+            job_id="job_success",
+        )
+    succeeded = service.succeed_worker_job(
+        actor_user_id="platform_admin",
+        worker_id="worker_1",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_id="job_success",
+    )
+
+    service.claim_next_job_for_worker(
+        actor_user_id="platform_admin",
+        worker_id="worker_2",
+        project_id=project.project_id,
+        job_types=[JobType.ECONOMIC_STUDY],
+    )
+    failed = service.fail_worker_job(
+        actor_user_id="platform_admin",
+        worker_id="worker_2",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_id="job_failed",
+        error_message="sanitized worker failure",
+    )
+
+    assert succeeded.status == JobStatus.SUCCEEDED
+    assert failed.status == JobStatus.FAILED
+    assert failed.error_message == "sanitized worker failure"
+    audit_events = service.result_store.read_audit_log(project.project_id)
+    assert any(
+        event.action == AuditAction.COMPLETE_JOB
+        and event.job_id == "job_success"
+        and event.metadata == {"status": "succeeded", "worker_id": "worker_1"}
+        for event in audit_events
+    )
+    assert any(
+        event.action == AuditAction.COMPLETE_JOB
+        and event.job_id == "job_failed"
+        and event.metadata["status"] == "failed"
+        and event.metadata["worker_id"] == "worker_2"
+        and event.metadata["error_message"] == "sanitized worker failure"
+        for event in audit_events
+    )
+
+
 def test_artifact_payload_read_requires_project_view_and_is_audited(tmp_path):
     service = _service(tmp_path)
     _create_project_with_members(service)

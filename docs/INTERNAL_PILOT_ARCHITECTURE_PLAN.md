@@ -158,7 +158,7 @@ PNG 图表包后台任务也按会话隔离：
 - 停用用户时会撤销该用户仍然有效的本地会话；
 - 创建用户、更新用户、重置密码、停用和平台管理员标记变更会写入全局 `AuditLog`；
 - 为避免锁死后台，服务不允许停用或降级最后一个活跃平台管理员；
-- `src/green_direct/cli.py` 已提供 `pilot-admin` 命令行入口，可执行 bootstrap、创建用户、重置密码、停用用户、授予/撤销平台管理员、列出用户/会话/审计事件/项目/项目成员/任务、创建或归档项目、授予或禁用项目成员、认领 queued job、刷新 worker heartbeat/进度、清理过期 artifact payload 和标记超时 running 任务失败；
+- `src/green_direct/cli.py` 已提供 `pilot-admin` 命令行入口，可执行 bootstrap、创建用户、重置密码、停用用户、授予/撤销平台管理员、列出用户/会话/审计事件/项目/项目成员/任务、创建或归档项目、授予或禁用项目成员、认领 queued job、刷新 worker heartbeat/进度、标记 worker 成功/失败终态、清理过期 artifact payload 和标记超时 running 任务失败；
 - 当前服务已接入 Streamlit 最小平台管理页，但仍未替代后续 SQLite/Postgres、企业身份系统或正式审计后台。
 
 已落地的第一步 JobStore：
@@ -179,6 +179,7 @@ PNG 图表包后台任务也按会话隔离：
 - 该服务组合 `LocalPilotRegistry`、`LocalJobStore` 和 `LocalResultStore`，让 UI、后台 worker 或未来管理页通过同一入口做项目访问控制；
 - `claim_next_job_for_worker()` 已作为平台管理员保护的 worker 认领入口，支持全局或单项目认领，并在全局扫描时跳过归档项目；
 - `update_worker_job_progress()` 已作为平台管理员保护的 worker heartbeat/进度入口，要求 `worker_id` 与 running job 记录一致；
+- `succeed_worker_job()` / `fail_worker_job()` 已作为平台管理员保护的 worker 终态入口，要求 `worker_id` 与 running job 记录一致，并写 `COMPLETE_JOB` 审计；
 - `list_accessible_projects()` 已用于 Streamlit 登录后的项目工作区选择，只返回当前用户有有效 membership 的项目；
 - `admin` 可创建/归档项目、授予/停用成员、提交任务、查看任务和产物、取消他人任务；
 - `analyst` 可提交和查看本项目任务，并取消自己提交的任务；

@@ -35,7 +35,7 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 
 结果：
 
-- 全量测试通过：322 项通过；
+- 全量测试通过：323 项通过；
 - `src scripts tests` 编译检查通过；
 - 源码树下 CLI 启动口径验证通过；
 - `git diff --check` 没有实际空白错误，仅有 Windows 换行转换提示；
@@ -66,7 +66,7 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
    `ProjectMembership.can_export_artifacts` 已能独立于项目角色控制 artifact payload 读取，最小平台管理页也可维护该字段；欢迎页历史产物下载和 06 导出页会在禁止导出时拦截，`PilotAccessService.read_artifact_payload()` 会对已落盘 artifact 的成功和拒绝下载尝试写入审计；06 页尚未落盘的 CSV/Excel/ZIP/Markdown 临时下载按钮已接入 `record_transient_export_download()`，复用项目导出权限并写 `DOWNLOAD_ARTIFACT` 审计；HTML 图表包和 Markdown 报告保存动作还要求项目提交 Job 权限。受控公网内测前仍需把未来 API、数据库适配、反向代理下载入口和对象存储签名 URL 全部接到同一授权策略。
 
 3. 没有正式后台任务队列和 worker。
-   当前重计算仍发生在 Streamlit 进程内，PNG ZIP 使用进程内后台线程，技术/经济/推荐 Job 也是计算完成后的同步状态登记。`LocalJobStore` 已有任务状态契约、worker/heartbeat 字段、stale running 恢复和 queued job 认领原语，`PilotAccessService.claim_next_job_for_worker()` 也会以平台管理员保护方式跳过归档项目，`update_worker_job_progress()` 可校验 worker 后刷新 running job heartbeat；`pilot-admin claim-next-job` / `heartbeat-job` 可演练 worker 元数据流程。但这仍不会真正调度或执行 worker。多人同时大算例时仍缺少正式执行器、任务 payload、跨进程队列锁、worker 级取消、限流、重试和资源回收。
+   当前重计算仍发生在 Streamlit 进程内，PNG ZIP 使用进程内后台线程，技术/经济/推荐 Job 也是计算完成后的同步状态登记。`LocalJobStore` 已有任务状态契约、worker/heartbeat 字段、stale running 恢复和 queued job 认领原语，`PilotAccessService.claim_next_job_for_worker()` 也会以平台管理员保护方式跳过归档项目，`update_worker_job_progress()` 可校验 worker 后刷新 running job heartbeat，`succeed_worker_job()` / `fail_worker_job()` 可写成功/失败终态和 `COMPLETE_JOB` 审计；`pilot-admin claim-next-job` / `heartbeat-job` / `complete-worker-job` / `fail-worker-job` 可演练 worker 元数据流程。但这仍不会真正调度或执行 worker。多人同时大算例时仍缺少正式执行器、任务 payload、跨进程队列锁、worker 级取消、限流、重试和资源回收。
 
 4. 本地 JSON 文件 store 没有事务、锁和备份策略。
    账号、会话、任务和结果服务适合作为 pilot 语义骨架，但不是正式数据库。并发写入、磁盘损坏、机器迁移和权限隔离都需要 SQLite/Postgres 或对象存储适配器解决。
@@ -89,7 +89,7 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
    目前可用于 pilot 交流和核查，但不应作为长期架构锚点。后续应围绕推荐方案和按需明细重做图表/报告。
 
 4. `pilot-admin` CLI 仍是 bootstrap、项目生命周期/成员应急维护、审计抽查、任务排障和过期 artifact 清理入口。
-   最小 Streamlit 平台管理页已经可维护账号和项目成员；CLI 也已支持列项目/成员、创建或归档项目、授予或禁用项目成员、列审计事件、列任务、认领 queued job、刷新 worker heartbeat/进度、清理过期 payload 和 stale running 任务恢复。首个管理员创建、密码应急重置、服务器端审计抽查和排障仍需要 CLI 或后续独立后台。
+   最小 Streamlit 平台管理页已经可维护账号和项目成员；CLI 也已支持列项目/成员、创建或归档项目、授予或禁用项目成员、列审计事件、列任务、认领 queued job、刷新 worker heartbeat/进度、标记 worker 成功/失败、清理过期 payload 和 stale running 任务恢复。首个管理员创建、密码应急重置、服务器端审计抽查和排障仍需要 CLI 或后续独立后台。
 
 5. 欢迎页“项目任务与结果”仍不是完整历史结果页。
    它可以帮助内部试用用户确认当前项目已有任务和结果记录，下载已落盘的 summary / portfolio artifact，并 summary-only 恢复技术汇总；同一 `study_id` 的技术汇总已恢复后，也可恢复电源侧/同一主体经济汇总、已保留年度现金流和推荐席位输入，并 portfolio-only 恢复推荐组合；图表/报告入口可加载已有 hourly artifact 或从 input artifact 恢复输入后补算单方案明细；项目 admin 可标记/置顶结果索引，也可软删除/隐藏结果索引并留下审计。但它仍不能恢复完整历史 `StudyResult`、推荐视角选择/重新排序工作台状态，不能做正式报告版本管理或跨项目搜索。

@@ -221,6 +221,30 @@ python -m green_direct.cli pilot-admin heartbeat-job `
 
 该命令要求 `worker_id` 与任务已记录的 worker 一致，只刷新 running job 的 heartbeat/进度，不会标记任务成功或失败。
 
+worker wrapper 完成任务后可标记终态：
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m green_direct.cli pilot-admin complete-worker-job `
+    --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --actor-user-id admin `
+    --worker-id pilot-worker-1 `
+    --project-id project_1 `
+    --study-id study_1 `
+    --job-id job_1
+
+python -m green_direct.cli pilot-admin fail-worker-job `
+    --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --actor-user-id admin `
+    --worker-id pilot-worker-1 `
+    --project-id project_1 `
+    --study-id study_1 `
+    --job-id job_1 `
+    --error-message "sanitized worker failure"
+```
+
+成功和失败都会写入项目级 `COMPLETE_JOB` 审计。失败信息必须是脱敏错误，不要包含原始曲线、服务器路径、token、密码或完整堆栈。
+
 ## 11. 审计日志抽查
 
 管理员可抽查全局审计或指定项目审计：
@@ -250,7 +274,7 @@ python -m green_direct.cli pilot-admin list-audit-events `
 - 普通用户必须选择或创建项目后才进入六步工作流；
 - Demo 技术仿真、经济性测算、方案推荐能跑通；
 - 禁止导出的项目成员不能下载历史 artifact 或 06 页导出文件；
-- `pilot-admin list-users`、`list-projects`、`list-project-members`、`list-audit-events`、`list-jobs`、`claim-next-job`、`heartbeat-job`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
+- `pilot-admin list-users`、`list-projects`、`list-project-members`、`list-audit-events`、`list-jobs`、`claim-next-job`、`heartbeat-job`、`complete-worker-job`、`fail-worker-job`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
 - 新运行日志不包含明文密码、明文 token、原始曲线内容。
 
 ## 13. 回滚

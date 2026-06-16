@@ -514,6 +514,75 @@ class PilotAccessService:
             heartbeat_at=heartbeat_at or datetime.now(timezone.utc),
         )
 
+    def succeed_worker_job(
+        self,
+        *,
+        actor_user_id: str,
+        worker_id: str,
+        project_id: str,
+        study_id: str,
+        job_id: str,
+        finished_at: datetime | None = None,
+    ) -> Job:
+        """Mark a trusted worker's running job as succeeded and audit completion."""
+
+        self._running_worker_job(
+            actor_user_id=actor_user_id,
+            worker_id=worker_id,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=job_id,
+        )
+        succeeded = self.job_store.succeed_job(project_id, study_id, job_id, finished_at=finished_at)
+        self._audit(
+            actor_user_id=actor_user_id,
+            action=AuditAction.COMPLETE_JOB,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=job_id,
+            target_type="job",
+            target_id=job_id,
+            metadata={"status": succeeded.status.value, "worker_id": worker_id},
+        )
+        return succeeded
+
+    def fail_worker_job(
+        self,
+        *,
+        actor_user_id: str,
+        worker_id: str,
+        project_id: str,
+        study_id: str,
+        job_id: str,
+        error_message: str,
+        finished_at: datetime | None = None,
+    ) -> Job:
+        """Mark a trusted worker's running job as failed and audit completion."""
+
+        self._running_worker_job(
+            actor_user_id=actor_user_id,
+            worker_id=worker_id,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=job_id,
+        )
+        failed = self.job_store.fail_job(project_id, study_id, job_id, error_message, finished_at=finished_at)
+        self._audit(
+            actor_user_id=actor_user_id,
+            action=AuditAction.COMPLETE_JOB,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=job_id,
+            target_type="job",
+            target_id=job_id,
+            metadata={
+                "status": failed.status.value,
+                "worker_id": worker_id,
+                "error_message": failed.error_message,
+            },
+        )
+        return failed
+
     def update_job_progress(
         self,
         *,

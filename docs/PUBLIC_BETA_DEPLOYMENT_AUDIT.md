@@ -41,13 +41,13 @@
 | 用户只能访问授权项目 | 第一版满足 | `PilotAccessService.list_accessible_projects()` 和项目工作区门禁 | 未来 API/下载入口必须复用同一门面 | 禁止 UI 直接绕过 `PilotAccessService` |
 | 不可导出用户不能导出 | 第一版满足 | `ProjectMembership.can_export_artifacts`、`read_artifact_payload()` 下载审计；当前 06 页临时下载走 `record_transient_export_download()`；网页查看走 `read_artifact_payload_for_view()` | 仍需保证未来 API、反向代理下载和对象存储签名 URL 不绕过服务门面 | 所有下载/导出统一走后端授权服务 |
 | 上传文件类型/大小限制 | 第一版满足 | `UploadPolicy`，默认 20MB，CSV/XLSX/XLSM 白名单；技术三曲线随技术结果写入 `ArtifactKind.INPUT_CURVE` | 价格曲线、schema 报告和原始输入清理调度仍未闭环 | 增加 schema 报告、定时清理和关键 Run 保留 |
-| 单次方案数限流 | 第一版满足 | `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN`、`PerformanceParams.max_scenarios_per_run`、02 页超限提示、大批量确认和 `run_batch()` 后端拒绝 | 粗略耗时模型仍需目标服务器实测校准；已有项目任务状态明细、活动任务取消入口、worker 认领/heartbeat 原语、`pilot-admin claim-next-job`、`heartbeat-job`、`list-jobs` 和 stale running 置失败命令，但仍缺真正 worker 执行器、worker 级取消和排队锁 | 继续补后台进度、worker 取消和任务队列 |
+| 单次方案数限流 | 第一版满足 | `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN`、`PerformanceParams.max_scenarios_per_run`、02 页超限提示、大批量确认和 `run_batch()` 后端拒绝 | 粗略耗时模型仍需目标服务器实测校准；已有项目任务状态明细、活动任务取消入口、worker 认领/heartbeat/终态原语、`pilot-admin claim-next-job`、`heartbeat-job`、`complete-worker-job`、`fail-worker-job`、`list-jobs` 和 stale running 置失败命令，但仍缺真正 worker 执行器、worker 级取消和排队锁 | 继续补后台进度、worker 取消和任务队列 |
 | 项目/Run/参数/结果摘要留存 | 部分满足 | 技术/经济/推荐 summary、推荐席位输入、已保留的经济年度现金流与按需 hourly artifact 已写 `ResultStore`；HTML 图表包和 Markdown 报告可显式保存为 `chart_package` / `report` artifact；技术 summary、经济 summary、年度现金流、推荐席位输入和推荐 portfolio 可恢复到当前会话；项目 admin 可标记/置顶、软删除/隐藏结果索引并写审计 | 推荐视角选择/重新排序工作台状态、PNG/Excel/批量导出包和完整报告未完整持久化；summary-only 经济运行不会凭空恢复未保留现金流 | 按 `StudyResultRecord` 串联完整结果索引并补剩余 chart/report/export artifacts |
 | 原始文件、逐小时明细、导出文件留存和清理 | 部分满足 | 当前有 artifact payload 过期清理；技术三曲线 input artifact 与按需 hourly artifact 默认 30 天过期；HTML 图表包和 Markdown 报告默认 7 天过期；已有 hourly artifact 可跨会话加载，缺明细的历史 summary-only 可在 input artifact 可用时恢复输入并补算单方案明细 | 补算与导出保存仍是同步动作；价格曲线、PNG/Excel/批量包未完整 artifact 化；旧结果缺 `curve_columns` 时不能恢复输入 | 把按需补算升级为 Job，并补剩余 cashflow/chart/report/export artifacts |
 | 关键操作审计日志 | 部分满足 | 登录、项目、成员、任务、stale running 任务置失败、artifact 写入/网页查看/下载/清理、结果索引标记和软删除、当前 06 页临时导出下载已审计；`pilot-admin list-audit-events` 可抽查全局或指定项目审计 | 仍缺正式审计后台、跨项目聚合搜索、原始文件查看审计、未来 API/反向代理下载审计兜底 | 扩充 `AuditAction` 覆盖面，并在正式后台中提供审计查询 |
 | Docker 可部署 | 第一版满足 | `Dockerfile`、`docker-compose.yml`、`README_DEPLOY.md` | 尚未在目标服务器完成构建/启动/恢复演练 | 实机运行 `docker compose build/up` 和数据卷恢复演练 |
 | HTTPS/反向代理/备份/恢复/回滚说明 | 部分满足 | 内部 runbook、PowerShell 备份/恢复脚本、`README_DEPLOY.md` | 缺少系统服务托管、集中日志、监控告警和自动恢复演练 | 在目标服务器补 Caddy/Nginx 配置、日志和监控 |
-| 核心算法回归通过 | 满足当前 checkpoint | 最近 `pytest -q` 为 322 passed | 后续改性能/后台时仍需重复验证 | 每个工程化切片后跑回归 |
+| 核心算法回归通过 | 满足当前 checkpoint | 最近 `pytest -q` 为 323 passed | 后续改性能/后台时仍需重复验证 | 每个工程化切片后跑回归 |
 
 ## 3. 推荐执行顺序
 
