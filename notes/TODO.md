@@ -70,8 +70,8 @@
 - 内部试用部署材料已新增第一版：`.env.example`、`docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md`、`scripts/backup_pilot_store.ps1` 和 `scripts/restore_pilot_store.ps1`，覆盖环境变量、账号 bootstrap、启动、备份、恢复、过期清理、冒烟检查和回滚边界。
 - 受控公网内测审计矩阵已新增第一版：`docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md`，用于逐项跟踪 Route A 要求中已满足、部分满足和未满足的 P0 项。
 - 性能基准脚本已新增第一版：`scripts/benchmark_internal_pilot_performance.py`，可对完整明细保留、summary-first 和经济性 summary-only 进行可重复耗时/内存记录。
-- 服务层已新增 `LocalJobStore`，支持本地 JSON 任务提交、读取、全局/项目/研究列表、状态筛选、queued job 认领、worker/heartbeat 元数据、进度更新、成功/失败/取消状态持久化，以及超时 running 任务扫描和置失败；暂未包含真正 worker 调度、重试、管理员页面或数据库锁。
-- 服务层已新增 `PilotAccessService`，把项目角色权限、可见项目列表、任务提交/取消、worker 认领、worker heartbeat/进度、worker 成功/失败终态、产物读取和审计日志统一成可测试服务门面，暂未包含 worker 执行器、数据库事务或并发锁。
+- 服务层已新增 `LocalJobStore`，支持本地 JSON 任务提交、读取、全局/项目/研究列表、状态筛选、queued job 认领、worker/heartbeat 元数据、进度更新、成功/失败/取消状态持久化、`input_artifact_ids` 输入引用持久化，以及超时 running 任务扫描和置失败；暂未包含真正 worker 调度、重试、管理员页面或数据库锁。
+- 服务层已新增 `PilotAccessService`，把项目角色权限、可见项目列表、任务提交/取消、worker 认领、worker heartbeat/进度、worker 成功/失败终态、任务输入 artifact 引用校验、产物读取和审计日志统一成可测试服务门面，暂未包含 worker 执行器、数据库事务或并发锁。
 - 本地 JSON store 共享写入 helper 已改为“写临时文件后原子替换”，降低账号、会话、任务、结果索引等 JSON 元数据半写损坏风险；这仍不等于数据库事务或跨进程并发锁。
 - 技术仿真完成后已能在启用内部试用登录和当前项目时登记项目级同步 `Job`，并把 `technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord` 写入 `LocalResultStore`；经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio、按需补算的单方案逐小时明细、HTML 图表包和 Markdown 报告也已接入第一阶段项目级写入；PNG/Excel/批量包、完整报告和导出后台任务化仍待迁移。
 - Streamlit 欢迎页已新增“项目任务与结果”面板，可查看当前项目任务数、已保存结果数、最近任务和最近结果索引；已落盘的技术 summary、经济 summary、年度现金流、推荐席位输入、推荐 portfolio/detail 等 artifact 可加载下载；技术 summary 已支持 summary-only 恢复到当前会话，并保留已有 hourly artifact 和 input artifact 索引用于后续图表/报告入口加载或补算；同一 `study_id` 的技术 summary 已恢复后，经济结果可恢复 summary、已保存年度现金流和推荐席位输入，推荐 portfolio 可 portfolio-only 恢复到当前会话；项目 admin 可标记/置顶历史结果索引，也可软删除/隐藏历史结果索引并写审计，但不物理删除 artifact。当前仍不恢复推荐视角选择或重新排序工作台状态，完整历史结果恢复和后台任务状态页仍待实现。
@@ -79,7 +79,7 @@
 
 后续方向：
 
-- 大批量模式继续补 worker 级后台进度/取消闭环和性能基准记录；当前前台预计耗时、大任务确认、项目任务状态明细已是第一版粗略护栏，后续可用服务器实测数据校准。
+- 大批量模式继续补 worker 级后台进度/取消闭环和性能基准记录；当前前台预计耗时、大任务确认、项目任务状态明细和 job 输入 artifact 引用契约已是第一版粗略护栏，后续可用服务器实测数据校准。
 - 把当前同步单方案逐小时明细补算继续升级为项目级后台任务；历史 summary-only 恢复后的 input artifact 补算已可用第一版，但还没有 worker 级进度、取消、重试和排队。
 - 用户选择代表方案、图表方案或导出方案后，已有项目级 hourly artifact 已可优先加载；下一步是没有 artifact 时提交后台按需补算任务。
 - 下一阶段把完整历史结果恢复、推荐视角选择与重新排序工作台状态、PNG/Excel/批量包、完整报告导出也提交为项目级后台 `Job`，并把对应 hourly/chart/report/export artifacts 写入 `ResultStore`；summary-only 经济运行如需后补年度现金流，应作为按需 Job 生成。
@@ -105,7 +105,7 @@
 - 下一阶段把技术仿真、经济性测算和图表导出提交为项目级 `Job`，并把产物写入 `ResultStore`；
 - 依据 `notes/PRELAUNCH_QUALITY_REVIEW_20260615.md` 推进内部 pilot 上线前闭环：后台任务 worker、结果存储接入、部署 runbook、数据库/备份策略；
 - 管理员页、任务提交入口和未来 worker 不应直接绕过 `PilotAccessService` 调用底层 store；
-- 后台任务接入时以 `LocalJobStore` 的 `Job` 状态契约为临时边界，沿用 queued job 认领、`worker_id`、`last_heartbeat_at` 和 stale running cleanup 语义，再替换为 SQLite/Postgres 或正式队列实现；
+- 后台任务接入时以 `LocalJobStore` 的 `Job` 状态契约为临时边界，沿用 queued job 认领、`input_artifact_ids`、`worker_id`、`last_heartbeat_at` 和 stale running cleanup 语义，再替换为 SQLite/Postgres 或正式队列实现；
 - 技术仿真、经济性测算和图表导出逐步改为后台任务。
 
 ### 3. 离网型源网荷储模块

@@ -1280,7 +1280,7 @@ Explicit export artifact
 ```
 
 当前写入内容：
-- `Job(job_type="technical_study")`：记录项目、研究、发起人、输入配置指纹、进度和完成状态；
+- `Job(job_type="technical_study")`：记录项目、研究、发起人、输入配置指纹、进度、完成状态，以及可选 `input_artifact_ids`；后者用于后续 worker 从 `ResultStore` 读取受控输入，不把大 payload 直接写入 job JSON；
 - `input_curve_load.csv` / `input_curve_pv.csv` / `input_curve_wind.csv`：技术仿真原始输入曲线 artifact，默认 30 天过期；
 - `technical_summary.csv`：当前技术仿真的方案汇总；
 - `config_snapshot.json`：本次技术仿真的配置快照；若保存了 input curve artifact，会额外包含 `input_artifact_ids`；技术快照还包含 `curve_columns`，用于历史 summary-only 恢复后重建 `TechnicalStudyInput`；
@@ -1303,6 +1303,7 @@ Explicit export artifact
 
 边界：
 - 这仍是 Streamlit 进程内同步写入，不是真正后台 worker；
+- 已有 `Job.input_artifact_ids` 作为 worker 输入引用契约，但当前同步写入路径还没有把技术/经济/推荐计算改为 queued job 执行；后续 worker wrapper 应读取这些 artifact、执行任务、写回 result/artifact，并通过 `PilotAccessService` 更新 heartbeat 与终态；
 - 当前不持久化全量逐小时明细、PNG/Excel/批量导出包或完整报告；当前会话内补算出的单方案 `hourly_detail` 已可在有项目结果索引时写入 `ResultStore`，导出页已可显式保存所选方案 HTML 图表包和简版 Markdown 报告；技术 summary 恢复也会带回 input artifact 索引，并可在三条 input artifact 未过期且快照含 `curve_columns` 时跨会话重新补算缺失明细；经济性结果可恢复 summary、已保存的年度现金流和 `recommendation_inputs.json`，但 summary-only 经济运行不会凭空恢复未保留的现金流；推荐 portfolio 可 portfolio-only 恢复，但不包含推荐视角选择或重新排序工作台状态；
 - 当前结果面板支持技术 summary-only 恢复、经济 summary-only 恢复、推荐 portfolio-only 恢复、已有 hourly artifact 加载、项目 admin 标记/置顶结果索引、项目 admin 软删除/隐藏结果索引、活动任务取消入口和任务状态明细，但不恢复完整历史 `StudyResult`，不做跨项目搜索；取消入口只更新任务状态元数据，不代表已有后台 worker 级中断能力；
 - `technical_input_fingerprint()` 目前基于 `config_snapshot` 生成稳定 sha256，用于追踪输入配置；原始上传曲线本身由 input curve artifact 的 `sha256` 和 `size_bytes` 记录；

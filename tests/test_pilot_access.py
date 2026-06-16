@@ -168,6 +168,53 @@ def test_analyst_can_submit_and_view_job_but_viewer_cannot_submit(tmp_path):
     )
 
 
+def test_submit_job_validates_input_artifact_refs_and_audits_them(tmp_path):
+    service = _service(tmp_path)
+    _create_project_with_members(service)
+    service.result_store.store_artifact(
+        artifact_id="technical_summary",
+        project_id="project_1",
+        study_id="study_1",
+        job_id="job_source",
+        kind=ArtifactKind.TECHNICAL_SUMMARY,
+        payload="scenario_id\nS0001\n",
+        filename="technical_summary.csv",
+        content_type="text/csv",
+    )
+    job = Job(
+        job_id="job_economy",
+        project_id="project_1",
+        study_id="study_1",
+        requested_by_user_id="analyst",
+        job_type=JobType.ECONOMIC_STUDY,
+        input_artifact_ids={"technical_summary": "technical_summary"},
+    )
+
+    submitted = service.submit_job(actor_user_id="analyst", job=job)
+
+    assert submitted.input_artifact_ids == {"technical_summary": "technical_summary"}
+    audit_events = service.result_store.read_audit_log("project_1")
+    assert any(
+        event.action == AuditAction.SUBMIT_JOB
+        and event.job_id == "job_economy"
+        and event.metadata["input_artifact_ids"] == {"technical_summary": "technical_summary"}
+        for event in audit_events
+    )
+
+    with pytest.raises(FileNotFoundError):
+        service.submit_job(
+            actor_user_id="analyst",
+            job=Job(
+                job_id="job_bad_input",
+                project_id="project_1",
+                study_id="study_1",
+                requested_by_user_id="analyst",
+                job_type=JobType.ECONOMIC_STUDY,
+                input_artifact_ids={"technical_summary": "missing_summary"},
+            ),
+        )
+
+
 def test_non_member_and_disabled_user_are_rejected(tmp_path):
     service = _service(tmp_path)
     _create_project_with_members(service)

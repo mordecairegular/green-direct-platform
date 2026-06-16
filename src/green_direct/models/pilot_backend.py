@@ -27,6 +27,17 @@ def _require_non_negative(value: int, field_name: str) -> None:
         raise ValueError(f"{field_name} must be non-negative.")
 
 
+def _coerce_text_mapping(value: Mapping[str, Any], field_name: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for key, item in dict(value).items():
+        safe_key = str(key).strip()
+        safe_value = str(item).strip()
+        _require_text(safe_key, f"{field_name} key")
+        _require_text(safe_value, f"{field_name}[{safe_key}]")
+        result[safe_key] = safe_value
+    return result
+
+
 def _coerce_enum(value: Any, enum_type: type[Enum], field_name: str) -> Enum:
     try:
         return enum_type(value)
@@ -230,6 +241,7 @@ class Job:
     job_type: JobType | str
     status: JobStatus | str = JobStatus.QUEUED
     input_fingerprint: str | None = None
+    input_artifact_ids: Mapping[str, str] = field(default_factory=dict)
     queued_at: datetime = field(default_factory=_utcnow)
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -257,6 +269,11 @@ class Job:
             raise ValueError("progress_current must not exceed progress_total.")
         object.__setattr__(self, "job_type", _coerce_enum(self.job_type, JobType, "job_type"))
         object.__setattr__(self, "status", _coerce_enum(self.status, JobStatus, "status"))
+        object.__setattr__(
+            self,
+            "input_artifact_ids",
+            _coerce_text_mapping(self.input_artifact_ids, "input_artifact_ids"),
+        )
 
     @property
     def is_terminal(self) -> bool:

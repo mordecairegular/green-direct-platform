@@ -650,7 +650,7 @@ def test_cli_pilot_admin_claims_next_job_for_worker(tmp_path, monkeypatch, capsy
     ) == 0
     heartbeat_output = capsys.readouterr().out
     assert "project_active\tstudy_1\tjob_technical\ttechnical_study\trunning" in heartbeat_output
-    assert "\t2/5\tworker_1\t" in heartbeat_output
+    assert "\t2/5\t0\tworker_1\t" in heartbeat_output
     updated = job_store.load_job("project_active", "study_1", "job_technical")
     assert updated.progress_current == 2
     assert updated.progress_total == 5

@@ -35,6 +35,7 @@ def _job_from_json(data: dict) -> Job:
         job_type=data["job_type"],
         status=data.get("status", JobStatus.QUEUED.value),
         input_fingerprint=data.get("input_fingerprint"),
+        input_artifact_ids=data.get("input_artifact_ids") or {},
         queued_at=datetime.fromisoformat(data["queued_at"]),
         started_at=_parse_datetime(data.get("started_at")),
         finished_at=_parse_datetime(data.get("finished_at")),

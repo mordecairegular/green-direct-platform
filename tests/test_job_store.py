@@ -24,6 +24,7 @@ def _job(
         study_id=study_id,
         requested_by_user_id="user_1",
         job_type=job_type,
+        input_artifact_ids={"config": f"config_{job_id}"},
         queued_at=queued_at or _dt(1),
     )
 
@@ -37,6 +38,9 @@ def test_job_store_submits_loads_and_lists_project_scoped_jobs(tmp_path):
     store.submit_job(second)
 
     assert store.load_job("project_1", "study_1", "job_1") == first
+    assert store.load_job("project_1", "study_1", "job_1").input_artifact_ids == {
+        "config": "config_job_1",
+    }
     assert store.list_study_jobs("project_1", "study_1") == [first]
     assert [job.job_id for job in store.list_project_jobs("project_1")] == ["job_2", "job_1"]
     assert [job.job_id for job in store.list_jobs(project_id="project_1")] == ["job_2", "job_1"]

@@ -4689,3 +4689,25 @@ benchmark：
 - `pytest tests/test_economy_v1.py tests/test_single_entity_economy.py tests/test_study_runner.py tests/test_performance_benchmark_script.py -q` 通过，43 项通过；
 - `python -m compileall -q src\green_direct\economy\economic_evaluator.py src\green_direct\economy\single_entity_evaluator.py scripts\benchmark_internal_pilot_performance.py` 通过；
 - `git diff --check` 没有实际空白错误，仅有 Windows 换行转换提示。
+
+### 2026-06-16 Job 输入 artifact 引用契约
+
+本轮继续推进后台 worker 化，但仍不直接实现完整执行器。上一轮已有 queued job 认领、heartbeat 和终态入口；真正 worker 下一步必须知道“这个任务从哪里读取输入”，且不能把三条 8760 曲线、summary、年度现金流或导出 payload 直接塞进 job JSON。因此先补最小输入引用契约。
+
+本轮实现：
+- `Job` 新增 `input_artifact_ids: Mapping[str, str]`，用于记录任务执行所需的受控 `ResultStore` artifact 引用，例如 `technical_summary`、`config_snapshot`、`input_curve_load`、`recommendation_inputs`；
+- `Job.__post_init__()` 会清理并校验 `input_artifact_ids` 的 key/value 不能为空；
+- `LocalJobStore` 可持久化和回读 `input_artifact_ids`，并兼容旧 job JSON 缺省为空；
+- `PilotAccessService.submit_job()` 若收到 `input_artifact_ids`，会校验每个 artifact 已存在于同一 `project_id` / `study_id`，并把引用写入 `SUBMIT_JOB` 审计 metadata；
+- `pilot-admin list-jobs` 增加 `input_artifacts` 列，显示 job 声明的输入 artifact 数量，方便后续 worker wrapper / 运维排查。
+
+边界说明：
+- 这仍不是后台 worker 执行器，不会读取 artifact、执行技术/经济/推荐计算、检查取消、重试或写回结果；
+- 该契约的意义是让下一步 worker wrapper 能沿用 `Job.input_artifact_ids` 从 `ResultStore` 恢复输入，避免继续依赖 Streamlit `session_state`；
+- 后续若迁移 SQLite/Postgres 或正式队列，也应保留 `input_artifact_ids` 或等价的输入 artifact 引用字段。
+
+验证：
+- `pytest tests/test_pilot_backend_models.py tests/test_job_store.py tests/test_pilot_access.py tests/test_cli.py -q` 通过，54 项通过；
+- `python -m compileall -q src\green_direct\models\pilot_backend.py src\green_direct\services\job_store.py src\green_direct\services\pilot_access.py src\green_direct\cli.py tests\test_pilot_backend_models.py tests\test_job_store.py tests\test_pilot_access.py tests\test_cli.py` 通过；
+- `pytest -q` 通过，329 项通过；
+- `git diff --check` 没有实际空白错误，仅有 Windows 换行转换提示。

@@ -294,7 +294,7 @@ def _format_job_progress(job: Job) -> str:
 def _print_job_header(*, include_stale: bool = True) -> None:
     header = (
         "project_id\tstudy_id\tjob_id\tjob_type\tstatus\trequested_by\t"
-        "progress\tworker_id\tqueued_at\tstarted_at\tfinished_at\tlast_heartbeat_at"
+        "progress\tinput_artifacts\tworker_id\tqueued_at\tstarted_at\tfinished_at\tlast_heartbeat_at"
     )
     if include_stale:
         header += "\tstale"
@@ -305,7 +305,8 @@ def _print_job_row(job: Job, *, stale: str | None = None) -> None:
     row = (
         f"{job.project_id}\t{job.study_id}\t{job.job_id}\t{job.job_type.value}\t"
         f"{job.status.value}\t{job.requested_by_user_id}\t{_format_job_progress(job)}\t"
-        f"{job.worker_id or ''}\t{_format_dt(job.queued_at)}\t{_format_dt(job.started_at)}\t"
+        f"{len(job.input_artifact_ids)}\t{job.worker_id or ''}\t"
+        f"{_format_dt(job.queued_at)}\t{_format_dt(job.started_at)}\t"
         f"{_format_dt(job.finished_at)}\t{_format_dt(job.last_heartbeat_at)}"
     )
     if stale is not None:

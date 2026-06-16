@@ -72,20 +72,24 @@ def test_user_platform_admin_flag_defaults_false():
 
 
 def test_job_lifecycle_keeps_project_scope_and_blocks_invalid_transitions():
+    source_map = {"config": "config_snapshot"}
     job = Job(
         job_id="job_1",
         project_id="project_1",
         study_id="study_1",
         requested_by_user_id="user_1",
         job_type=JobType.TECHNICAL_STUDY,
+        input_artifact_ids=source_map,
         queued_at=_dt(1),
     )
 
     running = job.start(started_at=_dt(2))
     succeeded = running.succeed(finished_at=_dt(3))
+    source_map["config"] = "mutated"
 
     assert running.status == JobStatus.RUNNING
     assert running.project_id == "project_1"
+    assert running.input_artifact_ids == {"config": "config_snapshot"}
     assert succeeded.status == JobStatus.SUCCEEDED
     assert succeeded.is_terminal
     assert succeeded.started_at == _dt(2)
@@ -96,6 +100,37 @@ def test_job_lifecycle_keeps_project_scope_and_blocks_invalid_transitions():
 
     with pytest.raises(ValueError, match="Terminal jobs cannot be canceled"):
         succeeded.cancel()
+
+
+def test_job_input_artifact_ids_require_non_empty_keys_and_values():
+    assert Job(
+        job_id="job_inputs",
+        project_id="project_1",
+        study_id="study_1",
+        requested_by_user_id="user_1",
+        job_type=JobType.ECONOMIC_STUDY,
+        input_artifact_ids={" technical_summary ": " technical_summary_artifact "},
+    ).input_artifact_ids == {"technical_summary": "technical_summary_artifact"}
+
+    with pytest.raises(ValueError, match="input_artifact_ids key must not be empty"):
+        Job(
+            job_id="job_bad_key",
+            project_id="project_1",
+            study_id="study_1",
+            requested_by_user_id="user_1",
+            job_type=JobType.ECONOMIC_STUDY,
+            input_artifact_ids={"": "technical_summary_artifact"},
+        )
+
+    with pytest.raises(ValueError, match="input_artifact_ids\\[technical_summary\\] must not be empty"):
+        Job(
+            job_id="job_bad_value",
+            project_id="project_1",
+            study_id="study_1",
+            requested_by_user_id="user_1",
+            job_type=JobType.ECONOMIC_STUDY,
+            input_artifact_ids={"technical_summary": ""},
+        )
 
 
 def test_failed_job_requires_error_message():

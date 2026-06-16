@@ -252,6 +252,8 @@ class PilotAccessService:
         if job.requested_by_user_id != actor_user_id:
             raise PilotAccessError("Job requester must match the actor user.")
         self.require_project_job_submit(actor_user_id=actor_user_id, project_id=job.project_id)
+        for artifact_id in job.input_artifact_ids.values():
+            self.result_store.load_artifact(job.project_id, job.study_id, artifact_id)
         saved = self.job_store.submit_job(job, overwrite=overwrite)
         self._audit(
             actor_user_id=actor_user_id,
@@ -261,7 +263,11 @@ class PilotAccessService:
             job_id=job.job_id,
             target_type="job",
             target_id=job.job_id,
-            metadata={"job_type": job.job_type.value, "status": job.status.value},
+            metadata={
+                "job_type": job.job_type.value,
+                "status": job.status.value,
+                "input_artifact_ids": dict(job.input_artifact_ids),
+            },
         )
         return saved
 
