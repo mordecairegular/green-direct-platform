@@ -164,7 +164,7 @@ Streamlit UI
 - 不可导出用户无法下载 06 页临时导出和已落盘 artifact；
 - 普通用户不能看到其他项目；
 - 创建项目、运行一次小样例、保存结果、重启服务后项目仍存在；
-- 下载和关键操作可在审计日志中查到；
+- 下载和关键操作可在平台管理页“审计日志”或 CLI 审计抽查中查到；
 - `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0`；
 - `GREEN_DIRECT_PILOT_STORE_DIR` 不在 Git 仓库目录内；
 - 备份/恢复至少演练一次。

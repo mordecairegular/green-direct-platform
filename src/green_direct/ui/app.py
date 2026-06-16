@@ -46,6 +46,8 @@ from green_direct.models.diagnostics import InputDiagnostics
 from green_direct.models.params import BessParams, DataCleaningParams, PerformanceParams, PolicyParams, TimeParams
 from green_direct.models.pilot_backend import (
     ArtifactKind,
+    AuditAction,
+    AuditLog,
     Job,
     JobStatus,
     JobType,
@@ -3480,6 +3482,29 @@ def _active_platform_admin_projects(projects: list[Project]) -> list[Project]:
     return [project for project in projects if project.status.value == "active"]
 
 
+def _platform_admin_audit_metadata_text(event: AuditLog) -> str:
+    return json.dumps(event.metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _platform_admin_audit_frame(events: list[AuditLog]) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "时间": event.created_at.isoformat(),
+                "动作": event.action.value,
+                "执行人": event.actor_user_id,
+                "project_id": event.project_id or "",
+                "study_id": event.study_id or "",
+                "job_id": event.job_id or "",
+                "对象类型": event.target_type or "",
+                "对象 ID": event.target_id or "",
+                "metadata": _platform_admin_audit_metadata_text(event),
+            }
+            for event in events
+        ]
+    )
+
+
 def _platform_admin_membership_frame(
     memberships: list[ProjectMembership],
     users_by_id: dict[str, User],
@@ -3657,6 +3682,56 @@ def _render_platform_admin_worker_ops(
             _handle_platform_admin_error(st, exc)
 
 
+def _render_platform_admin_audit_log(
+    st,
+    *,
+    admin_service: LocalPilotAdminService,
+    actor_user_id: str,
+    projects: list[Project],
+) -> None:
+    projects_by_id = {project.project_id: project for project in projects}
+    project_options = ["__global__"] + [project.project_id for project in projects]
+    selected_project = st.selectbox(
+        "审计范围",
+        project_options,
+        format_func=lambda value: "全局审计" if value == "__global__" else projects_by_id[str(value)].name,
+        key="pilot_admin_audit_project_scope",
+    )
+    action_options = [action.value for action in AuditAction]
+    selected_actions = st.multiselect(
+        "动作筛选",
+        action_options,
+        key="pilot_admin_audit_actions",
+    )
+    limit = st.number_input(
+        "显示条数",
+        min_value=1,
+        max_value=500,
+        value=100,
+        step=10,
+        key="pilot_admin_audit_limit",
+    )
+    oldest_first = st.checkbox("按时间正序", value=False, key="pilot_admin_audit_oldest_first")
+
+    try:
+        events = admin_service.list_audit_events(
+            actor_user_id=actor_user_id,
+            project_id=None if selected_project == "__global__" else str(selected_project),
+            actions=[str(action) for action in selected_actions],
+            limit=int(limit),
+            oldest_first=bool(oldest_first),
+        )
+    except Exception as exc:  # noqa: BLE001 - audit log errors should be visible
+        _handle_platform_admin_error(st, exc)
+        return
+
+    if not events:
+        st.info("当前筛选条件下没有审计记录。")
+        return
+    st.dataframe(_platform_admin_audit_frame(events), width="stretch", hide_index=True)
+    st.caption("审计记录为只读视图；metadata 使用紧凑 JSON 展示，便于复制排查。")
+
+
 def _handle_platform_admin_error(st, exc: Exception) -> None:
     if isinstance(exc, (PilotAdminError, PilotAccessError, PilotAuthError, FileExistsError, FileNotFoundError, ValueError)):
         st.error(str(exc))
@@ -3702,8 +3777,8 @@ def _render_platform_admin_page(st) -> None:
 
     st.dataframe(_platform_admin_user_frame(users), width="stretch", hide_index=True)
 
-    create_tab, password_tab, status_tab, project_tab, worker_tab, session_tab = st.tabs(
-        ["创建账号", "重置密码", "权限和停用", "项目和成员", "任务运维", "会话"]
+    create_tab, password_tab, status_tab, project_tab, worker_tab, audit_tab, session_tab = st.tabs(
+        ["创建账号", "重置密码", "权限和停用", "项目和成员", "任务运维", "审计日志", "会话"]
     )
 
     with create_tab:
@@ -3932,6 +4007,14 @@ def _render_platform_admin_page(st) -> None:
 
     with worker_tab:
         _render_platform_admin_worker_ops(st, actor_user_id=actor_user_id, projects=projects)
+
+    with audit_tab:
+        _render_platform_admin_audit_log(
+            st,
+            admin_service=admin_service,
+            actor_user_id=actor_user_id,
+            projects=projects,
+        )
 
     with session_tab:
         if not user_ids:

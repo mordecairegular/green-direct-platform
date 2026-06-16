@@ -4941,3 +4941,24 @@ Render 单 Web Service 首次公网试用时，不应直接把本地 file store 
 - `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
 - `git diff --check` 通过；
 - `python -m pytest -q` 通过，353 项通过。
+
+### 2026-06-16 平台管理页审计日志查看
+
+本轮继续补内部试用后台控制面。此前审计事件已经写入 `LocalResultStore`，也可通过 `pilot-admin list-audit-events` 抽查，但非程序员平台管理员在 Web 端无法直接查看审计日志。公网或移动网络内测时，如果下载、任务、成员或结果操作出现争议，管理员需要能先在应用里定位最近事件。
+
+实现：
+- `LocalPilotAdminService.list_audit_events()` 新增平台管理员保护的只读审计查询入口，支持全局/项目范围、动作筛选、limit 和时间正/倒序；
+- Streamlit “平台管理”新增“审计日志”tab，可选择全局或项目级审计、按 `AuditAction` 筛选、设置显示条数，并用稳定表格展示时间、动作、执行人、project/study/job 线索、目标对象和紧凑 JSON metadata；
+- 部署 README、runbook、P0 审计矩阵、移动网络试用清单、托管平台部署说明、Claude Code 审查提示词、软件概览、架构计划、TODO、handoff 和上线前质量审查已同步，明确审计可通过 Web 页或 CLI 抽查。
+
+边界：
+- 这是本地 file store 版的最小审计查看入口，不是正式审计后台；
+- 仍不支持跨项目聚合搜索、分页游标、导出审计报表、集中日志平台、原始文件查看审计或未来 API/反向代理下载兜底；
+- 不改变 V0.1 技术仿真、经济性 V1 或推荐排序口径。
+
+验证：
+- `python -m pytest tests/test_pilot_admin.py::test_platform_admin_can_list_audit_events_with_filters tests/test_ui_import.py::test_platform_admin_audit_frame_serializes_metadata tests/test_ui_import.py::test_streamlit_platform_admin_can_create_user tests/test_ui_import.py::test_streamlit_platform_admin_can_create_and_archive_project -q` 通过，4 项通过；
+- `python -m compileall -q src\green_direct\services\pilot_admin.py src\green_direct\ui\app.py tests\test_pilot_admin.py tests\test_ui_import.py` 通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `git diff --check` 通过，仅有 Windows 换行转换提示；
+- `python -m pytest -q` 通过，355 项通过。

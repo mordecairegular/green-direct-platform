@@ -1,6 +1,8 @@
+from datetime import datetime, timezone
+
 import pytest
 
-from green_direct.models.pilot_backend import AuditAction, Project, ProjectRole, User, UserStatus
+from green_direct.models.pilot_backend import AuditAction, AuditLog, Project, ProjectRole, User, UserStatus
 from green_direct.services import (
     LocalPilotAdminService,
     LocalPilotAuth,
@@ -205,6 +207,65 @@ def test_platform_admin_can_create_and_archive_project(tmp_path):
             user_id="owner",
             role=ProjectRole.ADMIN,
         )
+
+
+def test_platform_admin_can_list_audit_events_with_filters(tmp_path):
+    service = _admin_service(tmp_path)
+    service.bootstrap_platform_admin(user=User("admin", "admin@example.local", "Admin"), password="admin-password")
+    service.create_user(actor_user_id="admin", user=User("analyst", "analyst@example.local", "Analyst"))
+    service.result_store.append_audit_log(
+        AuditLog(
+            event_id="global_update_user",
+            actor_user_id="admin",
+            action=AuditAction.UPDATE_USER,
+            metadata={"reason": "password"},
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+    )
+    service.result_store.append_audit_log(
+        AuditLog(
+            event_id="project_create",
+            actor_user_id="admin",
+            action=AuditAction.CREATE_PROJECT,
+            project_id="project_1",
+            target_type="project",
+            target_id="project_1",
+            created_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+        )
+    )
+    service.result_store.append_audit_log(
+        AuditLog(
+            event_id="project_update",
+            actor_user_id="admin",
+            action=AuditAction.UPDATE_PROJECT,
+            project_id="project_1",
+            target_type="project",
+            target_id="project_1",
+            created_at=datetime(2026, 1, 3, tzinfo=timezone.utc),
+        )
+    )
+
+    latest_project_events = service.list_audit_events(actor_user_id="admin", project_id="project_1", limit=1)
+    oldest_project_events = service.list_audit_events(
+        actor_user_id="admin",
+        project_id="project_1",
+        actions=[AuditAction.CREATE_PROJECT, "update_project"],
+        limit=5,
+        oldest_first=True,
+    )
+    update_events = service.list_audit_events(
+        actor_user_id="admin",
+        actions=[AuditAction.UPDATE_USER],
+        limit=5,
+    )
+
+    assert [event.event_id for event in latest_project_events] == ["project_update"]
+    assert [event.event_id for event in oldest_project_events] == ["project_create", "project_update"]
+    assert [event.event_id for event in update_events] == ["global_update_user"]
+    with pytest.raises(ValueError, match="limit must be positive"):
+        service.list_audit_events(actor_user_id="admin", limit=0)
+    with pytest.raises(PilotAdminError, match="cannot manage platform accounts"):
+        service.list_audit_events(actor_user_id="analyst")
 
 
 def test_create_user_rejects_duplicate_login_name(tmp_path):

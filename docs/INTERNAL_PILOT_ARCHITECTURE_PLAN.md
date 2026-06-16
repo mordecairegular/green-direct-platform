@@ -154,13 +154,13 @@ PNG 图表包后台任务也按会话隔离：
 
 - `src/green_direct/services/pilot_admin.py` 提供 `LocalPilotAdminService` 和 `PilotAdminError`；
 - 支持 bootstrap 首个 `is_platform_admin=True` 的平台管理员，并设置本地密码；
-- 平台管理员可创建用户、设置初始密码、重置密码、授予/撤销平台管理员标记、停用用户和列出用户；
+- 平台管理员可创建用户、设置初始密码、重置密码、授予/撤销平台管理员标记、停用用户、列出用户和只读查看审计事件；
 - 平台管理员可列出项目、查看项目成员、授予/更新项目角色、维护导出授权、禁用项目成员关系；
 - 停用用户时会撤销该用户仍然有效的本地会话；
 - 创建用户、更新用户、重置密码、停用和平台管理员标记变更会写入全局 `AuditLog`；
 - 为避免锁死后台，服务不允许停用或降级最后一个活跃平台管理员；
 - `src/green_direct/cli.py` 已提供 `pilot-admin` 命令行入口，可执行 bootstrap、创建用户、重置密码、停用用户、授予/撤销平台管理员、列出用户/会话/审计事件/项目/项目成员/任务、创建或归档项目、授予或禁用项目成员、认领 queued job、刷新 worker heartbeat/进度、标记 worker 成功/失败终态、执行一次受支持 worker job、清理过期 artifact payload 和标记超时 running 任务失败；
-- 当前服务已接入 Streamlit 最小平台管理页，但仍未替代后续 SQLite/Postgres、企业身份系统或正式审计后台。
+- 当前服务已接入 Streamlit 最小平台管理页，并提供账号、项目、成员、任务运维和审计日志的最小控制面；但仍未替代后续 SQLite/Postgres、企业身份系统或正式审计后台。
 
 已落地的第一步 JobStore：
 

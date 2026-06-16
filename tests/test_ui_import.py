@@ -1499,6 +1499,43 @@ def test_streamlit_non_admin_does_not_show_platform_admin_entry(tmp_path, monkey
     assert not any(button.label == "Admin  平台管理" for button in app_test.button)
 
 
+def test_platform_admin_audit_frame_serializes_metadata():
+    import green_direct.ui.app as app
+    from datetime import datetime, timezone
+
+    from green_direct.models.pilot_backend import AuditAction, AuditLog
+
+    event = AuditLog(
+        event_id="audit_1",
+        actor_user_id="admin",
+        action=AuditAction.UPDATE_USER,
+        project_id="project_1",
+        study_id="study_1",
+        job_id="job_1",
+        target_type="user",
+        target_id="analyst",
+        metadata={"b": 2, "a": 1},
+        created_at=datetime(2026, 1, 1, 8, 30, tzinfo=timezone.utc),
+    )
+
+    frame = app._platform_admin_audit_frame([event])
+
+    assert list(frame.columns) == [
+        "时间",
+        "动作",
+        "执行人",
+        "project_id",
+        "study_id",
+        "job_id",
+        "对象类型",
+        "对象 ID",
+        "metadata",
+    ]
+    assert frame.loc[0, "时间"] == "2026-01-01T08:30:00+00:00"
+    assert frame.loc[0, "动作"] == "update_user"
+    assert frame.loc[0, "metadata"] == '{"a":1,"b":2}'
+
+
 def test_platform_admin_worker_once_uses_supported_scope_and_reports_result(monkeypatch):
     import green_direct.ui.app as app
     from green_direct.models.pilot_backend import JobStatus, JobType

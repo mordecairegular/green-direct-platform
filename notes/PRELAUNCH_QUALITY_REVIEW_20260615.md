@@ -89,7 +89,7 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
    目前可用于 pilot 交流和核查，但不应作为长期架构锚点。后续应围绕推荐方案和按需明细重做图表/报告。
 
 4. `pilot-admin` CLI 仍是 bootstrap、项目生命周期/成员应急维护、审计抽查、任务排障和过期 artifact 清理入口。
-   最小 Streamlit 平台管理页已经可维护账号、创建/归档项目、维护项目成员和处理部分任务运维；CLI 也已支持列项目/成员、创建或归档项目、授予或禁用项目成员、列审计事件、列任务、认领 queued job、刷新 worker heartbeat/进度、标记 worker 成功/失败、清理过期 payload 和 stale running 任务恢复。首个管理员创建、密码应急重置、服务器端审计抽查和排障仍需要 CLI 或后续独立后台。
+   最小 Streamlit 平台管理页已经可维护账号、创建/归档项目、维护项目成员、处理部分任务运维，并只读查看全局或项目级审计事件；CLI 也已支持列项目/成员、创建或归档项目、授予或禁用项目成员、列审计事件、列任务、认领 queued job、刷新 worker heartbeat/进度、标记 worker 成功/失败、清理过期 payload 和 stale running 任务恢复。首个管理员创建、密码应急重置、服务器端批量排障仍需要 CLI 或后续独立后台。
 
 5. 欢迎页“项目任务与结果”仍不是完整历史结果页。
    它可以帮助内部试用用户确认当前项目已有任务和结果记录，下载已落盘的 summary / portfolio artifact，并 summary-only 恢复技术汇总；同一 `study_id` 的技术汇总已恢复后，也可恢复电源侧/同一主体经济汇总、已保留年度现金流和推荐席位输入，并 portfolio-only 恢复推荐组合；图表/报告入口可加载已有 hourly artifact 或从 input artifact 恢复输入后补算单方案明细；项目 admin 可标记/置顶结果索引，也可软删除/隐藏结果索引并留下审计。但它仍不能恢复完整历史 `StudyResult`、推荐视角选择/重新排序工作台状态，不能做正式报告版本管理或跨项目搜索。

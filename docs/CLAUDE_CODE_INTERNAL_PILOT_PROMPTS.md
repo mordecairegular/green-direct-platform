@@ -73,7 +73,7 @@ python -m pytest -q
    - 是否存在进程级全局缓存复用用户结果；
    - `.runtime/latest_session_snapshot.pkl` 是否会在多人环境默认恢复旧结果；
    - PNG/HTML/Excel/CSV/Markdown 下载是否可能拿到旧项目或其他用户的数据；
-   - Web 平台管理页和 `pilot-admin` 项目生命周期/成员命令是否使用同一平台管理员权限语义；
+   - Web 平台管理页和 `pilot-admin` 项目生命周期/成员/审计命令是否使用同一平台管理员权限语义；
    - 下网电价曲线是否只来自当前会话明确上传的数据。
 2. 后台任务风险：
    - PNG ZIP 后台任务 key 是否按会话隔离；
@@ -84,7 +84,7 @@ python -m pytest -q
    - Streamlit 缺少所选方案 hourly detail 时，是否只在当前用户可提交项目任务且存在 `technical_summary`、`config_snapshot`、三条 `input_curve_*` artifact 时显示/提交后台补算；重复点击是否复用同一研究/方案的活动任务提示，而不是排出一串重复 job；
    - `execute_next_worker_job()`、`execute_worker_loop()`、`pilot-admin run-worker-once` 和 `pilot-admin run-worker-loop` 是否只执行受支持的 `technical_study/hourly_detail` 与 `economic_study/annual_cashflow` job；前者是否复用 `run_hourly_detail_for_scenario()` 并写回 `ArtifactKind.HOURLY_DETAIL`，后者是否读取 `technical_summary` / `recommendation_inputs` 并只为所选方案写回 `ArtifactKind.ANNUAL_CASHFLOW`；失败时是否标记 failed 而不是卡在 running；`run-worker-loop` 的 `max_jobs` / `idle_exit_after` 是否能让脚本安全退出；
    - `LocalJobStore.claim_next_queued_job()`、`PilotAccessService.claim_next_job_for_worker()`、`update_worker_job_progress()`、`succeed_worker_job()`、`fail_worker_job()`、`pilot-admin claim-next-job`、`heartbeat-job`、`complete-worker-job` 和 `fail-worker-job` 是否只更新任务元数据、校验 worker、支持任务类型过滤，并跳过归档项目；命令是否明确不执行真实计算；
-   - `pilot-admin list-audit-events` 是否只能由平台管理员读取，并能分别抽查全局审计和项目级审计；
+   - `pilot-admin list-audit-events` 和平台管理页“审计日志”是否只能由平台管理员读取，并能分别抽查全局审计和项目级审计；
    - 长任务失败、取消、重复点击、页面切换后的状态是否可恢复或可解释。
 3. 计算口径风险：
    - V0.1 储能只能由富余新能源充电；
@@ -221,7 +221,7 @@ python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/tes
 1. User、Role、Project、ProjectMembership；
 2. ProjectStudy、StudyResult、ResultStore；
 3. Job、JobStatus、JobArtifact，包含 queued job 认领、worker heartbeat、stale running cleanup 和未来真正 worker 的状态契约；
-4. AuditLog，包括 `pilot-admin list-audit-events` 这类本地抽查入口与未来正式审计后台的边界；
+4. AuditLog，包括 `pilot-admin list-audit-events` 和平台管理页“审计日志”这类本地抽查入口与未来正式审计后台的边界；
 5. 技术仿真、经济性测算、推荐组合、PNG/HTML/Excel/Markdown 导出的后台任务化；
 6. 输入文件、结果文件和下载文件的隔离策略；
 7. 可导出/不可导出用户的后端授权策略；

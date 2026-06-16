@@ -179,7 +179,8 @@ docker compose --profile worker up -d green-direct-worker
 - 创建/归档项目；
 - 维护项目成员角色；
 - 控制项目成员是否允许下载/导出结果；
-- 在“任务运维”中查看排队/运行中任务，手动处理一个受支持的 queued job，并恢复超时 running 任务元数据。
+- 在“任务运维”中查看排队/运行中任务，手动处理一个受支持的 queued job，并恢复超时 running 任务元数据；
+- 在“审计日志”中只读查看全局或项目级审计事件，并按动作筛选。
 
 当前项目角色为 `admin`、`analyst`、`viewer`，导出权限由 `can_export_artifacts` 独立控制。不可导出用户应能查看网页结果，但不能下载 artifact 或 06 页导出文件。
 

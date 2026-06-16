@@ -94,7 +94,7 @@ Cloudflare Access 是公网入口第一层门禁；应用内账号是第二层�
 - 不可导出用户不能下载 06 页导出和 artifact；
 - 普通用户看不到其他人的项目；
 - 创建项目、运行小样例、重启服务后项目仍存在；
-- 审计日志能看到登录、项目、下载、artifact 操作；
+- 平台管理页“审计日志”和 CLI 审计抽查都能看到登录、项目、下载、artifact 操作；
 - 如测试后台逐小时明细或年度现金流补算，确认 queued job 会出现在欢迎页任务面板，并由平台管理页“任务运维”、`run-worker-once` 或 `run-worker-loop` 处理完成；
 - `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0`；
 - `GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD=1000`、`GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT=20` 已按内测资源配置确认；

@@ -210,6 +210,31 @@ class LocalPilotAdminService:
             return [project for project in projects if project.status == ProjectStatus.ACTIVE]
         return projects
 
+    def list_audit_events(
+        self,
+        *,
+        actor_user_id: str,
+        project_id: str | None = None,
+        actions: list[AuditAction | str] | None = None,
+        limit: int = 100,
+        oldest_first: bool = False,
+    ) -> list[AuditLog]:
+        """List audit events for platform operations."""
+
+        self._platform_admin(actor_user_id)
+        if limit < 1:
+            raise ValueError("limit must be positive.")
+        accepted_actions = {AuditAction(action) for action in actions} if actions else None
+        events = self.result_store.read_audit_log(project_id)
+        if accepted_actions is not None:
+            events = [event for event in events if event.action in accepted_actions]
+        events = sorted(
+            events,
+            key=lambda event: (event.created_at, event.event_id),
+            reverse=not oldest_first,
+        )
+        return events[:limit]
+
     def create_project(
         self,
         *,
