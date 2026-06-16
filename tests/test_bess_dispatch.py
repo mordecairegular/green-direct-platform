@@ -1,6 +1,6 @@
 import pytest
 
-from green_direct.core.bess_dispatch import dispatch_hour
+from green_direct.core.bess_dispatch import dispatch_hour, dispatch_hour_with_limits
 from green_direct.models.params import BessParams
 
 
@@ -139,3 +139,38 @@ def test_exchange_limit_caps_import_and_records_shortfall():
 
     assert step.grid_import == 8
     assert step.exchange_import_shortfall == 12
+
+
+def test_precomputed_limit_dispatch_matches_public_dispatch():
+    params = BessParams(soc_min=0.1, soc_max=0.9, eta_charge=0.95, eta_discharge=0.9)
+
+    public = dispatch_hour(
+        load_energy=10,
+        renewable_energy=30,
+        bess_power=5,
+        bess_energy=20,
+        bess_energy_start=8,
+        bess_params=params,
+        dt_hours=1,
+        allow_export=True,
+        export_power_max=6,
+        remaining_export_cap=4,
+        grid_exchange_power_limit=5,
+    )
+    precomputed = dispatch_hour_with_limits(
+        load_energy=10,
+        renewable_energy=30,
+        has_bess=True,
+        bess_power_energy_limit=5,
+        bess_energy_start=8,
+        bess_soc_min_energy=2,
+        bess_soc_max_energy=18,
+        eta_charge=0.95,
+        eta_discharge=0.9,
+        allow_export=True,
+        export_limit_energy=6,
+        exchange_limit_energy=5,
+        remaining_export_cap=4,
+    )
+
+    assert precomputed == public

@@ -4986,3 +4986,31 @@ Render 单 Web Service 首次公网试用时，不应直接把本地 file store 
 - `python -m compileall -q scripts\preflight_internal_pilot_deploy.py tests\test_deployment_artifacts.py` 通过；
 - `git diff --check` 通过，仅有 Windows 换行转换提示；
 - `python -m pytest -q` 通过，356 项通过。
+
+### 2026-06-16 技术仿真逐小时调度热路径固定开销优化
+
+本轮回到用户持续关注的“方案遍历逐个计算，成千上万方案等待过久”问题，选择一个不改变 V0.1 调度口径的小切片：减少单方案逐小时循环里的重复参数解析和对象包装开销。
+
+实现：
+- `normalize_dispatch_strategy()` 遇到已经是 `DispatchStrategy` 枚举时直接返回，避免每小时重复枚举构造；
+- `bess_dispatch.py` 新增 `dispatch_hour_with_limits()`，接收已经预计算好的 BESS 功率能量限额、SOC 能量边界、上网能量限额和并网能量限额；
+- 原 `dispatch_hour()` 保留公开接口，内部改为先计算限额再调用 `dispatch_hour_with_limits()`，保证既有调用方不变；
+- `run_single_scenario()` 在逐小时循环外缓存 scenario 容量、BESS/Policy 常量、`dt_hours` 倒数和曲线 numpy 数组，并用 `np.maximum(...).sum()` 替代每方案 pandas Series `clip()` 计算总可再生发电量；
+- 逐小时循环内直接调用 `dispatch_hour_with_limits()`，减少每小时重复策略包装、BESS 限额、上网/并网限额和属性查找。
+
+边界：
+- 不改变储能只能由富余可再生充电、不从电网充电、不同时充放电、不向电网放电等 V0.1 规则；
+- 不改变 hourly ledger 字段、summary 字段、policy 判断、经济性 V1 或推荐排序；
+- 本轮只是固定开销优化，不是并行架构、正式队列或近似模型。
+
+benchmark：
+- 优化前：`python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 8 --wind-count 8 --bess-power-count 3 --durations 0,2 --skip-full-retention --json`，189 个方案，`technical_summary_first` 约 3.9668 秒，峰值 Python heap 约 2.509 MB；
+- 优化后：同一命令，189 个方案，`technical_summary_first` 约 3.8365 秒，峰值 Python heap 约 2.474 MB；
+- 优化后额外样本：`python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 12 --wind-count 12 --bess-power-count 4 --durations 0,2 --skip-full-retention --skip-economy --json`，572 个方案，`technical_summary_first` 约 11.3179 秒，峰值 Python heap 约 3.586 MB。
+
+验证：
+- `python -m pytest tests/test_bess_dispatch.py tests/test_single_scenario.py tests/test_batch_runner.py tests/test_study_runner.py tests/test_performance_benchmark_script.py -q` 通过，64 项通过；
+- `python -m compileall -q src\green_direct\core\bess_dispatch.py src\green_direct\core\single_scenario_simulator.py tests\test_bess_dispatch.py` 通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `git diff --check` 通过，仅有 Windows 换行转换提示；
+- `python -m pytest -q` 通过，357 项通过。
