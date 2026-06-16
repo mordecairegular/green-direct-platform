@@ -81,6 +81,14 @@ HOURLY_NUMERIC_LEDGER_COLUMNS = [
     "bess_energy_end",
 ]
 
+_SHARED_EMPTY_HOURLY_DETAIL = pd.DataFrame(columns=HOURLY_LEDGER_COLUMNS)
+
+
+def _empty_hourly_detail(*, shared: bool) -> pd.DataFrame:
+    if shared:
+        return _SHARED_EMPTY_HOURLY_DETAIL
+    return pd.DataFrame(columns=HOURLY_LEDGER_COLUMNS)
+
 
 def _zero_close_hourly_arrays(data: dict[str, object]) -> None:
     """Normalize tiny float artifacts before pandas DataFrame construction."""
@@ -420,6 +428,7 @@ def run_single_scenario(
     dt_hours: float = 1.0,
     retain_hourly_detail: bool = True,
     collect_diagnostics: bool = True,
+    _share_empty_hourly_detail: bool = False,
 ) -> ScenarioResult:
     """Run hourly energy-balance simulation for one scenario."""
 
@@ -506,7 +515,7 @@ def run_single_scenario(
         summary["dispatch_strategy"] = dispatch_strategy.value
         return ScenarioResult(
             summary=summary,
-            hourly_detail=pd.DataFrame(columns=HOURLY_LEDGER_COLUMNS),
+            hourly_detail=_empty_hourly_detail(shared=_share_empty_hourly_detail),
             warnings=[],
             diagnostics=diagnostics,
         )
@@ -694,7 +703,7 @@ def run_single_scenario(
             dt_hours=dt_hours,
         )
     else:
-        hourly = pd.DataFrame(columns=HOURLY_LEDGER_COLUMNS)
+        hourly = _empty_hourly_detail(shared=_share_empty_hourly_detail)
         summary = calculate_summary_from_values(
             scenario,
             bess,

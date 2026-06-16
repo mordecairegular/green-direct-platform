@@ -35,6 +35,7 @@
 - 单方案逐小时调度热路径已新增预计算限额和轻量返回入口：`dispatch_hour()` 保留原接口，`dispatch_hour_with_limits()` 保留 dataclass 兼容接口，`dispatch_hour_values_with_limits()` 返回原始 values 供 `run_single_scenario()` 热路径直接消费；`run_single_scenario()` 在循环外预计算 BESS 功率能量限额、SOC 能量边界、并网/上网能量限额、策略枚举和曲线数组，循环内避免为每小时创建 `DispatchStep` dataclass，减少每小时重复参数解析、对象创建和 pandas Series 构造；不改变 V0.1 调度口径。
 - 无储能方案已接入 NumPy 快路径。该类方案没有 SOC 滚动状态，不需要逐小时创建 dispatch 调用；summary-only 分支直接按数组计算直供、下网、上网、弃电、年上网比例 cap、站用电和电网交换限额汇总，再复用 `calculate_summary_from_values()`；保留逐小时明细时也用同一组数组构造 `HourlyEnergyLedger`，再复用 `calculate_summary()`。该优化仅影响无储能分支，不改变有储能 SOC 滚动口径。
 - 批量技术仿真已在 hot path 关闭逐方案 `InputDiagnostics` 构造；单方案公开调用默认仍保留 diagnostics。保留逐小时明细的场景已把 tiny float / `-0.0` 清零从 pandas DataFrame 后处理移到 DataFrame 构造前的 numpy 数组处理，减少 `mask/_where` 开销；不改变 hourly ledger 字段或 summary 口径。
+- 批量 summary-only 热路径已复用共享空 hourly ledger，避免未保留逐小时明细的每个方案都新建一个空 pandas DataFrame；公开单方案默认调用仍返回带列名的空表。
 
 ## 2. 新增基准脚本
 

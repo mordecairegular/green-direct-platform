@@ -5556,3 +5556,29 @@ profile / benchmark：
 - `python -m pytest tests\test_deployment_artifacts.py -q` 通过，11 项通过；
 - `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
 - `python -m compileall -q scripts\preflight_internal_pilot_deploy.py tests\test_deployment_artifacts.py` 通过。
+
+### 2026-06-17 批量 summary-only 复用空 hourly ledger
+
+本轮回到方案遍历性能。基线反馈环：
+- `python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 4 --wind-count 4 --bess-power-count 2 --durations 0,2 --skip-full-retention --json`：30 个方案，技术 summary-first 约 0.4080s，经济性 summary-only 约 0.0923s；
+- `python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 8 --wind-count 8 --bess-power-count 3 --durations 0,2 --skip-full-retention --retain-detail-count 0 --json`：189 个方案，技术 summary-first 约 2.8705s，经济性 summary-only 约 0.7083s；
+- cProfile 显示技术 summary-only 的单方案循环里，未保留逐小时明细时仍为每个方案构造空 `pd.DataFrame(columns=HOURLY_LEDGER_COLUMNS)`，批量层随后又丢弃它。
+
+实现：
+- `single_scenario_simulator.py` 新增共享空 hourly ledger；
+- `batch_runner.py` 在未保留逐小时明细时显式启用共享空表，避免每个未保留方案重复构造空 DataFrame；
+- 单方案公开默认调用仍返回带列名的空 hourly detail，不改变外部默认语义；
+- 新增测试锁定批量热路径的共享空表行为。
+
+验证：
+- `python -m pytest tests\test_single_scenario.py tests\test_batch_runner.py tests\test_study_runner.py tests\test_pilot_worker.py tests\test_pilot_study_persistence.py -q` 通过，81 项通过；
+- `python -m compileall -q src\green_direct\core\single_scenario_simulator.py src\green_direct\batch\batch_runner.py tests\test_single_scenario.py` 通过；
+- 同一 189 方案 benchmark 复跑：技术 summary-first 约 2.3848s，经济性 summary-only 约 0.7393s；
+- 同一 30 方案、保留 20 个明细 benchmark 复跑：技术 summary-first 约 0.4109s，经济性 summary-only 约 0.0906s；
+- cProfile 显示 189 方案技术 summary-only 函数调用数约从 1,242,297 降到 639,950，空 DataFrame 构造约从 191 次降到 2 次。
+- `python -m pytest -q` 通过，384 项通过；
+- `git diff --check` 通过，仅有 Windows 换行转换提示。
+
+边界：
+- 不改变 V0.1 dispatch、SOC 滚动、summary 字段、hourly ledger 列名、经济性 V1 或推荐排序；
+- 这只减少 summary-only 批量中的空对象构造，有储能逐小时循环仍是主要热路径。

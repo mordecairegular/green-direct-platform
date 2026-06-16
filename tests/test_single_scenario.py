@@ -190,6 +190,43 @@ def test_summary_only_mode_matches_full_hourly_summary_without_ledger_retention(
             assert actual == expected, key
 
 
+def test_batch_hot_path_summary_only_reuses_empty_hourly_detail():
+    curves = _curves([10, 20, 10, 15], [20, 5, 15, 0])
+    scenario = Scenario("S001", 1, 0, 10, 20)
+
+    first = run_single_scenario(
+        curves,
+        scenario,
+        retain_hourly_detail=False,
+        collect_diagnostics=False,
+        _share_empty_hourly_detail=True,
+    )
+    second = run_single_scenario(
+        curves,
+        scenario,
+        retain_hourly_detail=False,
+        collect_diagnostics=False,
+        _share_empty_hourly_detail=True,
+    )
+
+    assert first.hourly_detail.empty
+    assert list(first.hourly_detail.columns) == HOURLY_LEDGER_COLUMNS
+    assert first.hourly_detail is second.hourly_detail
+
+
+def test_public_summary_only_calls_do_not_share_empty_hourly_detail_by_default():
+    curves = _curves([10, 20, 10, 15], [20, 5, 15, 0])
+    scenario = Scenario("S001", 1, 0, 10, 20)
+
+    first = run_single_scenario(curves, scenario, retain_hourly_detail=False, collect_diagnostics=False)
+    second = run_single_scenario(curves, scenario, retain_hourly_detail=False, collect_diagnostics=False)
+
+    assert first.hourly_detail.empty
+    assert list(first.hourly_detail.columns) == HOURLY_LEDGER_COLUMNS
+    assert first.hourly_detail is not second.hourly_detail
+
+
+
 def test_no_bess_summary_only_fast_path_matches_full_hourly_summary(monkeypatch):
     curves = pd.DataFrame(
         {

@@ -76,6 +76,7 @@ def _scenario_run_record(
             dt_hours=dt_hours,
             retain_hourly_detail=retain_hourly_detail,
             collect_diagnostics=collect_diagnostics,
+            _share_empty_hourly_detail=not retain_hourly_detail,
         )
     except Exception as exc:  # noqa: BLE001 - per-scenario failure must be recorded
         return _error_record(scenario, exc)
