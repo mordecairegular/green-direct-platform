@@ -36,6 +36,7 @@ Cloudflare 的最佳角色：域名、HTTPS、WAF/基础防护、Zero Trust Acce
 Render 对当前仓库的改动最小：
 
 - 已有 `Dockerfile`；
+- 已有 `.dockerignore`，会排除本地 runtime、日志、输出、历史归档、测试和文档材料，减少托管平台构建上下文；
 - 新增 `render.yaml` 后可用 Blueprint 创建服务；
 - 支持 Docker Web Service；
 - 支持持久磁盘挂载到 `/data`；

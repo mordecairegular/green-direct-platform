@@ -1,4 +1,6 @@
 .git/
+.claude/
+.codex/
 .venv/
 .runtime/
 .pytest_cache/
@@ -16,9 +18,16 @@ build/
 dist/
 release/
 outputs/
+output/
+archive/
+packaging/
+tests/
+docs/
+notes/
 *.log
 *.pid
 *.tmp
+*.spec
 docs/ui/**/*.png
 docs/ui/**/*.jpg
 docs/UI-suggest/**/*.png
