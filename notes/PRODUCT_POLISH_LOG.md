@@ -5690,3 +5690,18 @@ profile / benchmark：
 边界：
 - 这不改变上传文件业务校验、允许后缀或上传元数据记录；
 - 当前只修正启动/部署口径，让前端控件提示、Streamlit server 限制和应用策略默认一致。
+
+### 2026-06-17 preflight 锁定 Web/Worker/Render 关键环境变量
+
+本轮继续补公网内测部署质量门。此前 Docker/Compose/Render 配置已经写了关键变量，但 preflight 只检查其中一部分，后续如果有人改漏 `GREEN_DIRECT_MAX_UPLOAD_MB`、Streamlit server 参数、worker store 路径或 worker job 类型，静态门不一定能及时发现。
+
+调整：
+- `preflight_internal_pilot_deploy.py` 新增 Compose Web 服务完整环境变量检查，覆盖上传上限、方案数上限、经济性现金流保留阈值、Streamlit 地址/端口/headless/usage stats 和 `PYTHONPATH`；
+- 新增 Compose worker 环境变量检查，锁住 `GREEN_DIRECT_ENABLE_PILOT_AUTH`、runtime snapshot、`GREEN_DIRECT_PILOT_STORE_DIR` 和 `PYTHONPATH`；
+- 新增 worker job 类型检查，确认可选 worker profile 同时轮询 `technical_study` 和 `economic_study`；
+- Render 环境变量检查补齐 Streamlit server 变量、`PORT` 和 `BROWSER_PATH=/usr/bin/chromium`；
+- 部署测试和 README 已同步。
+
+边界：
+- 这仍是静态部署闸，不替代真实 Render Shell doctor/bootstrap、Cloudflare Access 验收或手机公网访问演练；
+- worker 在 Render 单 Web Service + persistent disk 路线下仍不建议拆成独立服务，当前检查主要保护 Docker Compose / 自有 VM 共享卷路线。

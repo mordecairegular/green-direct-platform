@@ -16,6 +16,7 @@ def test_docker_compose_defaults_to_internal_pilot_safety():
     assert environment["GREEN_DIRECT_ENABLE_PILOT_AUTH"] == "1"
     assert environment["GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT"] == "0"
     assert environment["GREEN_DIRECT_PILOT_STORE_DIR"] == "/data/pilot_store"
+    assert environment["GREEN_DIRECT_MAX_UPLOAD_MB"] == "${GREEN_DIRECT_MAX_UPLOAD_MB:-20}"
     assert environment["GREEN_DIRECT_MAX_SCENARIOS_PER_RUN"] == "${GREEN_DIRECT_MAX_SCENARIOS_PER_RUN:-20000}"
     assert environment["GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD"] == (
         "${GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD:-1000}"
@@ -23,9 +24,19 @@ def test_docker_compose_defaults_to_internal_pilot_safety():
     assert environment["GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT"] == (
         "${GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT:-20}"
     )
+    assert environment["STREAMLIT_SERVER_ADDRESS"] == "0.0.0.0"
+    assert environment["STREAMLIT_SERVER_PORT"] == "8503"
+    assert environment["STREAMLIT_SERVER_HEADLESS"] == "true"
+    assert environment["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] == "false"
+    assert environment["PYTHONPATH"] == "/app/src"
     assert "green_direct_pilot_store:/data/pilot_store" in service["volumes"]
     assert compose["volumes"]["green_direct_pilot_store"]["name"] == "green_direct_pilot_store"
     assert service["ports"] == ["8503:8503"]
+    worker_environment = compose["services"]["green-direct-worker"]["environment"]
+    assert worker_environment["GREEN_DIRECT_ENABLE_PILOT_AUTH"] == "1"
+    assert worker_environment["GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT"] == "0"
+    assert worker_environment["GREEN_DIRECT_PILOT_STORE_DIR"] == "/data/pilot_store"
+    assert worker_environment["PYTHONPATH"] == "/app/src"
     worker_command = compose["services"]["green-direct-worker"]["command"]
     assert "technical_study" in worker_command
     assert "economic_study" in worker_command
@@ -63,6 +74,14 @@ def test_render_blueprint_targets_pilot_branch_after_checks_pass():
     assert service["numInstances"] == 1
     assert service["autoDeployTrigger"] == "checksPass"
     assert service["healthCheckPath"] == "/_stcore/health"
+    env = {item["key"]: str(item["value"]) for item in service["envVars"]}
+    assert env["GREEN_DIRECT_MAX_UPLOAD_MB"] == "20"
+    assert env["STREAMLIT_SERVER_ADDRESS"] == "0.0.0.0"
+    assert env["STREAMLIT_SERVER_PORT"] == "8503"
+    assert env["STREAMLIT_SERVER_HEADLESS"] == "true"
+    assert env["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] == "false"
+    assert env["PORT"] == "8503"
+    assert env["BROWSER_PATH"] == "/usr/bin/chromium"
 
 
 def test_github_actions_quality_gate_exists():
@@ -117,8 +136,14 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     assert "render:auto-deploy" in check_names
     assert "render:instances" in check_names
     assert "compose:volume" in check_names
+    assert "compose:env:GREEN_DIRECT_MAX_UPLOAD_MB" in check_names
+    assert "compose:env:STREAMLIT_SERVER_HEADLESS" in check_names
+    assert "compose:worker-env:GREEN_DIRECT_PILOT_STORE_DIR" in check_names
+    assert "compose:worker-job-types" in check_names
     assert "dockerfile:PORT=8503" in check_names
     assert "dockerfile:--server.maxUploadSize=${STREAMLIT_SERVER_MAX_UPLOAD_SIZE:-${GREEN_DIRECT_MAX_UPLOAD_MB:-20}}" in check_names
+    assert "render:env:STREAMLIT_SERVER_HEADLESS" in check_names
+    assert "render:env:BROWSER_PATH" in check_names
     assert "git-tracked:env-files" in check_names
     assert "git-tracked:local-state" in check_names
     assert "git-tracked:secret-payloads" in check_names

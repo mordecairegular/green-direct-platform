@@ -67,6 +67,33 @@ RENDER_REQUIRED_ENV = {
     "GREEN_DIRECT_MAX_SCENARIOS_PER_RUN": "20000",
     "GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD": "1000",
     "GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT": "20",
+    "STREAMLIT_SERVER_ADDRESS": "0.0.0.0",
+    "STREAMLIT_SERVER_PORT": "8503",
+    "STREAMLIT_SERVER_HEADLESS": "true",
+    "STREAMLIT_BROWSER_GATHER_USAGE_STATS": "false",
+    "PYTHONPATH": "/app/src",
+    "PORT": "8503",
+    "BROWSER_PATH": "/usr/bin/chromium",
+}
+COMPOSE_REQUIRED_WEB_ENV = {
+    "GREEN_DIRECT_ENABLE_PILOT_AUTH": "1",
+    "GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT": "0",
+    "GREEN_DIRECT_PILOT_STORE_DIR": "/data/pilot_store",
+    "GREEN_DIRECT_MAX_UPLOAD_MB": "${GREEN_DIRECT_MAX_UPLOAD_MB:-20}",
+    "GREEN_DIRECT_MAX_SCENARIOS_PER_RUN": "${GREEN_DIRECT_MAX_SCENARIOS_PER_RUN:-20000}",
+    "GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD": "${GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD:-1000}",
+    "GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT": "${GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT:-20}",
+    "STREAMLIT_SERVER_ADDRESS": "0.0.0.0",
+    "STREAMLIT_SERVER_PORT": "8503",
+    "STREAMLIT_SERVER_HEADLESS": "true",
+    "STREAMLIT_BROWSER_GATHER_USAGE_STATS": "false",
+    "PYTHONPATH": "/app/src",
+    "PORT": "8503",
+}
+COMPOSE_REQUIRED_WORKER_ENV = {
+    "GREEN_DIRECT_ENABLE_PILOT_AUTH": "1",
+    "GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT": "0",
+    "GREEN_DIRECT_PILOT_STORE_DIR": "/data/pilot_store",
     "PYTHONPATH": "/app/src",
 }
 RENDER_REQUIRED_BRANCH = "codex/UI"
@@ -164,13 +191,7 @@ def _compose_checks(checks: list[dict[str, str]]) -> None:
         _check(False, checks, "compose:parse", f"docker-compose.yml parse failed: {exc}")
         return
 
-    expected_env = {
-        "GREEN_DIRECT_ENABLE_PILOT_AUTH": "1",
-        "GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT": "0",
-        "GREEN_DIRECT_PILOT_STORE_DIR": "/data/pilot_store",
-        "PORT": "8503",
-    }
-    for key, expected in expected_env.items():
+    for key, expected in COMPOSE_REQUIRED_WEB_ENV.items():
         _check(environment.get(key) == expected, checks, f"compose:env:{key}", f"{key} defaults to {expected}")
     _check(
         "green_direct_pilot_store:/data/pilot_store" in service.get("volumes", []),
@@ -183,6 +204,23 @@ def _compose_checks(checks: list[dict[str, str]]) -> None:
         checks,
         "compose:volume-name",
         "compose declares named pilot store volume",
+    )
+
+    worker = compose.get("services", {}).get("green-direct-worker", {})
+    worker_environment = worker.get("environment", {})
+    for key, expected in COMPOSE_REQUIRED_WORKER_ENV.items():
+        _check(
+            worker_environment.get(key) == expected,
+            checks,
+            f"compose:worker-env:{key}",
+            f"worker {key} defaults to {expected}",
+        )
+    worker_command = " ".join(str(part) for part in worker.get("command", []))
+    _check(
+        "technical_study" in worker_command and "economic_study" in worker_command,
+        checks,
+        "compose:worker-job-types",
+        "worker loop polls technical_study and economic_study jobs",
     )
 
 
@@ -215,7 +253,6 @@ def _render_checks(checks: list[dict[str, str]]) -> None:
     env = {item["key"]: str(item["value"]) for item in service.get("envVars", [])}
     for key, expected in RENDER_REQUIRED_ENV.items():
         _check(env.get(key) == expected, checks, f"render:env:{key}", f"{key} defaults to {expected}")
-    _check(env.get("PORT") is not None, checks, "render:env:PORT", "Render declares PORT")
 
 
 def _run_smoke(timeout_seconds: int, checks: list[dict[str, str]]) -> None:
