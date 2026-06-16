@@ -42,6 +42,7 @@
 - 技术批量入口已支持 `retain_hourly_details=False` 和指定方案明细保留，服务层 `TechnicalStudyInput` 已接入。
 - 经济性入口已支持 `retain_annual_cashflows=False` 和指定方案年度现金流保留。
 - 技术批量入口已支持 `PerformanceParams.parallel_workers`，02 页高级性能区已可配置并行进程数，默认 1。
+- 并行技术仿真已改为按方案块提交给 `ProcessPoolExecutor`，减少大方案池下单方案 task 调度开销，结果顺序仍按原 `scenario_id` 聚合。
 - 技术批量入口已支持 `PerformanceParams.max_scenarios_per_run`，容器和 UI 默认读取 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN=20000`；超限时 02 页会阻止开始测算，`run_batch()` 后端也会拒绝执行。
 - 02 页已新增计算前工作量提示：按方案数、小时数、明细保留策略和并行进程数给出粗略耗时区间；超过方案数提醒阈值时需勾选大批量同步测算确认，才允许点击“开始测算”。
 - 02 页已接入第一版大批量汇总优先模式：方案数超过提醒阈值时，只常驻方案汇总和前 N 个方案逐小时明细，N 由“大批量保留明细数”控制。
@@ -80,7 +81,7 @@
 - 把当前同步单方案逐小时明细补算继续升级为项目级后台任务；历史 summary-only 恢复后的 input artifact 补算已可用第一版，但还没有 worker 级进度、取消、重试和排队。
 - 用户选择代表方案、图表方案或导出方案后，已有项目级 hourly artifact 已可优先加载；下一步是没有 artifact 时提交后台按需补算任务。
 - 下一阶段把完整历史结果恢复/删除/标记、推荐视角选择与重新排序工作台状态、PNG/Excel/批量包、完整报告导出也提交为项目级后台 `Job`，并把对应 hourly/chart/report/export artifacts 写入 `ResultStore`；summary-only 经济运行如需后补年度现金流，应作为按需 Job 生成。
-- 技术仿真优先评估 `ProcessPoolExecutor` / 后台任务队列，按方案块并行，保持 `scenario_id`、warning、error 和顺序稳定。
+- 技术仿真已完成当前进程内 `ProcessPoolExecutor` 按方案块并行；下一步评估后台任务队列时继续沿用块级调度，保持 `scenario_id`、warning、error 和顺序稳定。
 - 经济性测算优先做 DataFrame/NumPy 批量化，完整年度现金流可先只对报告方案或推荐组合生成。
 - 后续再评估 Numba、编译化调度内核或更高性能的数据结构。
 

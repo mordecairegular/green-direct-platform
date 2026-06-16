@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Sequence, TypeVar
 
 import pandas as pd
 
@@ -13,6 +13,8 @@ from green_direct.core.single_scenario_simulator import run_single_scenario
 from green_direct.models.params import BessParams, PerformanceParams, PolicyParams
 from green_direct.models.results import ScenarioResult
 from green_direct.models.scenario import Scenario
+
+_T = TypeVar("_T")
 
 
 @dataclass
@@ -117,6 +119,26 @@ def _scenario_run_record_from_worker(scenario: Scenario) -> _ScenarioRunRecord:
     )
 
 
+def _parallel_chunk_size(scenario_count: int, parallel_workers: int) -> int:
+    if scenario_count <= 0:
+        return 1
+    worker_count = max(1, int(parallel_workers))
+    if scenario_count <= worker_count * 4:
+        return 1
+    # Keep enough chunks for load balancing while avoiding one process-pool task per scenario.
+    return min(32, max(1, (scenario_count + worker_count * 8 - 1) // (worker_count * 8)))
+
+
+def _scenario_chunks(items: Sequence[_T], chunk_size: int) -> Iterable[list[_T]]:
+    safe_chunk_size = max(1, int(chunk_size))
+    for start in range(0, len(items), safe_chunk_size):
+        yield list(items[start : start + safe_chunk_size])
+
+
+def _scenario_chunk_records_from_worker(scenarios: list[Scenario]) -> list[_ScenarioRunRecord]:
+    return [_scenario_run_record_from_worker(scenario) for scenario in scenarios]
+
+
 def _scenario_records(
     curves: pd.DataFrame,
     scenarios: list[Scenario],
@@ -145,7 +167,9 @@ def _scenario_records(
         initializer=_init_parallel_worker,
         initargs=(curves, bess_params, policy_params, dt_hours, retain_hourly_details, retained_hourly_ids),
     ) as executor:
-        yield from executor.map(_scenario_run_record_from_worker, scenarios)
+        chunks = _scenario_chunks(scenarios, _parallel_chunk_size(len(scenarios), parallel_workers))
+        for records in executor.map(_scenario_chunk_records_from_worker, chunks):
+            yield from records
 
 
 def run_batch(

@@ -20,6 +20,7 @@
 - `run_single_scenario(..., retain_hourly_detail=False)` 已支持 summary-only，不再为未保留方案构造完整 `hourly_detail`；
 - `run_batch(..., retain_hourly_details=False, hourly_detail_scenario_ids=...)` 已支持汇总优先和指定方案明细保留；
 - `PerformanceParams.parallel_workers` 已支持 `ProcessPoolExecutor` 并行技术仿真；
+- 并行技术仿真已改为自动按方案块提交给进程池，减少大方案池下一个方案一个 task 的调度开销，结果聚合仍保持方案顺序；
 - 02 页已暴露并行进程数和大批量保留明细数；
 - `PerformanceParams.max_scenarios_per_run` 与 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN` 已提供单次方案数硬上限；02 页会在超限时提示并禁用开始测算，`run_batch()` 后端也会拒绝执行；
 - 02 页已新增计算前工作量提示：按方案数、小时数、明细保留策略和并行进程数给出粗略耗时区间；超过方案数提醒阈值时必须勾选大批量同步测算确认，才允许点击“开始测算”；
@@ -102,7 +103,7 @@ python scripts\benchmark_internal_pilot_performance.py --json
 要做：
 
 - 技术仿真、经济性测算、图表/报告导出统一登记为 `Job`；
-- 前台提交任务、轮询真实 worker 状态、显示进度、支持 worker 级取消；
+- 前台提交任务、轮询真实 worker 状态、显示进度、支持 worker 级取消；技术仿真 worker 应优先按方案块而不是单方案调度，延续当前 `run_batch()` 的分块并行思路；
 - worker 从 `ResultStore`/输入 artifact 读取数据，写回 summary、明细和导出文件；
 - 失败状态写入脱敏错误和审计日志。
 

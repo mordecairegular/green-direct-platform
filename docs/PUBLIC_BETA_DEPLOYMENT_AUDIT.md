@@ -18,7 +18,7 @@
 - 导出页已可将所选方案 HTML 图表包和简版 Markdown 报告显式保存为项目级 `chart_package` / `report` artifact，登记 `chart_export` / `report_export` Job，并写入 `STORE_ARTIFACT` 审计；
 - 当前 06 导出页的临时下载按钮已接入 `PilotAccessService.record_transient_export_download()`，点击 CSV/Excel/ZIP/Markdown 下载会复用项目导出权限并写 `DOWNLOAD_ARTIFACT` 审计；
 - 上传文件类型/大小校验和 hash 元数据；
-- 大方案池 summary-first、计算前粗略耗时提示、大批量确认、单次方案数硬上限、可选并行、当前会话单方案逐小时明细补算、hourly artifact 留存、已有 hourly artifact 跨会话加载，以及基于三条 input artifact 的跨会话单方案明细补算第一版；
+- 大方案池 summary-first、计算前粗略耗时提示、大批量确认、单次方案数硬上限、可选并行和并行方案块提交、当前会话单方案逐小时明细补算、hourly artifact 留存、已有 hourly artifact 跨会话加载，以及基于三条 input artifact 的跨会话单方案明细补算第一版；
 - 欢迎页项目任务与结果面板，以及排队/运行中任务的最小查看和取消入口；
 - `.env.example`、内部部署 runbook、pilot store 备份/恢复脚本。
 - Dockerfile、docker-compose.yml、README_DEPLOY.md、SECURITY.md 第一版。
@@ -47,7 +47,7 @@
 | 关键操作审计日志 | 部分满足 | 登录、项目、成员、任务、artifact 写入/网页查看/下载/清理、当前 06 页临时导出下载已审计 | 管理员跨项目查看、原始文件查看、未来 API/反向代理下载仍需补齐 | 扩充 `AuditAction` 覆盖面 |
 | Docker 可部署 | 第一版满足 | `Dockerfile`、`docker-compose.yml`、`README_DEPLOY.md` | 尚未在目标服务器完成构建/启动/恢复演练 | 实机运行 `docker compose build/up` 和数据卷恢复演练 |
 | HTTPS/反向代理/备份/恢复/回滚说明 | 部分满足 | 内部 runbook、PowerShell 备份/恢复脚本、`README_DEPLOY.md` | 缺少系统服务托管、集中日志、监控告警和自动恢复演练 | 在目标服务器补 Caddy/Nginx 配置、日志和监控 |
-| 核心算法回归通过 | 满足当前 checkpoint | 最近 `pytest -q` 为 296 passed | 后续改性能/后台时仍需重复验证 | 每个工程化切片后跑回归 |
+| 核心算法回归通过 | 满足当前 checkpoint | 最近 `pytest -q` 为 298 passed | 后续改性能/后台时仍需重复验证 | 每个工程化切片后跑回归 |
 
 ## 3. 推荐执行顺序
 

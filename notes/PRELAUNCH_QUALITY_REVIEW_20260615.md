@@ -4,7 +4,7 @@
 
 - 当前分支：`codex/UI`
 - 对比基线：`origin/codex/UI`
-- 当前状态：本地已有连续 checkpoint；本记录随 Streamlit 项目工作区、项目成员管理、项目级结果持久化、最小任务/结果索引/下载/summary-only 恢复面板、input artifact 留存、跨会话单方案明细补算、经济 summary-only 恢复、推荐席位输入恢复、推荐 portfolio-only 恢复，以及 HTML 图表包 / Markdown 报告显式保存到项目历史补充更新。
+- 当前状态：本地已有连续 checkpoint；本记录随 Streamlit 项目工作区、项目成员管理、项目级结果持久化、最小任务/结果索引/下载/summary-only 恢复面板、input artifact 留存、跨会话单方案明细补算、经济 summary-only 恢复、推荐席位输入恢复、推荐 portfolio-only 恢复、HTML 图表包 / Markdown 报告显式保存到项目历史，以及并行技术仿真方案块提交补充更新。
 - 目标口径：近期上线应理解为受控内部试用 / pilot；若开放公网访问，也只能按邀请制“受控公网内测 Route A”推进，不应理解为公网生产 SaaS。
 
 ## 本轮 checkpoint 概览
@@ -12,7 +12,7 @@
 本轮已把原先未提交工作整理为连续 checkpoint，核心变化包括：
 
 - UI 大改造、方案图谱、经济性参数工作台与导出体验；
-- 大批量汇总优先 summary-only 路径、当前会话与基于 input artifact 的跨会话单方案逐小时明细按需补算、可选并行技术仿真；
+- 大批量汇总优先 summary-only 路径、当前会话与基于 input artifact 的跨会话单方案逐小时明细按需补算、可选并行技术仿真和并行方案块提交；
 - 经济性批量评价性能优化；
 - 内部试用后台模型、结果存储、账号注册表、认证、可选 Streamlit 登录门禁、项目工作区门禁、最小平台账号/项目成员管理页、管理员服务、任务状态存储、权限审计门面，技术/经济 summary/已保留年度现金流/推荐席位输入/推荐 portfolio 持久化第一阶段，HTML 图表包 / Markdown 报告显式保存第一阶段，以及欢迎页任务/结果索引、已落盘 artifact 下载、技术 summary-only 恢复、经济 summary 和已保留年度现金流恢复、推荐席位输入恢复和推荐 portfolio-only 恢复面板；
 - `pilot-admin` 命令行账号管理入口；
@@ -21,7 +21,7 @@
 - 面向 Claude Code 的内部试用审查 / 后台架构 prompt 和跨机器 handoff 文档；
 - 已吸收用户补充的受控公网内测讨论稿方向：不接真实电力控制系统、不开放社会化注册、保留项目/Run/Artifact/AuditLog、后端控制导出权限、补文件安全和部署恢复边界。
 
-近期 checkpoint 已覆盖 CLI、认证、平台管理、项目工作区、大批量汇总优先模式，技术仿真 summary/config/input curves、经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio、HTML 图表包和 Markdown 报告写入项目级 `ResultStore`，项目内最近任务/结果索引、已落盘 artifact 下载、技术 summary-only 恢复、经济 summary 和已保留年度现金流恢复、推荐席位输入恢复、推荐 portfolio-only 恢复、已有 hourly artifact 加载、input artifact 恢复补算，到期 artifact payload 清理，以及内部试用部署/备份/恢复第一版材料；具体提交以 `git log --oneline` 为准。
+近期 checkpoint 已覆盖 CLI、认证、平台管理、项目工作区、大批量汇总优先模式，技术仿真 summary/config/input curves、经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio、HTML 图表包和 Markdown 报告写入项目级 `ResultStore`，项目内最近任务/结果索引、已落盘 artifact 下载、技术 summary-only 恢复、经济 summary 和已保留年度现金流恢复、推荐席位输入恢复、推荐 portfolio-only 恢复、已有 hourly artifact 加载、input artifact 恢复补算，到期 artifact payload 清理、并行技术仿真方案块提交，以及内部试用部署/备份/恢复第一版材料；具体提交以 `git log --oneline` 为准。
 
 ## 验证结果
 
@@ -35,11 +35,11 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 
 结果：
 
-- 全量测试通过：296 项通过；
+- 全量测试通过：298 项通过；
 - `src scripts tests` 编译检查通过；
 - 源码树下 CLI 启动口径验证通过；
 - `git diff --check` 没有实际空白错误，仅有 Windows 换行转换提示；
-- 本轮 input artifact 跨会话明细补算 checkpoint 已提交为 `3ce2222 feat(pilot): restore input artifacts for detail recompute`；随后已补经济 summary-only 和推荐 portfolio-only 恢复 checkpoint，提交以 `git log --oneline` 为准。
+- 本轮 input artifact 跨会话明细补算 checkpoint 已提交为 `3ce2222 feat(pilot): restore input artifacts for detail recompute`；随后已补经济 summary-only、推荐 portfolio-only 恢复和并行方案块提交 checkpoint，提交以 `git log --oneline` 为准。
 
 ## 结论
 

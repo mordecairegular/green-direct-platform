@@ -200,3 +200,55 @@ def test_batch_runner_parallel_matches_sequential_results():
         (index, sequential.scenario_count, scenario_id)
         for index, scenario_id in enumerate(["S0001", "S0002", "S0003", "S0004", "S0005", "S0006"], start=1)
     ]
+
+
+def test_parallel_chunk_size_reduces_large_process_pool_task_count():
+    assert batch_runner._parallel_chunk_size(6, 2) == 1
+    chunk_size = batch_runner._parallel_chunk_size(1000, 4)
+    assert chunk_size > 1
+    assert chunk_size <= 32
+    chunks = list(batch_runner._scenario_chunks(list(range(10)), 3))
+    assert chunks == [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9]]
+
+
+def test_batch_runner_parallel_submits_scenario_chunks(monkeypatch):
+    grid = {
+        "pv_capacity": {"start": 0, "end": 4, "step": 1},
+        "wind_capacity": {"start": 0, "end": 2, "step": 1},
+        "bess_power": {"start": 0, "end": 1, "step": 1},
+        "bess_duration_hours": [0, 2],
+    }
+    submitted_chunk_sizes: list[int] = []
+    expected_scenario_count = len(generate_scenarios(grid))
+
+    class FakeProcessPoolExecutor:
+        def __init__(self, *, max_workers, initializer, initargs):
+            self.max_workers = max_workers
+            initializer(*initargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def map(self, func, iterable):
+            chunks = list(iterable)
+            submitted_chunk_sizes.extend(len(chunk) for chunk in chunks)
+            for chunk in chunks:
+                yield func(chunk)
+
+    monkeypatch.setattr(batch_runner, "ProcessPoolExecutor", FakeProcessPoolExecutor)
+
+    result = batch_runner.run_batch(
+        _curves(),
+        grid,
+        policy_params=PolicyParams(allow_export=False),
+        performance_params=PerformanceParams(parallel_workers=2),
+        retain_hourly_details=False,
+    )
+
+    assert result.scenario_count == expected_scenario_count
+    assert sum(submitted_chunk_sizes) == expected_scenario_count
+    assert max(submitted_chunk_sizes) > 1
+    assert result.hourly_details == {}

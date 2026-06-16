@@ -4154,3 +4154,33 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest -q` 通过，296 项通过；
 - `$env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help` 通过；
 - `git diff --check` 无实际空白错误，仅提示 Windows 换行转换。
+
+### 2026-06-16 技术仿真并行方案块提交
+
+本轮回到大方案池性能问题。此前 `PerformanceParams.parallel_workers` 已能使用 `ProcessPoolExecutor` 并行执行技术仿真，但并行路径仍是把每个 `Scenario` 单独提交给进程池。几千到几万个方案时，即使单方案计算本身可以并行，进程池任务调度、序列化和结果回传也会形成额外开销。
+
+本轮判断：
+- 不能改变 V0.1 单方案调度口径；块内仍必须逐个调用同一 `run_single_scenario()`；
+- 不能改变输出顺序、`scenario_id`、warning、error 和 progress callback 顺序；
+- 先做自动分块，不增加用户 UI 参数，避免给非编程用户暴露“chunk size”这类工程细节；
+- 该优化减少并行调度开销，不等于解决后台 worker、排队、取消或多人资源隔离。
+
+本轮实现：
+- 新增 `_parallel_chunk_size()`，按方案总数和 worker 数自动选择块大小，小任务仍保持单方案粒度，大任务块大小上限 32；
+- 新增 `_scenario_chunks()` 和 `_scenario_chunk_records_from_worker()`；
+- `run_batch()` 并行路径从 `executor.map(_scenario_run_record_from_worker, scenarios)` 改为对方案块执行 `executor.map(_scenario_chunk_records_from_worker, chunks)`，再按块内顺序展开结果；
+- 串行路径不变，summary-only 与指定保留逐小时明细策略不变。
+
+边界说明：
+- 这不是新的计算引擎，也不是近似计算；
+- 若未来接入正式后台 worker，应继续按方案块调度，而不是恢复成单方案任务；
+- progress callback 仍按最终聚合顺序逐方案回调，但大块完成前不会像单方案任务那样频繁返回。
+
+验证：
+- `python -m pytest tests/test_batch_runner.py -q` 通过，11 项通过；
+- `python -m pytest tests/test_study_runner.py tests/test_performance_benchmark_script.py -q` 通过，13 项通过；
+- `python scripts/benchmark_internal_pilot_performance.py --hours 168 --pv-count 5 --wind-count 4 --bess-power-count 3 --durations 0,2 --parallel-workers 2 --skip-full-retention --skip-economy --json` 通过；本机样本：57 个方案、168 小时、2 worker、summary-first 技术仿真约 1.2143s、峰值 Python heap 约 1.963MB；
+- `python -m compileall -q src scripts tests` 通过；
+- `python -m pytest -q` 通过，298 项通过；
+- `$env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help` 通过；
+- `git diff --check` 无实际空白错误，仅提示 Windows 换行转换。

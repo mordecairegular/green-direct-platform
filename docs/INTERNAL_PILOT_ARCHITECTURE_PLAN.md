@@ -202,7 +202,7 @@ PNG 图表包后台任务也按会话隔离：
 
 - `run_batch(..., retain_hourly_details=False, hourly_detail_scenario_ids=[...])` 可只返回方案汇总，或只保留指定方案逐小时明细；
 - `run_single_scenario(..., retain_hourly_detail=False)` 已支持 summary-only 模式：仍按同一逐小时 dispatch 规则滚动 SOC 和累计技术指标，但不构造 8760/8784 行 `hourly_detail` DataFrame；
-- `PerformanceParams(parallel_workers=N)` 可让 `run_batch()` 使用 `ProcessPoolExecutor` 并行执行单方案技术仿真；默认 `1`，02 页“高级：枚举性能提醒”已暴露并行进程数；
+- `PerformanceParams(parallel_workers=N)` 可让 `run_batch()` 使用 `ProcessPoolExecutor` 并行执行技术仿真；默认 `1`，02 页“高级：枚举性能提醒”已暴露并行进程数；当前并行路径已按方案块提交到进程池，减少大方案池下的任务提交开销；
 - `PerformanceParams(max_scenarios_per_run=N)` 与 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN` 已作为单次方案数硬上限；02 页超限时禁用“开始测算”，`run_batch()` 后端也会拒绝执行，避免未来 API/Job 绕过 UI；
 - 02 页已新增计算前粗略耗时提示，并在方案数超过提醒阈值时要求用户勾选大批量同步测算确认，减少内部试用中误提交大方案池的概率；
 - `TechnicalStudyInput(retain_hourly_details=False, hourly_detail_scenario_ids=(...))` 已把该能力接入服务层，并写入 `config_snapshot["detail_retention"]`；
