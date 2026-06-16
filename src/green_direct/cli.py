@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from green_direct.models.pilot_backend import AuditAction, AuditLog, User
 from green_direct.services import (
+    LocalJobStore,
     LocalPilotAdminService,
     LocalPilotAuth,
     LocalPilotRegistry,
@@ -26,6 +27,7 @@ DEFAULT_PILOT_STORE_DIR = Path(".runtime") / "pilot_store"
 @dataclass(frozen=True)
 class _PilotServiceBundle:
     registry: LocalPilotRegistry
+    job_store: LocalJobStore
     result_store: LocalResultStore
     auth: LocalPilotAuth
     admin: LocalPilotAdminService
@@ -34,6 +36,7 @@ class _PilotServiceBundle:
 def _pilot_services(store_dir: str | Path) -> _PilotServiceBundle:
     root = Path(store_dir).resolve()
     registry = LocalPilotRegistry(root)
+    job_store = LocalJobStore(root)
     result_store = LocalResultStore(root)
     auth = LocalPilotAuth(root, registry=registry, result_store=result_store)
     admin = LocalPilotAdminService(
@@ -43,6 +46,7 @@ def _pilot_services(store_dir: str | Path) -> _PilotServiceBundle:
     )
     return _PilotServiceBundle(
         registry=registry,
+        job_store=job_store,
         result_store=result_store,
         auth=auth,
         admin=admin,
@@ -187,6 +191,52 @@ def _cmd_purge_expired_artifacts(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_fail_stale_jobs(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    services.admin.list_users(actor_user_id=args.actor_user_id)
+    now = datetime.now(timezone.utc)
+    stale_after_seconds = int(args.stale_after_minutes) * 60
+    message = (
+        "Marked failed by pilot-admin fail-stale-jobs after "
+        f"{args.stale_after_minutes} minutes without heartbeat."
+    )
+    failed = services.job_store.fail_stale_running_jobs(
+        now=now,
+        stale_after_seconds=stale_after_seconds,
+        error_message=message,
+        project_id=args.project_id,
+    )
+    for job in failed:
+        services.result_store.append_audit_log(
+            AuditLog(
+                event_id=f"stale-job-fail-{uuid4().hex}",
+                actor_user_id=args.actor_user_id,
+                action=AuditAction.COMPLETE_JOB,
+                project_id=job.project_id,
+                study_id=job.study_id,
+                job_id=job.job_id,
+                target_type="job",
+                target_id=job.job_id,
+                metadata={
+                    "status": job.status.value,
+                    "reason": "stale_running_job",
+                    "stale_after_seconds": stale_after_seconds,
+                    "worker_id": job.worker_id,
+                    "last_heartbeat_at": (
+                        job.last_heartbeat_at.isoformat() if job.last_heartbeat_at else None
+                    ),
+                    "error_message": job.error_message,
+                },
+                created_at=now,
+            )
+        )
+    print(f"Marked stale running jobs failed: {len(failed)}")
+    for job in failed:
+        finished_at = job.finished_at.isoformat() if job.finished_at else ""
+        print(f"{job.project_id}\t{job.study_id}\t{job.job_id}\t{finished_at}")
+    return 0
+
+
 def _add_common_store_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--store-dir",
@@ -274,6 +324,21 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_store_arg(purge_artifacts)
     _add_actor_arg(purge_artifacts)
     purge_artifacts.set_defaults(func=_cmd_purge_expired_artifacts)
+
+    fail_stale_jobs = pilot_admin_sub.add_parser(
+        "fail-stale-jobs",
+        help="Mark running jobs failed when their heartbeat is older than the configured timeout.",
+    )
+    _add_common_store_arg(fail_stale_jobs)
+    _add_actor_arg(fail_stale_jobs)
+    fail_stale_jobs.add_argument(
+        "--stale-after-minutes",
+        type=int,
+        default=60,
+        help="Timeout in minutes since last heartbeat or start time. Default: 60.",
+    )
+    fail_stale_jobs.add_argument("--project-id", help="Limit cleanup to one project.")
+    fail_stale_jobs.set_defaults(func=_cmd_fail_stale_jobs)
 
     return parser
 

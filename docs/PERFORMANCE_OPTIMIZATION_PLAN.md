@@ -99,11 +99,12 @@ python scripts\benchmark_internal_pilot_performance.py --json
 已完成第一步：
 
 - 欢迎页“项目任务与结果”面板已可筛出当前项目 `queued` / `running` 活动任务，并提供最小取消入口；取消动作仍走 `PilotAccessService.cancel_job()` 权限校验和审计。
+- `Job` 已记录 `worker_id` / `last_heartbeat_at`，`LocalJobStore` 和 `pilot-admin fail-stale-jobs` 可把超时 running 任务元数据标记为 failed；这只是运维恢复入口，不是正式 worker 级中断。
 
 要做：
 
 - 技术仿真、经济性测算、图表/报告导出统一登记为 `Job`；
-- 前台提交任务、轮询真实 worker 状态、显示进度、支持 worker 级取消；技术仿真 worker 应优先按方案块而不是单方案调度，延续当前 `run_batch()` 的分块并行思路；
+- 前台提交任务、轮询真实 worker 状态、写 heartbeat、显示进度、支持 worker 级取消；技术仿真 worker 应优先按方案块而不是单方案调度，延续当前 `run_batch()` 的分块并行思路；
 - worker 从 `ResultStore`/输入 artifact 读取数据，写回 summary、明细和导出文件；
 - 失败状态写入脱敏错误和审计日志。
 

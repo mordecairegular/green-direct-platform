@@ -138,6 +138,42 @@ def test_job_progress_requires_non_negative_counts_and_blocks_terminal_updates()
         job.cancel(finished_at=_dt(6)).update_progress(current=1, total=5)
 
 
+def test_job_worker_heartbeat_and_stale_detection():
+    job = Job(
+        job_id="job_worker",
+        project_id="project_1",
+        study_id="study_1",
+        requested_by_user_id="user_1",
+        job_type=JobType.TECHNICAL_STUDY,
+    )
+
+    running = job.start(started_at=_dt(2), worker_id="worker_1")
+    progressed = running.update_progress(
+        current=1,
+        total=3,
+        message="batch 1",
+        heartbeat_at=_dt(3),
+    )
+
+    assert running.worker_id == "worker_1"
+    assert running.last_heartbeat_at == _dt(2)
+    assert progressed.worker_id == "worker_1"
+    assert progressed.last_heartbeat_at == _dt(3)
+    assert not progressed.is_stale(now=_dt(4), stale_after_seconds=7200)
+    assert progressed.is_stale(now=_dt(4), stale_after_seconds=3600)
+    assert progressed.succeed(finished_at=_dt(5)).is_stale(now=_dt(6), stale_after_seconds=1) is False
+
+    with pytest.raises(ValueError, match="last_heartbeat_at must be timezone-aware"):
+        Job(
+            job_id="job_bad_heartbeat",
+            project_id="project_1",
+            study_id="study_1",
+            requested_by_user_id="user_1",
+            job_type=JobType.TECHNICAL_STUDY,
+            last_heartbeat_at=datetime(2026, 6, 15, 1),
+        )
+
+
 def test_project_study_artifact_and_result_record_preserve_project_boundary():
     user = User("user_1", "analyst@example.local", "Analyst")
     project = Project("project_1", "Internal pilot project", created_by_user_id=user.user_id)

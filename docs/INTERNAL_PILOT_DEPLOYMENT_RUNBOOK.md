@@ -134,7 +134,21 @@ python -m green_direct.cli pilot-admin purge-expired-artifacts `
 
 清理只删除到期 payload，保留 `artifact.json` 和历史索引，并写入项目级 `DELETE_ARTIFACT` 审计。当前还没有原始上传文件清理和后台定时调度。
 
-## 10. 冒烟检查
+## 10. 任务卡死恢复
+
+当前 `LocalJobStore` 已记录 `worker_id` 和 `last_heartbeat_at`，但试用版还没有真正后台 worker、进程守护或自动重试。如果 Streamlit 进程中断、服务器重启或未来 worker 异常退出，可能留下长期 `running` 的任务元数据。管理员可执行：
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m green_direct.cli pilot-admin fail-stale-jobs `
+    --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --actor-user-id admin `
+    --stale-after-minutes 60
+```
+
+该命令会把超过阈值未 heartbeat 的 running 任务标记为 `failed`，写入项目级 `COMPLETE_JOB` 审计，并保留原 `worker_id`、最后 heartbeat 和错误说明。它只修复任务元数据，不会终止操作系统进程，也不代表已经有正式后台队列、重试或资源回收。
+
+## 11. 冒烟检查
 
 每次上线或回滚后至少检查：
 - 未登录用户只能看到登录页；
@@ -142,16 +156,16 @@ python -m green_direct.cli pilot-admin purge-expired-artifacts `
 - 普通用户必须选择或创建项目后才进入六步工作流；
 - Demo 技术仿真、经济性测算、方案推荐能跑通；
 - 禁止导出的项目成员不能下载历史 artifact 或 06 页导出文件；
-- `pilot-admin list-users` 和 `purge-expired-artifacts` 可执行；
+- `pilot-admin list-users`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
 - 新运行日志不包含明文密码、明文 token、原始曲线内容。
 
-## 11. 回滚
+## 12. 回滚
 
 回滚前先备份当前 store。代码回滚应优先切换到上一份已验证源码目录或上一提交，不要删除 pilot store。若新版本写入了旧版本不认识的 metadata，应先用恢复目录核查旧版本能否读取关键结果，再切换生产入口。
 
-## 12. 仍未完成的生产化事项
+## 13. 仍未完成的生产化事项
 
-- 正式后台 worker、排队、取消、重试和限流；
+- 正式后台 worker、排队、worker 级取消、重试和限流；当前仅有活动任务取消元数据和 stale running 置失败运维入口；
 - SQLite/Postgres 或对象存储适配；
 - 原始上传文件保存、留存和清理；
 - 完整历史结果恢复、跨项目搜索和报告版本管理；结果索引标记/置顶和软删除已有第一版；

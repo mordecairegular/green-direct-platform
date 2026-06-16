@@ -42,6 +42,8 @@ def _job_from_json(data: dict) -> Job:
         progress_current=int(data.get("progress_current", 0)),
         progress_total=int(data.get("progress_total", 0)),
         progress_message=data.get("progress_message"),
+        worker_id=data.get("worker_id"),
+        last_heartbeat_at=_parse_datetime(data.get("last_heartbeat_at")),
     )
 
 
@@ -75,6 +77,19 @@ class LocalJobStore:
             raise FileExistsError(f"Job already exists: {job.job_id}")
         write_json(path, asdict(job))
         return job
+
+    def _all_jobs(self, *, statuses: Iterable[JobStatus | str] | None = None) -> list[Job]:
+        accepted_statuses = _status_filter(statuses)
+        projects_dir = self.root / "projects"
+        if not projects_dir.exists():
+            return []
+        jobs = [
+            _job_from_json(read_json(path))
+            for path in sorted(projects_dir.glob("*/studies/*/jobs/*.json"))
+        ]
+        if accepted_statuses is not None:
+            jobs = [job for job in jobs if job.status in accepted_statuses]
+        return sorted(jobs, key=lambda job: (job.queued_at, job.project_id, job.study_id, job.job_id))
 
     def submit_job(self, job: Job, *, overwrite: bool = False) -> Job:
         """Persist a queued job request."""
@@ -133,10 +148,14 @@ class LocalJobStore:
         job_id: str,
         *,
         started_at: datetime | None = None,
+        worker_id: str | None = None,
     ) -> Job:
         """Transition a queued job to running."""
 
-        job = self.load_job(project_id, study_id, job_id).start(started_at=started_at)
+        job = self.load_job(project_id, study_id, job_id).start(
+            started_at=started_at,
+            worker_id=worker_id,
+        )
         return self._save_job(job)
 
     def update_job_progress(
@@ -148,6 +167,8 @@ class LocalJobStore:
         current: int,
         total: int | None = None,
         message: str | None = None,
+        worker_id: str | None = None,
+        heartbeat_at: datetime | None = None,
     ) -> Job:
         """Persist progress counters for a queued or running job."""
 
@@ -155,6 +176,8 @@ class LocalJobStore:
             current=current,
             total=total,
             message=message,
+            worker_id=worker_id,
+            heartbeat_at=heartbeat_at,
         )
         return self._save_job(job)
 
@@ -197,3 +220,53 @@ class LocalJobStore:
 
         job = self.load_job(project_id, study_id, job_id).cancel(finished_at=finished_at)
         return self._save_job(job)
+
+    def list_stale_running_jobs(
+        self,
+        *,
+        now: datetime,
+        stale_after_seconds: int,
+        project_id: str | None = None,
+    ) -> list[Job]:
+        """List running jobs whose heartbeat or start time is older than the threshold."""
+
+        jobs = (
+            self.list_project_jobs(project_id, statuses=[JobStatus.RUNNING])
+            if project_id is not None
+            else self._all_jobs(statuses=[JobStatus.RUNNING])
+        )
+        return [
+            job
+            for job in jobs
+            if job.is_stale(now=now, stale_after_seconds=stale_after_seconds)
+        ]
+
+    def fail_stale_running_jobs(
+        self,
+        *,
+        now: datetime,
+        stale_after_seconds: int,
+        error_message: str = "Marked failed because no heartbeat was received within the configured timeout.",
+        project_id: str | None = None,
+    ) -> list[Job]:
+        """Mark stale running jobs failed and return the updated job records."""
+
+        failed: list[Job] = []
+        for stale_job in self.list_stale_running_jobs(
+            now=now,
+            stale_after_seconds=stale_after_seconds,
+            project_id=project_id,
+        ):
+            current = self.load_job(stale_job.project_id, stale_job.study_id, stale_job.job_id)
+            if not current.is_stale(now=now, stale_after_seconds=stale_after_seconds):
+                continue
+            failed.append(
+                self.fail_job(
+                    current.project_id,
+                    current.study_id,
+                    current.job_id,
+                    error_message,
+                    finished_at=now,
+                )
+            )
+        return failed

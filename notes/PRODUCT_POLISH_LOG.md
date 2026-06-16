@@ -4302,3 +4302,33 @@ exchange_import_shortfall_energy == 0
 - `python -m compileall -q src/green_direct/models/pilot_backend.py src/green_direct/services/result_store.py src/green_direct/services/pilot_access.py src/green_direct/ui/app.py tests/test_pilot_backend_models.py tests/test_result_store.py tests/test_pilot_access.py tests/test_ui_import.py` 通过；
 - `python -m compileall -q src scripts tests` 通过；
 - `python -m pytest -q` 通过，311 项通过。
+
+### 2026-06-16 Job worker heartbeat 与卡死任务恢复
+
+本轮继续补内部 10-20 人试用的后台任务可靠性底座。此前欢迎页已能显示和取消活动任务，但如果 Streamlit 进程中断、服务器重启或未来 worker 异常退出，`LocalJobStore` 里的任务可能长期停留在 `running`，用户和管理员只能看到一个无法解释的活动任务。正式 worker/队列还没有落地时，需要先让任务状态契约具备 heartbeat 和运维恢复入口。
+
+本轮判断：
+- 不在本轮实现真正后台 worker、排队、重试或 OS 进程中断；
+- `Job` 先增加 `worker_id` 和 `last_heartbeat_at`，让后续 worker 能沿用同一状态字段；
+- 对旧任务 JSON 保持兼容，缺少 heartbeat 时 stale 判断回退到 `started_at`；
+- 卡死恢复只修改任务元数据为 failed，并写审计，不假装已经回收计算资源。
+
+本轮实现：
+- `Job` 新增 `worker_id`、`last_heartbeat_at` 和 `is_stale()`；
+- `Job.start()` 可记录 worker 并把启动时间作为首个 heartbeat；
+- `Job.update_progress()` 可同步更新 worker 和 heartbeat；
+- `LocalJobStore` 新增全局任务扫描、`list_stale_running_jobs()` 和 `fail_stale_running_jobs()`；
+- `PilotAccessService.start_job()` / `update_job_progress()` 透传 worker/heartbeat 字段；
+- `pilot-admin fail-stale-jobs` 可由平台管理员执行，按分钟阈值把 stale running 任务标记为 failed，并写项目级 `COMPLETE_JOB` 审计；
+- TODO、软件接口总览、内部试用 runbook、受控公网内测审计矩阵、预发布质量审查、架构计划、性能路线、Claude Code 提示词和 handoff 已同步新边界。
+
+边界说明：
+- 该能力不是正式任务队列、worker 守护、重试、限流或资源隔离；
+- `cancel_job()` 和 stale cleanup 都只是任务状态元数据更新，不会终止已经运行的 Python 或系统进程；
+- 本地 JSON store 仍不提供数据库事务、跨进程锁或冲突合并；
+- 后续真正 worker 应定期写 `last_heartbeat_at`，并沿用当前 `JobStatus`、审计和 `ResultStore` 产物写入语义。
+
+验证：
+- `pytest tests/test_pilot_backend_models.py tests/test_job_store.py tests/test_cli.py tests/test_pilot_access.py -q` 通过，44 项通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `pytest -q` 通过，314 项通过。

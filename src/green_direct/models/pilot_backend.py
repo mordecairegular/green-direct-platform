@@ -237,6 +237,8 @@ class Job:
     progress_current: int = 0
     progress_total: int = 0
     progress_message: str | None = None
+    worker_id: str | None = None
+    last_heartbeat_at: datetime | None = None
 
     def __post_init__(self) -> None:
         _require_text(self.job_id, "job_id")
@@ -246,6 +248,9 @@ class Job:
         _ensure_aware(self.queued_at, "queued_at")
         _ensure_aware(self.started_at, "started_at")
         _ensure_aware(self.finished_at, "finished_at")
+        _ensure_aware(self.last_heartbeat_at, "last_heartbeat_at")
+        if self.worker_id is not None:
+            _require_text(self.worker_id, "worker_id")
         _require_non_negative(self.progress_current, "progress_current")
         _require_non_negative(self.progress_total, "progress_total")
         if self.progress_total and self.progress_current > self.progress_total:
@@ -257,12 +262,21 @@ class Job:
     def is_terminal(self) -> bool:
         return self.status in _TERMINAL_JOB_STATUSES
 
-    def start(self, *, started_at: datetime | None = None) -> "Job":
+    def start(self, *, started_at: datetime | None = None, worker_id: str | None = None) -> "Job":
         if self.status != JobStatus.QUEUED:
             raise ValueError("Only queued jobs can be started.")
         timestamp = started_at or _utcnow()
         _ensure_aware(timestamp, "started_at")
-        return replace(self, status=JobStatus.RUNNING, started_at=timestamp, error_message=None)
+        if worker_id is not None:
+            _require_text(worker_id, "worker_id")
+        return replace(
+            self,
+            status=JobStatus.RUNNING,
+            started_at=timestamp,
+            error_message=None,
+            worker_id=self.worker_id if worker_id is None else worker_id,
+            last_heartbeat_at=timestamp,
+        )
 
     def succeed(self, *, finished_at: datetime | None = None) -> "Job":
         if self.status != JobStatus.RUNNING:
@@ -292,12 +306,17 @@ class Job:
         current: int,
         total: int | None = None,
         message: str | None = None,
+        worker_id: str | None = None,
+        heartbeat_at: datetime | None = None,
     ) -> "Job":
         if self.is_terminal:
             raise ValueError("Terminal jobs cannot update progress.")
         next_total = self.progress_total if total is None else total
         _require_non_negative(current, "progress_current")
         _require_non_negative(next_total, "progress_total")
+        _ensure_aware(heartbeat_at, "heartbeat_at")
+        if worker_id is not None:
+            _require_text(worker_id, "worker_id")
         if next_total and current > next_total:
             raise ValueError("progress_current must not exceed progress_total.")
         return replace(
@@ -305,7 +324,19 @@ class Job:
             progress_current=current,
             progress_total=next_total,
             progress_message=message,
+            worker_id=self.worker_id if worker_id is None else worker_id,
+            last_heartbeat_at=self.last_heartbeat_at if heartbeat_at is None else heartbeat_at,
         )
+
+    def is_stale(self, *, now: datetime, stale_after_seconds: int) -> bool:
+        _ensure_aware(now, "now")
+        _require_non_negative(stale_after_seconds, "stale_after_seconds")
+        if self.status != JobStatus.RUNNING:
+            return False
+        reference = self.last_heartbeat_at or self.started_at
+        if reference is None:
+            return False
+        return (now - reference).total_seconds() >= stale_after_seconds
 
 
 @dataclass(frozen=True)

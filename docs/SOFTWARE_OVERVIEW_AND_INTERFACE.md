@@ -1049,7 +1049,8 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `disable-user`：停用用户并撤销有效会话；
 - `grant-platform-admin` / `revoke-platform-admin`：授予或撤销平台管理员；
 - `list-users` / `list-sessions`：查看用户和会话；
-- `purge-expired-artifacts`：由平台管理员清理已过期 artifact payload，保留元数据并写入项目级 `DELETE_ARTIFACT` 审计。
+- `purge-expired-artifacts`：由平台管理员清理已过期 artifact payload，保留元数据并写入项目级 `DELETE_ARTIFACT` 审计；
+- `fail-stale-jobs`：由平台管理员把超时未 heartbeat 的 running 任务标记为 failed，并写入项目级 `COMPLETE_JOB` 审计。
 
 密码参数支持 `--password-env`，优先从环境变量读取，避免把密码直接写入命令历史。该 CLI 使用与服务层相同的本地 store，不替代后续 Streamlit 管理员页面。
 
@@ -1069,10 +1070,11 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 
 - `submit_job()` / `load_job()`：保存和读取排队任务；
 - `list_project_jobs()` / `list_study_jobs()`：按项目或研究列出任务，并支持按状态筛选；
-- `start_job()` / `update_job_progress()` / `succeed_job()` / `fail_job()` / `cancel_job()`：持久化任务状态、进度、失败原因和完成时间；
+- `start_job()` / `update_job_progress()` / `succeed_job()` / `fail_job()` / `cancel_job()`：持久化任务状态、进度、失败原因、完成时间、`worker_id` 和 `last_heartbeat_at`；
+- `list_stale_running_jobs()` / `fail_stale_running_jobs()`：按 `last_heartbeat_at` 或 `started_at` 判断超时 running 任务，并可批量标记失败；
 - 任务文件按 `projects/{project_id}/studies/{study_id}/jobs/{job_id}.json` 隔离，路径片段使用白名单校验。
 
-`LocalJobStore` 目前只保存任务元数据，不启动 worker、不做重试、不做 worker 级资源中断。Streamlit 欢迎页已消费该任务状态，显示活动任务并通过 `PilotAccessService.cancel_job()` 更新取消状态；后续接入正式后台时，应让前台提交 `Job`、轮询 `JobStatus`，由后台 worker 写入 `LocalResultStore` 或其替代存储。
+`LocalJobStore` 目前只保存任务元数据，不启动 worker、不做重试、不做 worker 级资源中断。Streamlit 欢迎页已消费该任务状态，显示活动任务并通过 `PilotAccessService.cancel_job()` 更新取消状态；`pilot-admin fail-stale-jobs` 可把进程中断后遗留的 running 元数据转成 failed，便于试用期恢复项目状态，但不会杀死或回收任何操作系统进程。后续接入正式后台时，应让前台提交 `Job`、轮询 `JobStatus`，由后台 worker 写入 `worker_id` / heartbeat 和 `LocalResultStore` 或其替代存储。
 
 `src/green_direct/services/pilot_access.py` 已提供第一版 `PilotAccessService`：
 
@@ -1138,6 +1140,11 @@ python -m green_direct.cli pilot-admin list-users `
 python -m green_direct.cli pilot-admin purge-expired-artifacts `
     --store-dir .runtime/pilot_store `
     --actor-user-id admin
+
+python -m green_direct.cli pilot-admin fail-stale-jobs `
+    --store-dir .runtime/pilot_store `
+    --actor-user-id admin `
+    --stale-after-minutes 60
 ```
 
 上述 `python -m green_direct.cli` 示例按源码树运行，因此需要先把 `src` 加入 `PYTHONPATH`。如已执行 `python -m pip install -e .` 安装为包，也可使用 `green-direct pilot-admin ...`。当前 CLI 是管理员页面前的本地运维入口，不代表正式身份系统已完成。

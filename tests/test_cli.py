@@ -3,8 +3,15 @@ from datetime import datetime, timezone
 import pytest
 
 from green_direct.cli import build_parser, main
-from green_direct.models.pilot_backend import ArtifactKind, ArtifactRetentionPolicy, AuditAction
-from green_direct.services import LocalPilotAuth, LocalPilotRegistry, LocalResultStore
+from green_direct.models.pilot_backend import (
+    ArtifactKind,
+    ArtifactRetentionPolicy,
+    AuditAction,
+    Job,
+    JobStatus,
+    JobType,
+)
+from green_direct.services import LocalJobStore, LocalPilotAuth, LocalPilotRegistry, LocalResultStore
 
 
 def _store_arg(tmp_path):
@@ -282,9 +289,77 @@ def test_cli_pilot_admin_purges_expired_artifacts_and_audits(tmp_path, monkeypat
     assert audit_events[0].metadata["retention_policy"] == ArtifactRetentionPolicy.EXPIRE.value
 
 
+def test_cli_pilot_admin_fails_stale_running_jobs_and_audits(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ADMIN_PASSWORD", "admin-password")
+    assert main(
+        [
+            "pilot-admin",
+            "bootstrap",
+            *_store_arg(tmp_path),
+            "--user-id",
+            "admin",
+            "--login-name",
+            "admin@example.local",
+            "--display-name",
+            "Admin",
+            "--password-env",
+            "ADMIN_PASSWORD",
+        ]
+    ) == 0
+    capsys.readouterr()
+
+    job_store = LocalJobStore(tmp_path)
+    job_store.submit_job(
+        Job(
+            job_id="job_stale",
+            project_id="project_1",
+            study_id="study_1",
+            requested_by_user_id="analyst",
+            job_type=JobType.TECHNICAL_STUDY,
+            queued_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        )
+    )
+    job_store.start_job(
+        "project_1",
+        "study_1",
+        "job_stale",
+        started_at=datetime(2020, 1, 1, 1, tzinfo=timezone.utc),
+        worker_id="worker_1",
+    )
+
+    assert main(
+        [
+            "pilot-admin",
+            "fail-stale-jobs",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--stale-after-minutes",
+            "60",
+        ]
+    ) == 0
+
+    output = capsys.readouterr().out
+    assert "Marked stale running jobs failed: 1" in output
+    assert "project_1\tstudy_1\tjob_stale" in output
+
+    failed = job_store.load_job("project_1", "study_1", "job_stale")
+    assert failed.status == JobStatus.FAILED
+    assert failed.finished_at is not None
+    assert failed.error_message == "Marked failed by pilot-admin fail-stale-jobs after 60 minutes without heartbeat."
+
+    audit_events = LocalResultStore(tmp_path).read_audit_log("project_1")
+    assert len(audit_events) == 1
+    assert audit_events[0].action == AuditAction.COMPLETE_JOB
+    assert audit_events[0].metadata["reason"] == "stale_running_job"
+    assert audit_events[0].metadata["status"] == JobStatus.FAILED.value
+    assert audit_events[0].metadata["stale_after_seconds"] == 3600
+    assert audit_events[0].metadata["worker_id"] == "worker_1"
+
+
 def test_cli_exposes_green_direct_console_script():
     parser = build_parser()
-    parsed = parser.parse_args(["pilot-admin", "list-users", "--actor-user-id", "admin"])
+    parsed = parser.parse_args(["pilot-admin", "fail-stale-jobs", "--actor-user-id", "admin"])
 
     assert parsed.command == "pilot-admin"
-    assert parsed.pilot_admin_command == "list-users"
+    assert parsed.pilot_admin_command == "fail-stale-jobs"

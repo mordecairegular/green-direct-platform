@@ -75,6 +75,7 @@ python -m pytest -q
    - PNG ZIP 后台任务 key 是否按会话隔离；
    - 新技术仿真后旧导出缓存是否失效；
    - 欢迎页活动任务面板是否只展示当前项目任务，取消入口是否仍走后端权限和审计；
+   - `Job.worker_id` / `last_heartbeat_at` 和 `pilot-admin fail-stale-jobs` 是否能把超时 running 元数据转为 failed，并保留项目级审计；
    - 长任务失败、取消、重复点击、页面切换后的状态是否可恢复或可解释。
 3. 计算口径风险：
    - V0.1 储能只能由富余新能源充电；
@@ -189,7 +190,7 @@ python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/tes
 2. 按需逐小时明细是否与全量保留结果一致；
 3. 并行仿真是否保持 scenario_id、warning、error、进度和结果顺序稳定；
 4. 经济性测算是否仍为每个方案常驻年度现金流；
-5. UI 的方案数硬上限、粗略耗时提示和大批量确认是否清晰，已有最小取消入口是否足够清晰，是否还需要后台 worker 的下一步切片；
+5. UI 的方案数硬上限、粗略耗时提示和大批量确认是否清晰，已有最小取消入口和 stale running 置失败命令是否足够清晰，是否还需要后台 worker 的下一步切片；
 6. benchmark 是否能复现优化前后差异。
 
 允许直接修改不改变计算口径的性能与内存问题；任何可能改变技术 dispatch、经济性现金流或推荐排序的改动必须先说明，并同步测试和文档。
@@ -210,7 +211,7 @@ python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/tes
 目标是支持内部 10-20 人试用，不是正式公网 SaaS。请先阅读 `src/green_direct/models/pilot_backend.py`、`src/green_direct/services/result_store.py`、`src/green_direct/services/pilot_registry.py`、`src/green_direct/services/pilot_auth.py`、`src/green_direct/services/pilot_admin.py`、`src/green_direct/services/job_store.py`、`src/green_direct/services/pilot_access.py` 和 `src/green_direct/cli.py`，把它们视为已经落地的第一步模型、本地文件版 ResultStore、本地账户/项目注册表、本地密码/会话认证服务、本地平台账号管理服务、本地任务状态存储、本地权限/审计服务和 `pilot-admin` 命令行运维入口，再基于当前 Streamlit 前台和 Python 服务层，设计下一阶段最小后台能力：
 1. User、Role、Project、ProjectMembership；
 2. ProjectStudy、StudyResult、ResultStore；
-3. Job、JobStatus、JobArtifact；
+3. Job、JobStatus、JobArtifact，包含 worker heartbeat、stale running cleanup 和未来真正 worker 的状态契约；
 4. AuditLog；
 5. 技术仿真、经济性测算、推荐组合、PNG/HTML/Excel/Markdown 导出的后台任务化；
 6. 输入文件、结果文件和下载文件的隔离策略；

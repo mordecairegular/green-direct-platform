@@ -113,7 +113,7 @@ PNG 图表包后台任务也按会话隔离：
 - `ProjectMembership` 已区分 `admin`、`analyst`、`viewer` 的查看、提交任务和项目管理权限；
 - `ProjectMembership.can_export_artifacts` 已作为第一版独立导出授权位，可表达“可计算、可查看但不可导出”的内部试用成员；
 - `User.is_platform_admin` 已区分平台账号管理员和项目 `admin`，项目 `admin` 只管理项目成员，不能天然创建或停用全站账号；
-- `Job` 已定义排队、运行、成功、失败、取消状态、进度字段及合法状态转换；
+- `Job` 已定义排队、运行、成功、失败、取消状态、进度字段、`worker_id`、`last_heartbeat_at` 及合法状态转换；
 - `JobArtifact` 和 `StudyResultRecord` 保留 `project_id` / `study_id` 边界，用于后续 `ResultStore` 和下载文件隔离；
 - `JobArtifact` 已包含 `retention_policy`、`expires_at` 和 `purged_at`，用于表达 payload 长期保留或到期清理状态；
 - 该骨架已被本地认证、最小 Streamlit 登录门禁和项目工作区复用，但仍不包含正式数据库表、任务队列或完整企业 IAM，不代表账户后台已经完整实现。
@@ -158,7 +158,7 @@ PNG 图表包后台任务也按会话隔离：
 - 停用用户时会撤销该用户仍然有效的本地会话；
 - 创建用户、更新用户、重置密码、停用和平台管理员标记变更会写入全局 `AuditLog`；
 - 为避免锁死后台，服务不允许停用或降级最后一个活跃平台管理员；
-- `src/green_direct/cli.py` 已提供 `pilot-admin` 命令行入口，可执行 bootstrap、创建用户、重置密码、停用用户、授予/撤销平台管理员、列出用户、列出会话和清理过期 artifact payload；
+- `src/green_direct/cli.py` 已提供 `pilot-admin` 命令行入口，可执行 bootstrap、创建用户、重置密码、停用用户、授予/撤销平台管理员、列出用户、列出会话、清理过期 artifact payload 和标记超时 running 任务失败；
 - 当前服务已接入 Streamlit 最小平台管理页，但仍未替代后续 SQLite/Postgres、企业身份系统或正式审计后台。
 
 已落地的第一步 JobStore：
@@ -166,10 +166,11 @@ PNG 图表包后台任务也按会话隔离：
 - `src/green_direct/services/job_store.py` 提供 `LocalJobStore`；
 - 任务元数据按 `projects/{project_id}/studies/{study_id}/jobs/{job_id}.json` 隔离保存；
 - 支持提交、读取、按项目/研究列出任务，并可按 `queued`、`running`、`succeeded`、`failed`、`canceled` 状态筛选；
-- 支持 `start_job()`、`update_job_progress()`、`succeed_job()`、`fail_job()` 和 `cancel_job()`，状态合法性沿用 `Job` 模型；
+- 支持 `start_job()`、`update_job_progress()`、`succeed_job()`、`fail_job()` 和 `cancel_job()`，状态合法性沿用 `Job` 模型，并可保存 `worker_id` / heartbeat 元数据；
+- 支持 `list_stale_running_jobs()` 和 `fail_stale_running_jobs()`，可把超过阈值未 heartbeat 的 running 任务标记为 failed；`pilot-admin fail-stale-jobs` 会复用该能力并写 `COMPLETE_JOB` 审计；
 - 路径片段使用白名单校验，防止 `project_id`、`study_id`、`job_id` 被拼接成越权路径；
 - 当前实现只持久化任务状态；JSON 写入已使用原子替换，但仍不包含 worker 调度、重试策略、跨进程并发锁、鉴权或管理员 UI；后续任务队列或数据库实现应沿用同一 `Job` 契约。
-- Streamlit 欢迎页已消费该任务状态：可筛选 `queued` / `running` 活动任务并提供最小取消入口。但这只改变任务元数据状态，不代表已有 worker 级中断、重试或资源隔离。
+- Streamlit 欢迎页已消费该任务状态：可筛选 `queued` / `running` 活动任务并提供最小取消入口。但取消和 stale cleanup 都只改变任务元数据状态，不代表已有 worker 级中断、重试或资源隔离。
 
 已落地的第一步权限与审计服务：
 

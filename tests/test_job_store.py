@@ -59,7 +59,13 @@ def test_job_store_persists_running_success_and_progress(tmp_path):
     store = LocalJobStore(tmp_path)
     store.submit_job(_job("job_1"))
 
-    running = store.start_job("project_1", "study_1", "job_1", started_at=_dt(2))
+    running = store.start_job(
+        "project_1",
+        "study_1",
+        "job_1",
+        started_at=_dt(2),
+        worker_id="worker_1",
+    )
     progress = store.update_job_progress(
         "project_1",
         "study_1",
@@ -67,13 +73,18 @@ def test_job_store_persists_running_success_and_progress(tmp_path):
         current=3,
         total=10,
         message="technical simulation",
+        heartbeat_at=_dt(2),
     )
     succeeded = store.succeed_job("project_1", "study_1", "job_1", finished_at=_dt(3))
 
     assert running.status == JobStatus.RUNNING
+    assert running.worker_id == "worker_1"
+    assert running.last_heartbeat_at == _dt(2)
     assert progress.progress_current == 3
     assert progress.progress_total == 10
     assert progress.progress_message == "technical simulation"
+    assert progress.worker_id == "worker_1"
+    assert progress.last_heartbeat_at == _dt(2)
     assert succeeded.status == JobStatus.SUCCEEDED
     assert store.load_job("project_1", "study_1", "job_1").finished_at == _dt(3)
 
@@ -114,6 +125,64 @@ def test_job_store_filters_by_status(tmp_path):
         job.job_id
         for job in store.list_study_jobs("project_1", "study_1", statuses=[JobStatus.SUCCEEDED])
     ] == ["job_succeeded"]
+
+
+def test_job_store_lists_and_fails_stale_running_jobs(tmp_path):
+    store = LocalJobStore(tmp_path)
+    store.submit_job(_job("job_stale", queued_at=_dt(1)))
+    store.submit_job(_job("job_fresh", queued_at=_dt(2)))
+    store.submit_job(_job("job_queued", queued_at=_dt(3)))
+    store.submit_job(_job("job_succeeded", queued_at=_dt(4)))
+    store.submit_job(_job("job_other", project_id="project_2", queued_at=_dt(5)))
+
+    store.start_job("project_1", "study_1", "job_stale", started_at=_dt(5), worker_id="worker_1")
+    store.update_job_progress(
+        "project_1",
+        "study_1",
+        "job_stale",
+        current=1,
+        total=5,
+        heartbeat_at=_dt(7),
+    )
+    store.start_job("project_1", "study_1", "job_fresh", started_at=_dt(8), worker_id="worker_2")
+    store.update_job_progress(
+        "project_1",
+        "study_1",
+        "job_fresh",
+        current=1,
+        total=5,
+        heartbeat_at=_dt(9),
+    )
+    store.start_job("project_1", "study_1", "job_succeeded", started_at=_dt(2))
+    store.succeed_job("project_1", "study_1", "job_succeeded", finished_at=_dt(3))
+    store.start_job("project_2", "study_1", "job_other", started_at=_dt(6), worker_id="worker_3")
+
+    stale_for_project = store.list_stale_running_jobs(
+        now=_dt(10),
+        stale_after_seconds=7200,
+        project_id="project_1",
+    )
+    all_stale = store.list_stale_running_jobs(now=_dt(10), stale_after_seconds=7200)
+
+    assert [job.job_id for job in stale_for_project] == ["job_stale"]
+    assert {job.job_id for job in all_stale} == {"job_stale", "job_other"}
+
+    failed = store.fail_stale_running_jobs(
+        now=_dt(10),
+        stale_after_seconds=7200,
+        error_message="worker heartbeat timeout",
+        project_id="project_1",
+    )
+
+    assert [job.job_id for job in failed] == ["job_stale"]
+    assert failed[0].status == JobStatus.FAILED
+    assert failed[0].finished_at == _dt(10)
+    assert failed[0].error_message == "worker heartbeat timeout"
+    assert failed[0].worker_id == "worker_1"
+    assert store.load_job("project_1", "study_1", "job_fresh").status == JobStatus.RUNNING
+    assert store.load_job("project_1", "study_1", "job_queued").status == JobStatus.QUEUED
+    assert store.load_job("project_1", "study_1", "job_succeeded").status == JobStatus.SUCCEEDED
+    assert store.load_job("project_2", "study_1", "job_other").status == JobStatus.RUNNING
 
 
 def test_job_store_rejects_invalid_progress_and_unsafe_paths(tmp_path):
