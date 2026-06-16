@@ -68,6 +68,7 @@ RENDER_REQUIRED_ENV = {
     "GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT": "20",
     "PYTHONPATH": "/app/src",
 }
+RENDER_REQUIRED_BRANCH = "codex/UI"
 
 
 def _check(condition: bool, checks: list[dict[str, str]], name: str, message: str) -> None:
@@ -160,8 +161,21 @@ def _render_checks(checks: list[dict[str, str]]) -> None:
         return
 
     _check(service.get("runtime") == "docker", checks, "render:runtime", "Render service uses Docker runtime")
+    _check(
+        service.get("branch") == RENDER_REQUIRED_BRANCH,
+        checks,
+        "render:branch",
+        f"Render service deploys the pilot branch {RENDER_REQUIRED_BRANCH}",
+    )
     _check(service.get("dockerfilePath") == "./Dockerfile", checks, "render:dockerfile", "Render uses root Dockerfile")
     _check(service.get("healthCheckPath") == "/_stcore/health", checks, "render:health", "Render health path is Streamlit health")
+    _check(service.get("numInstances") == 1, checks, "render:instances", "Render pilot service stays single-instance")
+    _check(
+        service.get("autoDeployTrigger") == "checksPass",
+        checks,
+        "render:auto-deploy",
+        "Render deploys only after linked GitHub checks pass",
+    )
     disk = service.get("disk") or {}
     _check(disk.get("mountPath") == "/data", checks, "render:disk", "Render persistent disk mounts at /data")
     env = {item["key"]: str(item["value"]) for item in service.get("envVars", [])}

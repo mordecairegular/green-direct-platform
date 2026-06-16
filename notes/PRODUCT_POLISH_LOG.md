@@ -5405,3 +5405,29 @@ profile / benchmark：
 - `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
 - `python -m pytest -q` 通过，378 项通过；
 - `git diff --check` 通过，仅有 Windows 换行转换提示。
+
+### 2026-06-17 Render Blueprint 绑定 pilot 分支与 checks-pass 部署闸
+
+本轮继续推进“GitHub -> Render -> Cloudflare -> 同事移动网络试用”的托管平台路径。此前 Render Blueprint 已能读取 `render.yaml` 创建 Docker Web Service，但仍有两个容易上线踩坑的点：如果 Render 误用 GitHub 默认分支，平台会部署不到当前 `codex/UI` 上的内测工程化 checkpoint；如果自动部署不等待 GitHub Actions 质量门，则失败提交也可能进入公网试用环境。
+
+实现：
+- `render.yaml` 显式设置 `branch: codex/UI`，把当前受控公网内测 pilot 绑定到实际工作分支；
+- `render.yaml` 设置 `autoDeployTrigger: checksPass`，让 Render 等 GitHub Actions 质量门通过后再自动部署；
+- `render.yaml` 设置 `numInstances: 1`，明确本地 file store + persistent disk 路线不做水平扩容；
+- `preflight_internal_pilot_deploy.py` 新增 `render:branch`、`render:auto-deploy`、`render:instances` 检查；
+- `tests/test_deployment_artifacts.py` 新增直接读取 `render.yaml` 的断言，并把新检查纳入 preflight 回归；
+- 部署 README、托管平台部署路线、移动网络试用清单、受控公网审计矩阵、Claude Code 部署演练提示词和 handoff 已同步。
+
+边界：
+- 这只是首次 Render pilot 的部署闸，不等于目标平台已经真实部署成功；
+- `--require-git-sync` 仍应在推送 GitHub 后运行，确认本地分支与 upstream 同步；
+- 如果未来把稳定分支切到 `main` 或正式 release 分支，需要同步修改 `render.yaml`、preflight 常量和部署文档；
+- 不改变 V0.1 技术仿真、经济性 V1、推荐排序、项目权限或 UI 工作流。
+
+验证：
+- `python -m pytest tests\test_deployment_artifacts.py -q` 通过，10 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`，包含 `render:branch`、`render:auto-deploy` 和 `render:instances`；
+- `python scripts\preflight_internal_pilot_deploy.py --pilot-store-dir <temp> --json` 通过，`failed_count=0`，包含 `pilot-store:*`；
+- `python -m compileall -q scripts\preflight_internal_pilot_deploy.py tests\test_deployment_artifacts.py` 通过；
+- `python -m pytest -q` 通过，379 项通过；
+- `git diff --check` 通过，仅有 Windows 换行转换提示。

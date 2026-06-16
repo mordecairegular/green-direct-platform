@@ -23,7 +23,7 @@
 - 欢迎页项目任务与结果面板、项目 admin 结果索引标记/隐藏入口，以及排队/运行中任务的最小查看和取消入口；
 - `.env.example`、内部部署 runbook、pilot store 备份/恢复脚本。
 - Dockerfile、docker-compose.yml、README_DEPLOY.md、SECURITY.md 第一版。
-- 托管平台公网测试路线第一版：`render.yaml`、`docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md` 和 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md`，推荐 Render/Fly/Railway/Cloud Run 承载 Docker 应用，Cloudflare 负责 DNS/HTTPS/Access；不建议用 Vercel 或 Cloudflare Pages/Workers 直接承载当前 Streamlit 计算应用。
+- 托管平台公网测试路线第一版：`render.yaml`、`docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md` 和 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md`，推荐 Render/Fly/Railway/Cloud Run 承载 Docker 应用，Cloudflare 负责 DNS/HTTPS/Access；不建议用 Vercel 或 Cloudflare Pages/Workers 直接承载当前 Streamlit 计算应用；Render Blueprint 已显式绑定 `codex/UI` pilot 分支，并设置 `autoDeployTrigger: checksPass`。
 - `pilot-admin doctor` 运行时 store 自检入口，可在 bootstrap 前后检查持久目录、JSON metadata、payload 写入、协作锁和审计 JSONL；`preflight_internal_pilot_deploy.py --pilot-store-dir` 可把该检查并入源码树/VM 部署 preflight；GitHub Actions 质量门会用临时目录自动跑一遍 store doctor。
 
 仍未达到公网内测 Route A：
@@ -48,7 +48,7 @@
 | 项目/Run/参数/结果摘要留存 | 部分满足 | 技术/经济/推荐 summary、推荐席位输入、已保留的经济年度现金流与按需 hourly artifact 已写 `ResultStore`；HTML 图表包和 Markdown 报告可显式保存为 `chart_package` / `report` artifact；技术 summary、经济 summary、年度现金流、推荐席位输入和推荐 portfolio 可恢复到当前会话；项目 admin 可标记/置顶、软删除/隐藏结果索引并写审计 | 推荐视角选择/重新排序工作台状态、PNG/Excel/批量导出包和完整报告未完整持久化；summary-only 经济运行不会凭空恢复未保留现金流 | 按 `StudyResultRecord` 串联完整结果索引并补剩余 chart/report/export artifacts |
 | 原始文件、逐小时明细、导出文件留存和清理 | 部分满足 | 当前有 artifact payload 过期清理；技术三曲线 input artifact 与按需 hourly artifact 默认 30 天过期；HTML 图表包和 Markdown 报告默认 7 天过期；已有 hourly artifact 可跨会话加载，缺明细的历史 summary-only 可在 input artifact 可用时恢复输入并同步补算或提交后台 queued job，后台 job 可由 `run-worker-loop` 处理，failed/canceled 终态 job 可由 `retry-job` 手动克隆重试，按需明细区域可轮询并加载完成结果 | 仍缺全局任务通知、worker 级取消和自动重试策略；价格曲线、PNG/Excel/批量包未完整 artifact 化；旧结果缺 `curve_columns` 时不能恢复输入 | 把后台任务体验扩展到更多产物，并补剩余 cashflow/chart/report/export artifacts |
 | 关键操作审计日志 | 部分满足 | 登录、项目、成员、任务、stale running 任务置失败、failed/canceled 任务手动重试、artifact 写入/网页查看/下载/清理、结果索引标记和软删除、当前 06 页临时导出下载已审计；`pilot-admin list-audit-events` 和平台管理页“审计日志”可抽查全局或指定项目审计 | 仍缺正式审计后台、跨项目聚合搜索、原始文件查看审计、未来 API/反向代理下载审计兜底 | 扩充 `AuditAction` 覆盖面，并在正式后台中提供审计查询 |
-| Docker 可部署 | 第一版满足 | `Dockerfile`、`docker-compose.yml`、`README_DEPLOY.md`、`render.yaml`、`.github/workflows/internal-pilot-quality.yml`、`docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md`、`pilot-admin doctor`、`preflight_internal_pilot_deploy.py --pilot-store-dir`；GitHub Actions 会自动运行静态 preflight、临时目录版 store doctor 和全量 pytest | 尚未在目标托管平台完成构建/启动/恢复演练；GitHub Actions 需要推送后在远端实际跑通；持久盘、套餐、区域和备份能力需在平台控制台确认 | 实机运行 `docker compose build/up` 或 Render Blueprint 部署，确认 GitHub Actions 质量门通过，在目标持久盘运行 `pilot-admin doctor` 或 preflight store doctor，并完成数据卷恢复演练 |
+| Docker 可部署 | 第一版满足 | `Dockerfile`、`docker-compose.yml`、`README_DEPLOY.md`、`render.yaml`、`.github/workflows/internal-pilot-quality.yml`、`docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md`、`pilot-admin doctor`、`preflight_internal_pilot_deploy.py --pilot-store-dir`；GitHub Actions 会自动运行静态 preflight、临时目录版 store doctor 和全量 pytest；Render 配置显式部署 `codex/UI` 且等待 checks pass | 尚未在目标托管平台完成构建/启动/恢复演练；GitHub Actions 需要推送后在远端实际跑通；持久盘、套餐、区域和备份能力需在平台控制台确认 | 实机运行 `docker compose build/up` 或 Render Blueprint 部署，确认 GitHub Actions 质量门通过，在目标持久盘运行 `pilot-admin doctor` 或 preflight store doctor，并完成数据卷恢复演练 |
 | HTTPS/反向代理/备份/恢复/回滚说明 | 部分满足 | 内部 runbook、PowerShell 备份/恢复脚本、`README_DEPLOY.md` | 缺少系统服务托管、集中日志、监控告警和自动恢复演练 | 在目标服务器补 Caddy/Nginx 配置、日志和监控 |
 | 核心算法回归通过 | 满足当前 checkpoint | 最近 `python -m pytest -q` 为 373 passed | 后续改性能/后台时仍需重复验证 | 每个工程化切片后跑回归 |
 

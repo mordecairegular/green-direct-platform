@@ -53,6 +53,17 @@ def test_dockerignore_excludes_local_state_and_secrets():
     assert "!.env.example" in ignored
 
 
+def test_render_blueprint_targets_pilot_branch_after_checks_pass():
+    render = yaml.safe_load((ROOT / "render.yaml").read_text(encoding="utf-8"))
+    service = render["services"][0]
+
+    assert service["runtime"] == "docker"
+    assert service["branch"] == "codex/UI"
+    assert service["numInstances"] == 1
+    assert service["autoDeployTrigger"] == "checksPass"
+    assert service["healthCheckPath"] == "/_stcore/health"
+
+
 def test_github_actions_quality_gate_exists():
     workflow = (ROOT / ".github" / "workflows" / "internal-pilot-quality.yml").read_text(encoding="utf-8")
 
@@ -100,6 +111,9 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     assert "file:.github/workflows/internal-pilot-quality.yml" in check_names
     assert "dockerignore:.github/" in check_names
     assert "render:runtime" in check_names
+    assert "render:branch" in check_names
+    assert "render:auto-deploy" in check_names
+    assert "render:instances" in check_names
     assert "compose:volume" in check_names
     assert "dockerfile:PORT=8503" in check_names
 

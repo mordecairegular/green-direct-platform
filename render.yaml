@@ -2,9 +2,12 @@ services:
   - type: web
     name: green-direct-internal-pilot
     runtime: docker
+    branch: codex/UI
     dockerfilePath: ./Dockerfile
     dockerContext: .
     plan: starter
+    numInstances: 1
+    autoDeployTrigger: checksPass
     healthCheckPath: /_stcore/health
     envVars:
       - key: GREEN_DIRECT_ENABLE_PILOT_AUTH

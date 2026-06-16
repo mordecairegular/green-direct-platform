@@ -8,6 +8,7 @@
 
 - `origin` 已指向 GitHub 仓库，当前本地分支为 `codex/UI`；
 - 本地部署 preflight 已通过，证明 Docker、Render、默认安全环境变量、持久盘路径和部署文件齐备；
+- `render.yaml` 已显式绑定 `codex/UI` pilot 分支，并设置 `autoDeployTrigger: checksPass`，避免 Render 部署默认分支或未通过质量门的提交；
 - `--require-git-sync` 当前仍失败，因为本地分支还领先 upstream，托管平台暂时拿不到这些本地 checkpoint；部署前应重新运行该命令获取实时 ahead/behind；
 - 用户确认推送后，才进入 Render/Cloudflare 真实部署演练。
 
@@ -85,6 +86,9 @@ Vercel 可以作为未来正式化后的前端托管平台：例如将前端改�
 4. 等待 GitHub Actions `Internal Pilot Quality Gate` 通过；如需部署前冒烟，手动触发该 workflow 并勾选 `run_smoke`。
 5. 在 Render 新建 Blueprint，选择本仓库。
 6. Render 读取仓库根目录 `render.yaml`，创建 `green-direct-internal-pilot`。
+   - 确认部署分支是 `codex/UI`，不要误选默认分支；
+   - 确认 `autoDeployTrigger` 为 `checksPass`，即 GitHub Actions 质量门通过后再自动部署；
+   - 确认 `numInstances=1`，本地 file store + persistent disk 路线不要水平扩容。
 7. 确认环境变量：
    - `GREEN_DIRECT_ENABLE_PILOT_AUTH=1`
    - `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0`

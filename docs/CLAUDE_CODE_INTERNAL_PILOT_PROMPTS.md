@@ -309,12 +309,13 @@ python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/tes
 
 请检查：
 1. `render.yaml` 是否与 Dockerfile、健康检查、端口、环境变量和 `/data/pilot_store` 一致；
-2. `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 和 `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0` 是否在托管平台默认生效；
-3. persistent disk 是否挂载到 `/data`，pilot store 是否不在 Git 仓库路径；
-4. 平台管理员 bootstrap 命令是否明确在 Render Web Service Shell 中执行，且没有误用无法访问同一 persistent disk 的 One-Off Job；
-5. Cloudflare Access 门禁与应用内登录是否形成双层门禁；
-6. 重启后用户、项目、任务、结果和审计日志是否仍可保留；
-7. 备份/恢复、日志脱敏、上传文件大小、导出权限和不可导出用户是否有实测清单。
+2. `render.yaml` 是否显式部署 `codex/UI` pilot 分支、保持 `numInstances=1`，并设置 `autoDeployTrigger: checksPass`，避免部署默认分支或未通过质量门的提交；
+3. `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 和 `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0` 是否在托管平台默认生效；
+4. persistent disk 是否挂载到 `/data`，pilot store 是否不在 Git 仓库路径；
+5. 平台管理员 bootstrap 命令是否明确在 Render Web Service Shell 中执行，且没有误用无法访问同一 persistent disk 的 One-Off Job；
+6. Cloudflare Access 门禁与应用内登录是否形成双层门禁；
+7. 重启后用户、项目、任务、结果和审计日志是否仍可保留；
+8. 备份/恢复、日志脱敏、上传文件大小、导出权限和不可导出用户是否有实测清单。
 
 如果你可以访问托管平台或本机 Docker，请实际执行：
 0. python scripts/preflight_internal_pilot_deploy.py --run-smoke

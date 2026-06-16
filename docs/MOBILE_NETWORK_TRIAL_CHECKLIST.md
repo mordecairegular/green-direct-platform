@@ -11,7 +11,7 @@
 1. 经项目负责人确认后，把本地 `codex/UI` 分支推送到 GitHub 私有仓库。
 2. 等 GitHub Actions `Internal Pilot Quality Gate` 跑通。
 3. 在 Render 选择 Blueprint / Import Git Repository，导入同一个 GitHub 仓库和分支。
-4. 确认 Render 创建的是 Docker Web Service，并挂载 `/data` persistent disk。
+4. 确认 Render 创建的是 Docker Web Service，部署分支为 `codex/UI`，`autoDeployTrigger=checksPass`，并挂载 `/data` persistent disk。
 5. 在 Render Web Service Shell 先运行 `pilot-admin doctor --store-dir /data/pilot_store --json`，通过后再初始化平台管理员。
 6. 登录应用创建 3-5 个首批内测账号。
 7. 把 Render 自定义域名接入 Cloudflare DNS / HTTPS / Access，只放行内测邮箱。
@@ -53,13 +53,17 @@ GitHub private repository
 2. 选择 GitHub 私有仓库。
 3. 确认 Render 读取根目录 `render.yaml`。
 4. 确认服务类型为 Web Service，runtime 为 Docker。
-5. 确认 persistent disk：
+5. 确认分支和部署闸：
+   - branch: `codex/UI`
+   - auto deploy: checks pass
+   - instances: `1`
+6. 确认 persistent disk：
    - mount path: `/data`
    - app store: `/data/pilot_store`
-6. 确认关键环境变量：登录门禁为 `1`，runtime snapshot 为 `0`，单次技术方案数上限为 `20000`，经济性现金流保留阈值为 `1000`，保留数量为 `20`。
-7. 部署完成后，访问 Render 默认域名。
-8. 若显示应用登录页，说明公网入口已通。
-9. 在 Render Web Service Shell 运行 `pilot-admin doctor --store-dir /data/pilot_store --json`，确认 persistent disk、JSON metadata、payload 写入、协作锁和审计 JSONL 都正常。
+7. 确认关键环境变量：登录门禁为 `1`，runtime snapshot 为 `0`，单次技术方案数上限为 `20000`，经济性现金流保留阈值为 `1000`，保留数量为 `20`。
+8. 部署完成后，访问 Render 默认域名。
+9. 若显示应用登录页，说明公网入口已通。
+10. 在 Render Web Service Shell 运行 `pilot-admin doctor --store-dir /data/pilot_store --json`，确认 persistent disk、JSON metadata、payload 写入、协作锁和审计 JSONL 都正常。
 
 当前 `render.yaml` 只创建 Web Service。按需逐小时明细和固定价/网页组价年度现金流后台任务已有 `run-worker-loop`，但本地 file store 版在 Render 上不应简单拆成另一个独立 Worker Service 共享 `/data/pilot_store`；该类持久盘绑定在服务侧，正式拆分 worker 前应先迁移到数据库/对象存储，或改用同一主机/Compose 共享卷方案。第一次移动网络试用可先保留同步补算 fallback；必要时平台管理员可在应用内“平台管理 -> 任务运维”手动处理一个排队任务，也可在同一服务环境里执行 `run-worker-once`。
 
