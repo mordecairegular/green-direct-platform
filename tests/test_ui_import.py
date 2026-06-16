@@ -665,6 +665,153 @@ def test_pilot_restore_technical_summary_rebuilds_summary_only_session(tmp_path)
     assert restored["row_count"] == 2
 
 
+def test_pilot_restore_economy_summary_uses_view_permission_without_export(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import ArtifactKind, AuditAction, Project, ProjectRole, StudyResultRecord, User
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+
+    access = app._pilot_access_service()
+    access.registry.save_user(User("admin", "admin@example.local", "Admin"))
+    access.registry.save_user(User("analyst", "analyst@example.local", "Analyst"))
+    project = access.create_project(actor_user_id="admin", project=Project("project_1", "Pilot project"))
+    access.grant_project_role(
+        actor_user_id="admin",
+        project_id=project.project_id,
+        user_id="analyst",
+        role=ProjectRole.ANALYST,
+        can_export_artifacts=False,
+    )
+    access.result_store.store_artifact(
+        artifact_id="technical_summary",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_id="job_tech",
+        kind=ArtifactKind.TECHNICAL_SUMMARY,
+        payload="scenario_id,green_load_rate\nS0001,0.5\n",
+        filename="technical_summary.csv",
+        content_type="text/csv",
+    )
+    access.result_store.store_artifact(
+        artifact_id="config_snapshot",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_id="job_tech",
+        kind=ArtifactKind.CONFIG_SNAPSHOT,
+        payload='{"study_id":"study_1","scenario_grid":{"pv_capacity":[5]}}',
+        filename="config_snapshot.json",
+        content_type="application/json",
+    )
+    access.result_store.store_artifact(
+        artifact_id="economy_summary_job_1",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_id="job_economy",
+        kind=ArtifactKind.ECONOMY_SUMMARY,
+        payload="scenario_id,firr\nS0001,0.08\n",
+        filename="power_economy_summary.csv",
+        content_type="text/csv",
+    )
+    access.result_store.store_artifact(
+        artifact_id="single_entity_summary_job_1",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_id="job_economy",
+        kind=ArtifactKind.ECONOMY_SUMMARY,
+        payload="scenario_id,single_entity_firr_pre_tax\nS0001,0.11\n",
+        filename="single_entity_summary.csv",
+        content_type="text/csv",
+    )
+    technical_record = StudyResultRecord(
+        result_id="technical_result",
+        project_id=project.project_id,
+        study_id="study_1",
+        created_by_job_id="job_tech",
+        technical_summary_artifact_id="technical_summary",
+    )
+    economy_record = StudyResultRecord(
+        result_id="economy_result_job_1",
+        project_id=project.project_id,
+        study_id="study_1",
+        created_by_job_id="job_economy",
+        economy_summary_artifact_id="economy_summary_job_1",
+        single_entity_summary_artifact_id="single_entity_summary_job_1",
+    )
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.PILOT_USER_ID_KEY: "analyst",
+                app.PILOT_ACTIVE_PROJECT_ID_KEY: project.project_id,
+                app.PILOT_ACTIVE_PROJECT_CAN_EXPORT_KEY: False,
+                "recommendation_v1_inputs": {"old": True},
+                "download_payloads": {"old": b"payload"},
+            }
+
+    dummy = DummyStreamlit()
+    app._pilot_restore_technical_summary_to_session(
+        dummy,
+        access=access,
+        actor_user_id="analyst",
+        record=technical_record,
+    )
+    mismatched_record = StudyResultRecord(
+        result_id="economy_result_job_2",
+        project_id=project.project_id,
+        study_id="study_2",
+        created_by_job_id="job_economy",
+        economy_summary_artifact_id="economy_summary_job_1",
+    )
+    with pytest.raises(ValueError, match="同一 study"):
+        app._pilot_restore_economy_summary_to_session(
+            dummy,
+            access=access,
+            actor_user_id="analyst",
+            record=mismatched_record,
+        )
+    assert "economy_v1_result" not in dummy.session_state
+    mismatched_project_record = StudyResultRecord(
+        result_id="economy_result_project_2",
+        project_id="project_2",
+        study_id="study_1",
+        created_by_job_id="job_economy",
+        economy_summary_artifact_id="economy_summary_job_1",
+    )
+    with pytest.raises(ValueError, match="所属项目"):
+        app._pilot_restore_economy_summary_to_session(
+            dummy,
+            access=access,
+            actor_user_id="analyst",
+            record=mismatched_project_record,
+        )
+    assert "economy_v1_result" not in dummy.session_state
+
+    restored = app._pilot_restore_economy_summary_to_session(
+        dummy,
+        access=access,
+        actor_user_id="analyst",
+        record=economy_record,
+    )
+
+    assert restored["row_count"] == 1
+    assert dummy.session_state["economy_v1_result"]["summary"]["firr"].tolist() == [0.08]
+    assert dummy.session_state["economy_v1_result"]["annual_cashflows"] == {}
+    assert dummy.session_state["economy_v1_result"]["price_mode"] == "restored_summary"
+    assert dummy.session_state["single_entity_economy_result"]["summary"]["single_entity_firr_pre_tax"].tolist() == [
+        0.11
+    ]
+    assert "recommendation_v1_inputs" not in dummy.session_state
+    assert "download_payloads" not in dummy.session_state
+    assert dummy.session_state["study_result"].result_store_refs["economy_result_id"] == "economy_result_job_1"
+    assert dummy.session_state["study_result"].result_store_refs["power_economy_summary_artifact_id"] == (
+        "economy_summary_job_1"
+    )
+    audit_actions = [event.action for event in access.result_store.read_audit_log(project.project_id)]
+    assert AuditAction.VIEW_ARTIFACT in audit_actions
+    assert AuditAction.DOWNLOAD_ARTIFACT not in audit_actions
+
+
 def test_pilot_restore_summary_can_load_hourly_artifact_for_view_without_export(tmp_path, monkeypatch):
     import green_direct.ui.app as app
     from green_direct.models.pilot_backend import ArtifactKind, AuditAction, Project, ProjectRole, StudyResultRecord, User

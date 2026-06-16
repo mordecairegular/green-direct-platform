@@ -1199,12 +1199,12 @@ RecommendationStudyResult
 当前读取入口：
 - `LocalResultStore.list_project_result_records()` / `list_study_result_records()`：按创建时间倒序返回结果索引；
 - `PilotAccessService.list_project_result_records()` / `list_study_result_records()`：在读取结果索引前统一校验项目查看权限；
-- Streamlit 欢迎页“项目任务与结果”：展示任务数、结果数、最近任务和最近结果索引，帮助内部试用用户确认项目内已有持久化记录；可查看排队/运行中的活动任务并按项目角色取消任务元数据；可按需加载下载已落盘 artifact，也可把技术 summary 恢复成当前会话的 `BatchResult.summary`。
+- Streamlit 欢迎页“项目任务与结果”：展示任务数、结果数、最近任务和最近结果索引，帮助内部试用用户确认项目内已有持久化记录；可查看排队/运行中的活动任务并按项目角色取消任务元数据；可按需加载下载已落盘 artifact，也可把技术 summary 恢复成当前会话的 `BatchResult.summary`。当同一 `study_id` 的技术汇总已在当前会话中时，也可把电源侧/同一主体经济性 summary 恢复成当前会话的 summary-only 经济结果。
 
 边界：
 - 这仍是 Streamlit 进程内同步写入，不是真正后台 worker；
-- 当前不持久化全量逐小时明细、经济性年度现金流、图表包或报告；当前会话内补算出的单方案 `hourly_detail` 已可在有项目结果索引时写入 `ResultStore`，技术 summary 恢复也会带回 input artifact 索引，并可在三条 input artifact 未过期且快照含 `curve_columns` 时跨会话重新补算缺失明细；
-- 当前结果面板支持技术 summary-only 恢复、已有 hourly artifact 加载和活动任务取消入口，但不恢复完整历史 `StudyResult`，不删除或标记结果，也不做跨项目搜索；取消入口只更新任务状态元数据，不代表已有后台 worker 级中断能力；
+- 当前不持久化全量逐小时明细、经济性年度现金流、图表包或报告；当前会话内补算出的单方案 `hourly_detail` 已可在有项目结果索引时写入 `ResultStore`，技术 summary 恢复也会带回 input artifact 索引，并可在三条 input artifact 未过期且快照含 `curve_columns` 时跨会话重新补算缺失明细；经济性 summary 可 summary-only 恢复，但不包含年度现金流和推荐排序输入；
+- 当前结果面板支持技术 summary-only 恢复、经济 summary-only 恢复、已有 hourly artifact 加载和活动任务取消入口，但不恢复完整历史 `StudyResult`，不删除或标记结果，也不做跨项目搜索；取消入口只更新任务状态元数据，不代表已有后台 worker 级中断能力；
 - `technical_input_fingerprint()` 目前基于 `config_snapshot` 生成稳定 sha256，用于追踪输入配置；原始上传曲线本身由 input curve artifact 的 `sha256` 和 `size_bytes` 记录；
 - `economic_input_fingerprint()` 基于经济参数、价格模式和 summary 形状生成；`recommendation_result_fingerprint()` 基于推荐结果表生成，用于 UI 内去重；
 - 后续后台任务、数据库适配和结果页读取应继续复用 `PilotAccessService`，不要直接绕过权限与审计门面调用底层 store。

@@ -2403,6 +2403,7 @@ def _pilot_load_artifact_download(
         "file_name": file_name,
         "mime": artifact.content_type or "application/octet-stream",
         "size_bytes": artifact.size_bytes,
+        "kind": artifact.kind,
     }
 
 
@@ -2426,6 +2427,7 @@ def _pilot_load_artifact_view(
         "file_name": file_name,
         "mime": artifact.content_type or "application/octet-stream",
         "size_bytes": artifact.size_bytes,
+        "kind": artifact.kind,
     }
 
 
@@ -2534,6 +2536,115 @@ def _pilot_restore_technical_summary_to_session(
     return restored
 
 
+def _pilot_restore_economy_summary_result(
+    access: PilotAccessService,
+    *,
+    actor_user_id: str,
+    record: StudyResultRecord,
+) -> dict[str, object]:
+    if not record.economy_summary_artifact_id and not record.single_entity_summary_artifact_id:
+        raise ValueError("该结果没有经济性汇总 artifact，暂不能恢复为当前经济性结果。")
+
+    power_summary = pd.DataFrame()
+    single_entity_summary = pd.DataFrame()
+    if record.economy_summary_artifact_id:
+        power_download = _pilot_load_artifact_view(
+            access,
+            actor_user_id=actor_user_id,
+            record=record,
+            artifact_id=record.economy_summary_artifact_id,
+        )
+        if power_download["kind"] != ArtifactKind.ECONOMY_SUMMARY:
+            raise ValueError(f"Artifact {record.economy_summary_artifact_id} 不是经济性汇总。")
+        power_summary = pd.read_csv(BytesIO(power_download["payload"]))
+    if record.single_entity_summary_artifact_id:
+        single_entity_download = _pilot_load_artifact_view(
+            access,
+            actor_user_id=actor_user_id,
+            record=record,
+            artifact_id=record.single_entity_summary_artifact_id,
+        )
+        if single_entity_download["kind"] != ArtifactKind.ECONOMY_SUMMARY:
+            raise ValueError(f"Artifact {record.single_entity_summary_artifact_id} 不是经济性汇总。")
+        single_entity_summary = pd.read_csv(BytesIO(single_entity_download["payload"]))
+
+    return {
+        "power_summary": power_summary,
+        "single_entity_summary": single_entity_summary,
+        "row_count": max(len(power_summary), len(single_entity_summary)),
+    }
+
+
+def _pilot_restore_economy_summary_to_session(
+    st,
+    *,
+    access: PilotAccessService,
+    actor_user_id: str,
+    record: StudyResultRecord,
+) -> dict[str, object]:
+    current_project_id = _current_pilot_project_id(st)
+    if current_project_id != record.project_id:
+        raise ValueError("请先切换到该结果所属项目，再恢复经济性汇总。")
+    current_study_id = _current_pilot_study_id(st)
+    if current_study_id != record.study_id:
+        raise ValueError("请先恢复同一 study 的技术汇总，再恢复经济性汇总。")
+
+    restored = _pilot_restore_economy_summary_result(
+        access,
+        actor_user_id=actor_user_id,
+        record=record,
+    )
+    power_summary = restored["power_summary"]
+    single_entity_summary = restored["single_entity_summary"]
+    st.session_state["economy_v1_result"] = {
+        "summary": power_summary,
+        "annual_cashflows": {},
+        "price_mode": "restored_summary",
+        "price_curve_summary": pd.DataFrame(),
+        "price_curve_diagnostics": InputDiagnostics(),
+        "landed_price_summary": pd.DataFrame(),
+        "restored_from_result_store": {
+            "project_id": record.project_id,
+            "study_id": record.study_id,
+            "result_id": record.result_id,
+            "summary_only": True,
+        },
+    }
+    if isinstance(single_entity_summary, pd.DataFrame) and not single_entity_summary.empty:
+        st.session_state["single_entity_economy_result"] = {
+            "summary": single_entity_summary,
+            "annual_cashflows": {},
+            "restored_from_result_store": {
+                "project_id": record.project_id,
+                "study_id": record.study_id,
+                "result_id": record.result_id,
+                "summary_only": True,
+            },
+        }
+    else:
+        st.session_state.pop("single_entity_economy_result", None)
+    st.session_state.pop("recommendation_v1_inputs", None)
+    st.session_state.pop("download_payloads", None)
+
+    study_result = st.session_state.get("study_result")
+    if isinstance(study_result, StudyResult):
+        refs = {
+            **study_result.result_store_refs,
+            "economy_result_id": record.result_id,
+        }
+        if record.economy_summary_artifact_id:
+            refs["power_economy_summary_artifact_id"] = record.economy_summary_artifact_id
+        if record.single_entity_summary_artifact_id:
+            refs["single_entity_summary_artifact_id"] = record.single_entity_summary_artifact_id
+        st.session_state["study_result"] = replace(study_result, result_store_refs=refs)
+
+    st.session_state["_economy_notice"] = (
+        f"已从项目历史恢复经济性汇总：{record.result_id}。"
+        "这是 summary-only 恢复，不包含年度现金流和推荐排序输入；如需推荐页，请重新运行经济性测算。"
+    )
+    return restored
+
+
 def _pilot_result_history_frame(records: list[StudyResultRecord], *, limit: int = 8) -> pd.DataFrame:
     sorted_records = sorted(
         records,
@@ -2599,6 +2710,24 @@ def _render_pilot_result_artifact_downloads(
                     else:
                         st.rerun()
                 st.caption("恢复仅写入技术汇总；逐小时明细、图表缓存、经济性和推荐结果不会随之恢复。")
+            if record.economy_summary_artifact_id or record.single_entity_summary_artifact_id:
+                restore_economy_key = f"pilot_history_restore_economy_{record.project_id}:{record.study_id}:{record.result_id}"
+                if st.button("恢复经济性汇总到当前会话", key=restore_economy_key):
+                    try:
+                        _pilot_restore_economy_summary_to_session(
+                            st,
+                            access=access,
+                            actor_user_id=actor_user_id,
+                            record=record,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - restore errors should be user-visible
+                        if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
+                            st.warning(f"历史经济性汇总暂不能恢复：{exc}")
+                        else:
+                            raise
+                    else:
+                        st.rerun()
+                st.caption("恢复仅写入经济性 summary；年度现金流和推荐排序输入不会随之恢复。")
             if not can_export_artifacts:
                 for label, artifact_id in _pilot_result_artifact_refs(record):
                     st.caption(f"{label} · {artifact_id}")

@@ -3978,3 +3978,31 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_pilot_access.py tests/test_pilot_study_persistence.py tests/test_study_runner.py tests/test_ui_import.py::test_pilot_restore_technical_summary_rebuilds_summary_only_session tests/test_ui_import.py::test_pilot_restore_summary_can_load_hourly_artifact_for_view_without_export tests/test_ui_import.py::test_pilot_restore_summary_can_rebuild_input_from_input_artifacts_and_recompute tests/test_ui_import.py::test_append_hourly_detail_updates_current_result tests/test_ui_import.py::test_append_hourly_detail_persists_pilot_artifact -q` 通过，36 项通过。
 - `python -m compileall -q src scripts tests` 通过；
 - `python -m pytest -q` 通过，291 项通过。
+
+### 2026-06-16 历史经济汇总 summary-only 恢复入口
+
+本轮继续补项目历史结果的“可继续查看和复核”能力。技术 summary 已经可以恢复到当前会话，并且可通过 hourly artifact 或 input artifact 补算缺失逐小时明细；但经济性 summary 仍只能下载，无法放回 03 页之后的工作台视图。对于内部 pilot，这会让历史测算复核卡在“下载 CSV 再人工对照”的体验上。
+
+本轮判断：
+- 经济性 summary 是已落盘的小体量结果，可以先恢复为当前会话内的摘要型 `economy_v1_result`；
+- 恢复经济 summary 必须绑定同一 `study_id` 的技术 summary 已经处于当前会话，避免把不同技术结果和经济结果拼在一起；
+- 年度现金流、推荐排序输入和下载/图表缓存不能假装被恢复，必须清空或标注为缺失，后续完整恢复再通过 ResultStore artifacts 和 Job 闭环补齐；
+- 网页内恢复继续走 `read_artifact_payload_for_view()`，允许不可导出用户在网页内查看，但不授予文件下载能力。
+
+本轮实现：
+- 历史 artifact 读取返回值新增 `kind`，恢复 helper 会校验 artifact 必须是 `ArtifactKind.ECONOMY_SUMMARY`；
+- 新增 `_pilot_restore_economy_summary_result()` 和 `_pilot_restore_economy_summary_to_session()`，支持恢复电源侧经济 summary 和同一主体经济 summary；
+- 恢复动作会同时校验当前项目和当前 `study_id`，避免未来结果页改造时把其他项目或其他 study 的经济 summary 拼进当前技术结果；
+- 欢迎页“历史结果产物”区新增“恢复经济性汇总到当前会话”按钮；只有当前会话已经恢复同一 `study_id` 的技术 summary 时才允许执行；
+- 恢复后写入 `st.session_state["economy_v1_result"]` 和可选 `single_entity_economy_result`，`price_mode` 标记为 `restored_summary`，`annual_cashflows` 留空，清理 `recommendation_v1_inputs` 和 `download_payloads`；
+- 当前 `StudyResult.result_store_refs` 会带回经济 result id、power summary artifact id 和 single-entity summary artifact id，方便后续完整结果页继续串联。
+
+边界说明：
+- 当前只恢复经济 summary，不恢复年度现金流表；
+- 推荐 V1 排序需要的输入状态不会随经济 summary 恢复，因此推荐页需要重新跑经济性或等待后续推荐工作台恢复；
+- 该入口仍不是完整历史 `StudyResult` 恢复，也不包含删除、标记、跨项目搜索或后台 Job 化；
+- 不可导出用户可以通过网页恢复查看，但仍不能下载 artifact payload。
+
+验证：
+- `python -m pytest tests/test_ui_import.py::test_pilot_restore_technical_summary_rebuilds_summary_only_session tests/test_ui_import.py::test_pilot_restore_economy_summary_uses_view_permission_without_export tests/test_ui_import.py::test_pilot_restore_summary_can_load_hourly_artifact_for_view_without_export tests/test_ui_import.py::test_pilot_restore_summary_can_rebuild_input_from_input_artifacts_and_recompute -q` 通过，4 项通过；
+- 本轮全量回归记录同步到上线前质量审查文档。
