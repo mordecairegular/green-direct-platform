@@ -445,6 +445,9 @@ def test_pilot_project_activity_frames_summarize_jobs_and_results():
         progress_current=1,
         progress_total=2,
         queued_at=later,
+        started_at=earlier,
+        worker_id="worker_1",
+        last_heartbeat_at=earlier,
     )
     older_result = StudyResultRecord(
         result_id="technical_result",
@@ -465,10 +468,19 @@ def test_pilot_project_activity_frames_summarize_jobs_and_results():
     )
 
     job_frame = app._pilot_job_history_frame([older_job, newer_job])
+    status_frame = app._pilot_job_status_frame(
+        [older_job, newer_job],
+        now=later,
+        stale_after_seconds=3600,
+    )
     result_frame = app._pilot_result_history_frame([older_result, newer_result])
 
     assert job_frame.iloc[0]["job_id"] == "job_new"
     assert job_frame.iloc[0]["进度"] == "1/2"
+    assert status_frame.iloc[0]["worker"] == "worker_1"
+    assert status_frame.iloc[0]["最后心跳"] == "2026-06-15 01:00"
+    assert status_frame.iloc[0]["超时"] == "是"
+    assert status_frame.iloc[1]["超时"] == "-"
     assert result_frame.iloc[0]["result_id"] == "recommendation_result_job_new"
     assert result_frame.iloc[0]["类型"] == "recommendation"
     assert result_frame.iloc[0]["产物数"] == 2

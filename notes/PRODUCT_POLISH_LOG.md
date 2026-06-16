@@ -4358,3 +4358,30 @@ exchange_import_shortfall_energy == 0
 - `pytest tests/test_job_store.py tests/test_cli.py -q` 通过，15 项通过；
 - `python -m compileall -q src scripts tests` 通过；
 - `pytest -q` 通过，315 项通过。
+
+### 2026-06-16 Streamlit 项目任务状态明细第一版
+
+本轮把上一轮的任务运维可见性从 CLI 继续推进到内部试用 UI。此前欢迎页已有“排队/运行中任务”与取消入口，但只展示活动任务和简略字段；管理员或项目成员在排障时仍需要知道任务 worker、最后 heartbeat、是否 stale、错误说明和完整任务历史。完整后台 worker 尚未落地前，先在当前项目面板里增加任务状态明细，形成用户侧可见的第一版任务状态页。
+
+本轮判断：
+- 只展示当前项目任务，继续复用 `PilotAccessService.list_project_jobs()` 的项目查看权限；
+- 默认折叠任务状态明细，避免欢迎页变成运维仪表盘；
+- stale 标记只用于解释 running 任务是否疑似卡住，不自动改变任务状态；
+- 不改变任何计算口径、任务执行方式或取消语义。
+
+本轮实现：
+- `src/green_direct/ui/app.py` 新增 `_pilot_job_status_frame()`，输出任务类型、状态、进度、发起人、worker、排队/开始/完成/最后 heartbeat、stale 标记和说明；
+- 欢迎页“项目任务与结果”面板新增“任务状态明细”折叠区；
+- `tests/test_ui_import.py` 覆盖 worker、最后 heartbeat 和 stale 标记；
+- TODO、软件接口总览、受控公网审计矩阵、预发布质量审查、架构计划、性能计划、Claude Code 提示词和 handoff 已同步。
+
+边界说明：
+- 这仍是任务元数据视图，不是真正后台 worker 轮询系统；
+- 当前取消按钮仍只更新任务状态元数据，不中断 Python 进程；
+- 后续应把真实后台 worker 的 heartbeat、进度、重试、失败脱敏错误和 worker 级取消都接入这一状态视图。
+
+验证：
+- `pytest tests/test_ui_import.py::test_pilot_project_activity_frames_summarize_jobs_and_results tests/test_ui_import.py::test_pilot_active_job_helpers_filter_and_gate_cancel -q` 通过，2 项通过；
+- `python -m compileall -q src/green_direct/ui/app.py tests/test_ui_import.py` 通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `pytest -q` 通过，315 项通过。

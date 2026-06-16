@@ -74,7 +74,7 @@ python -m pytest -q
 2. 后台任务风险：
    - PNG ZIP 后台任务 key 是否按会话隔离；
    - 新技术仿真后旧导出缓存是否失效；
-   - 欢迎页活动任务面板是否只展示当前项目任务，取消入口是否仍走后端权限和审计；
+   - 欢迎页活动任务和任务状态明细是否只展示当前项目任务，取消入口是否仍走后端权限和审计；
    - `Job.worker_id` / `last_heartbeat_at`、`pilot-admin list-jobs` 和 `pilot-admin fail-stale-jobs` 是否能先查看超时 running 元数据、再转为 failed，并保留项目级审计；
    - 长任务失败、取消、重复点击、页面切换后的状态是否可恢复或可解释。
 3. 计算口径风险：

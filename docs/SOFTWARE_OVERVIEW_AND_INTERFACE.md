@@ -1064,7 +1064,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - 会话失效、token 错误或退出登录时，会清理当前浏览器会话内的测算结果、下载缓存、价格曲线和图表导出缓存，避免下一位用户看到上一位用户的临时结果；
 - 登录后必须先创建或选择一个有效项目工作区，六步业务工作流才会继续渲染；切换项目会清理当前测算结果和下载缓存；
 - 平台管理员登录后，侧栏会出现“平台管理”入口，当前支持创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并在“项目和成员”中为已有项目分配或禁用成员角色、维护是否允许下载/导出项目结果；
-- 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引；面板可筛出当前项目排队/运行中的活动任务，并按项目角色提供最小取消入口；导出权限允许时，可下载已落盘的 summary / portfolio artifact；网页内恢复技术汇总、加载已有 hourly artifact 和恢复 input artifact 走 `read_artifact_payload_for_view()`，只要求项目查看权限并写 `VIEW_ARTIFACT` 审计，不授予文件下载能力；
+- 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引；面板可筛出当前项目排队/运行中的活动任务，并按项目角色提供最小取消入口；“任务状态明细”可查看 worker、最后 heartbeat、stale 标记、进度和错误说明；导出权限允许时，可下载已落盘的 summary / portfolio artifact；网页内恢复技术汇总、加载已有 hourly artifact 和恢复 input artifact 走 `read_artifact_payload_for_view()`，只要求项目查看权限并写 `VIEW_ARTIFACT` 审计，不授予文件下载能力；
 - 当前门禁、平台管理页和结果面板只解决内部试用账号、项目工作区控制、结果可见性和已落盘 artifact 取回入口，仍没有数据库会话表、CSRF 防护、正式审计后台、完整历史结果恢复或后台 worker。
 
 `src/green_direct/services/job_store.py` 已提供第一版 `LocalJobStore`：
@@ -1076,7 +1076,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `list_stale_running_jobs()` / `fail_stale_running_jobs()`：按 `last_heartbeat_at` 或 `started_at` 判断超时 running 任务，并可批量标记失败；
 - 任务文件按 `projects/{project_id}/studies/{study_id}/jobs/{job_id}.json` 隔离，路径片段使用白名单校验。
 
-`LocalJobStore` 目前只保存任务元数据，不启动 worker、不做重试、不做 worker 级资源中断。Streamlit 欢迎页已消费该任务状态，显示活动任务并通过 `PilotAccessService.cancel_job()` 更新取消状态；`pilot-admin fail-stale-jobs` 可把进程中断后遗留的 running 元数据转成 failed，便于试用期恢复项目状态，但不会杀死或回收任何操作系统进程。后续接入正式后台时，应让前台提交 `Job`、轮询 `JobStatus`，由后台 worker 写入 `worker_id` / heartbeat 和 `LocalResultStore` 或其替代存储。
+`LocalJobStore` 目前只保存任务元数据，不启动 worker、不做重试、不做 worker 级资源中断。Streamlit 欢迎页已消费该任务状态，显示活动任务、任务状态明细，并通过 `PilotAccessService.cancel_job()` 更新取消状态；`pilot-admin fail-stale-jobs` 可把进程中断后遗留的 running 元数据转成 failed，便于试用期恢复项目状态，但不会杀死或回收任何操作系统进程。后续接入正式后台时，应让前台提交 `Job`、轮询 `JobStatus`，由后台 worker 写入 `worker_id` / heartbeat 和 `LocalResultStore` 或其替代存储。
 
 `src/green_direct/services/pilot_access.py` 已提供第一版 `PilotAccessService`：
 
@@ -1236,7 +1236,7 @@ Explicit export artifact
 边界：
 - 这仍是 Streamlit 进程内同步写入，不是真正后台 worker；
 - 当前不持久化全量逐小时明细、PNG/Excel/批量导出包或完整报告；当前会话内补算出的单方案 `hourly_detail` 已可在有项目结果索引时写入 `ResultStore`，导出页已可显式保存所选方案 HTML 图表包和简版 Markdown 报告；技术 summary 恢复也会带回 input artifact 索引，并可在三条 input artifact 未过期且快照含 `curve_columns` 时跨会话重新补算缺失明细；经济性结果可恢复 summary、已保存的年度现金流和 `recommendation_inputs.json`，但 summary-only 经济运行不会凭空恢复未保留的现金流；推荐 portfolio 可 portfolio-only 恢复，但不包含推荐视角选择或重新排序工作台状态；
-- 当前结果面板支持技术 summary-only 恢复、经济 summary-only 恢复、推荐 portfolio-only 恢复、已有 hourly artifact 加载、项目 admin 标记/置顶结果索引、项目 admin 软删除/隐藏结果索引和活动任务取消入口，但不恢复完整历史 `StudyResult`，不做跨项目搜索；取消入口只更新任务状态元数据，不代表已有后台 worker 级中断能力；
+- 当前结果面板支持技术 summary-only 恢复、经济 summary-only 恢复、推荐 portfolio-only 恢复、已有 hourly artifact 加载、项目 admin 标记/置顶结果索引、项目 admin 软删除/隐藏结果索引、活动任务取消入口和任务状态明细，但不恢复完整历史 `StudyResult`，不做跨项目搜索；取消入口只更新任务状态元数据，不代表已有后台 worker 级中断能力；
 - `technical_input_fingerprint()` 目前基于 `config_snapshot` 生成稳定 sha256，用于追踪输入配置；原始上传曲线本身由 input curve artifact 的 `sha256` 和 `size_bytes` 记录；
 - `economic_input_fingerprint()` 基于经济参数、价格模式和 summary 形状生成；`recommendation_result_fingerprint()` 基于推荐结果表生成，用于 UI 内去重；
 - 后续后台任务、数据库适配和结果页读取应继续复用 `PilotAccessService`，不要直接绕过权限与审计门面调用底层 store。

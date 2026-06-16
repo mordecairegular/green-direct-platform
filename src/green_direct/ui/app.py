@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import replace
+from datetime import datetime, timezone
 import html
 import hashlib
 import json
@@ -175,6 +176,7 @@ PILOT_HISTORY_ARTIFACT_DOWNLOADS_KEY = "_pilot_history_artifact_downloads"
 TECHNICAL_STUDY_INPUT_KEY = "_technical_study_input"
 PLATFORM_ADMIN_PAGE = "平台管理"
 ACTIVE_PILOT_JOB_STATUSES = {JobStatus.QUEUED, JobStatus.RUNNING}
+PILOT_JOB_STALE_AFTER_SECONDS = 60 * 60
 CHART_PNG_DOCX_SESSION_ID_KEY = "_chart_png_docx_session_id"
 _CHART_PNG_DOCX_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="green-direct-png")
 _CHART_PNG_DOCX_JOBS: dict[str, dict[str, object]] = {}
@@ -2423,6 +2425,50 @@ def _pilot_job_history_frame(jobs: list[Job], *, limit: int = 8) -> pd.DataFrame
     return pd.DataFrame(rows)
 
 
+def _pilot_job_stale_text(
+    job: Job,
+    *,
+    now: datetime,
+    stale_after_seconds: int = PILOT_JOB_STALE_AFTER_SECONDS,
+) -> str:
+    if job.status != JobStatus.RUNNING:
+        return "-"
+    return "是" if job.is_stale(now=now, stale_after_seconds=stale_after_seconds) else "否"
+
+
+def _pilot_job_status_frame(
+    jobs: list[Job],
+    *,
+    now: datetime,
+    stale_after_seconds: int = PILOT_JOB_STALE_AFTER_SECONDS,
+) -> pd.DataFrame:
+    sorted_jobs = sorted(jobs, key=lambda job: (job.queued_at, job.study_id, job.job_id), reverse=True)
+    rows = []
+    for job in sorted_jobs:
+        rows.append(
+            {
+                "job_id": job.job_id,
+                "study_id": job.study_id,
+                "类型": job.job_type.value,
+                "状态": job.status.value,
+                "进度": _pilot_job_progress_text(job),
+                "发起人": job.requested_by_user_id,
+                "worker": job.worker_id or "",
+                "排队": _pilot_datetime_text(job.queued_at),
+                "开始": _pilot_datetime_text(job.started_at),
+                "最后心跳": _pilot_datetime_text(job.last_heartbeat_at),
+                "完成": _pilot_datetime_text(job.finished_at),
+                "超时": _pilot_job_stale_text(
+                    job,
+                    now=now,
+                    stale_after_seconds=stale_after_seconds,
+                ),
+                "说明": job.error_message or job.progress_message or "",
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def _active_pilot_jobs(jobs: list[Job]) -> list[Job]:
     return sorted(
         [job for job in jobs if job.status in ACTIVE_PILOT_JOB_STATUSES],
@@ -3250,6 +3296,21 @@ def _render_pilot_active_job_controls(
             st.rerun()
 
 
+def _render_pilot_job_status_details(st, *, jobs: list[Job]) -> None:
+    if not jobs:
+        return
+    with st.expander("任务状态明细", expanded=False):
+        st.dataframe(
+            _pilot_job_status_frame(
+                jobs,
+                now=datetime.now(timezone.utc),
+                stale_after_seconds=PILOT_JOB_STALE_AFTER_SECONDS,
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+
+
 def _render_pilot_project_activity(st) -> None:
     if not _pilot_auth_enabled():
         return
@@ -3278,6 +3339,7 @@ def _render_pilot_project_activity(st) -> None:
         project_id=project_id,
         jobs=jobs,
     )
+    _render_pilot_job_status_details(st, jobs=jobs)
     left, right = st.columns(2)
     with left:
         st.caption("最近任务")
