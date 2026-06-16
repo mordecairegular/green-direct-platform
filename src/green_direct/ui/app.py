@@ -45,6 +45,7 @@ from green_direct.models.params import BessParams, DataCleaningParams, Performan
 from green_direct.models.pilot_backend import (
     ArtifactKind,
     Job,
+    JobStatus,
     Project,
     ProjectMembership,
     ProjectRole,
@@ -171,6 +172,7 @@ PILOT_RECOMMENDATION_STORE_SIGNATURE_KEY = "_pilot_recommendation_store_signatur
 PILOT_HISTORY_ARTIFACT_DOWNLOADS_KEY = "_pilot_history_artifact_downloads"
 TECHNICAL_STUDY_INPUT_KEY = "_technical_study_input"
 PLATFORM_ADMIN_PAGE = "平台管理"
+ACTIVE_PILOT_JOB_STATUSES = {JobStatus.QUEUED, JobStatus.RUNNING}
 CHART_PNG_DOCX_SESSION_ID_KEY = "_chart_png_docx_session_id"
 _CHART_PNG_DOCX_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="green-direct-png")
 _CHART_PNG_DOCX_JOBS: dict[str, dict[str, object]] = {}
@@ -2273,18 +2275,21 @@ def _pilot_datetime_text(value) -> str:
     return value.strftime("%Y-%m-%d %H:%M") if value else "-"
 
 
+def _pilot_job_progress_text(job: Job) -> str:
+    return f"{job.progress_current}/{job.progress_total}" if job.progress_total else str(job.progress_current)
+
+
 def _pilot_job_history_frame(jobs: list[Job], *, limit: int = 8) -> pd.DataFrame:
     sorted_jobs = sorted(jobs, key=lambda job: (job.queued_at, job.study_id, job.job_id), reverse=True)
     rows = []
     for job in sorted_jobs[:limit]:
-        progress = f"{job.progress_current}/{job.progress_total}" if job.progress_total else str(job.progress_current)
         rows.append(
             {
                 "job_id": job.job_id,
                 "study_id": job.study_id,
                 "类型": job.job_type.value,
                 "状态": job.status.value,
-                "进度": progress,
+                "进度": _pilot_job_progress_text(job),
                 "发起人": job.requested_by_user_id,
                 "开始": _pilot_datetime_text(job.started_at),
                 "完成": _pilot_datetime_text(job.finished_at),
@@ -2292,6 +2297,29 @@ def _pilot_job_history_frame(jobs: list[Job], *, limit: int = 8) -> pd.DataFrame
             }
         )
     return pd.DataFrame(rows)
+
+
+def _active_pilot_jobs(jobs: list[Job]) -> list[Job]:
+    return sorted(
+        [job for job in jobs if job.status in ACTIVE_PILOT_JOB_STATUSES],
+        key=lambda job: (job.queued_at, job.study_id, job.job_id),
+        reverse=True,
+    )
+
+
+def _pilot_job_option_label(job: Job) -> str:
+    return (
+        f"{job.job_id} / {job.job_type.value} / {job.status.value} / "
+        f"{_pilot_job_progress_text(job)} / {job.requested_by_user_id}"
+    )
+
+
+def _can_cancel_pilot_job(job: Job, *, actor_user_id: str, project_role: str | None) -> bool:
+    if job.is_terminal:
+        return False
+    if project_role == ProjectRole.ADMIN.value:
+        return True
+    return project_role == ProjectRole.ANALYST.value and job.requested_by_user_id == actor_user_id
 
 
 def _pilot_result_record_kind(record: StudyResultRecord) -> str:
@@ -2594,6 +2622,57 @@ def _render_pilot_result_artifact_downloads(
                     )
 
 
+def _render_pilot_active_job_controls(
+    st,
+    *,
+    access: PilotAccessService,
+    actor_user_id: str,
+    project_id: str,
+    jobs: list[Job],
+) -> None:
+    active_jobs = _active_pilot_jobs(jobs)
+    if not active_jobs:
+        return
+
+    project_role = st.session_state.get(PILOT_ACTIVE_PROJECT_ROLE_KEY)
+    with st.expander("排队/运行中任务", expanded=True):
+        st.info(f"当前项目有 {len(active_jobs)} 个排队或运行中的任务。")
+        st.dataframe(_pilot_job_history_frame(active_jobs, limit=20), width="stretch", hide_index=True)
+
+        cancelable_jobs = [
+            job
+            for job in active_jobs
+            if _can_cancel_pilot_job(job, actor_user_id=actor_user_id, project_role=project_role)
+        ]
+        if not cancelable_jobs:
+            st.caption("当前账号没有可取消的活动任务。")
+            return
+
+        option_by_key = {f"{job.study_id}::{job.job_id}": job for job in cancelable_jobs}
+        selected_key = st.selectbox(
+            "选择要取消的任务",
+            options=list(option_by_key),
+            format_func=lambda key: _pilot_job_option_label(option_by_key[str(key)]),
+            key=f"pilot_cancel_job_select_{project_id}",
+        )
+        if st.button("取消所选任务", key=f"pilot_cancel_job_button_{project_id}"):
+            selected_job = option_by_key[str(selected_key)]
+            try:
+                canceled = access.cancel_job(
+                    actor_user_id=actor_user_id,
+                    project_id=project_id,
+                    study_id=selected_job.study_id,
+                    job_id=selected_job.job_id,
+                )
+            except Exception as exc:  # noqa: BLE001 - activity panel should surface storage/permission races
+                if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
+                    st.warning(f"任务暂不可取消：{exc}")
+                    return
+                raise
+            st.session_state[PILOT_PROJECT_NOTICE_KEY] = f"已取消任务：{canceled.job_id}"
+            st.rerun()
+
+
 def _render_pilot_project_activity(st) -> None:
     if not _pilot_auth_enabled():
         return
@@ -2615,6 +2694,13 @@ def _render_pilot_project_activity(st) -> None:
     col1, col2 = st.columns(2)
     col1.metric("已登记任务", len(jobs))
     col2.metric("已保存结果", len(records))
+    _render_pilot_active_job_controls(
+        st,
+        access=access,
+        actor_user_id=actor_user_id,
+        project_id=project_id,
+        jobs=jobs,
+    )
     left, right = st.columns(2)
     with left:
         st.caption("最近任务")

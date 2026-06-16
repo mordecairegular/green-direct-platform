@@ -94,10 +94,14 @@ python scripts\benchmark_internal_pilot_performance.py --json
 
 目标：多人试用时，长任务不阻塞前台会话。
 
+已完成第一步：
+
+- 欢迎页“项目任务与结果”面板已可筛出当前项目 `queued` / `running` 活动任务，并提供最小取消入口；取消动作仍走 `PilotAccessService.cancel_job()` 权限校验和审计。
+
 要做：
 
 - 技术仿真、经济性测算、图表/报告导出统一登记为 `Job`；
-- 前台提交任务、轮询状态、显示进度、支持取消；
+- 前台提交任务、轮询真实 worker 状态、显示进度、支持 worker 级取消；
 - worker 从 `ResultStore`/输入 artifact 读取数据，写回 summary、明细和导出文件；
 - 失败状态写入脱敏错误和审计日志。
 

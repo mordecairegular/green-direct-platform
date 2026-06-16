@@ -455,6 +455,72 @@ def test_pilot_project_activity_frames_summarize_jobs_and_results():
     assert result_frame.iloc[0]["产物数"] == 2
 
 
+def test_pilot_active_job_helpers_filter_and_gate_cancel():
+    from datetime import datetime, timezone
+
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import Job, JobStatus, JobType, ProjectRole
+
+    earlier = datetime(2026, 6, 15, 1, tzinfo=timezone.utc)
+    later = datetime(2026, 6, 15, 2, tzinfo=timezone.utc)
+    queued_job = Job(
+        job_id="job_queued",
+        project_id="project_1",
+        study_id="study_1",
+        requested_by_user_id="analyst",
+        job_type=JobType.TECHNICAL_STUDY,
+        status=JobStatus.QUEUED,
+        queued_at=earlier,
+    )
+    running_job = Job(
+        job_id="job_running",
+        project_id="project_1",
+        study_id="study_1",
+        requested_by_user_id="analyst",
+        job_type=JobType.RECOMMENDATION,
+        status=JobStatus.RUNNING,
+        progress_current=1,
+        progress_total=2,
+        queued_at=later,
+    )
+    succeeded_job = Job(
+        job_id="job_done",
+        project_id="project_1",
+        study_id="study_1",
+        requested_by_user_id="other_analyst",
+        job_type=JobType.ECONOMIC_STUDY,
+        status=JobStatus.SUCCEEDED,
+        queued_at=later,
+        finished_at=later,
+    )
+
+    active_jobs = app._active_pilot_jobs([queued_job, succeeded_job, running_job])
+
+    assert [job.job_id for job in active_jobs] == ["job_running", "job_queued"]
+    assert "job_running / recommendation / running / 1/2 / analyst" == app._pilot_job_option_label(running_job)
+    assert app._can_cancel_pilot_job(running_job, actor_user_id="analyst", project_role=ProjectRole.ANALYST.value)
+    assert not app._can_cancel_pilot_job(
+        running_job,
+        actor_user_id="other_analyst",
+        project_role=ProjectRole.ANALYST.value,
+    )
+    assert app._can_cancel_pilot_job(
+        running_job,
+        actor_user_id="admin",
+        project_role=ProjectRole.ADMIN.value,
+    )
+    assert not app._can_cancel_pilot_job(
+        succeeded_job,
+        actor_user_id="admin",
+        project_role=ProjectRole.ADMIN.value,
+    )
+    assert not app._can_cancel_pilot_job(
+        running_job,
+        actor_user_id="viewer",
+        project_role=ProjectRole.VIEWER.value,
+    )
+
+
 def test_pilot_history_artifact_refs_and_download_use_access_service(tmp_path):
     import green_direct.ui.app as app
     from green_direct.models.pilot_backend import ArtifactKind, AuditAction, Project, StudyResultRecord, User

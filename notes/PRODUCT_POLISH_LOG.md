@@ -3871,3 +3871,29 @@ exchange_import_shortfall_energy == 0
 - `python scripts/benchmark_internal_pilot_performance.py --hours 168 --pv-count 4 --wind-count 4 --bess-power-count 2 --durations 0,2 --skip-full-retention --json` 通过；本机样本：30 个方案，summary-first 技术仿真约 1.2438s、峰值 Python heap 约 2.1MB，经济 summary-only 约 0.7454s、峰值 Python heap 约 0.195MB；
 - `pytest -q` 通过，287 项通过；
 - `python -m compileall -q src scripts tests` 通过。
+
+### 2026-06-16 项目活动任务查看与取消入口第一版
+
+本轮吸收了用户提供的《绿电直连测算工具公网内测版准备方案（Codex 执行稿）》方向：近期上线目标应继续按“受控公网内测 Route A / 内部 10-20 人 pilot”理解，不是正式公网 SaaS；核心仍是身份、权限、项目留存、可追溯、导出控制、文件安全和部署可恢复。该稿与当前仓库路线一致，因此本轮不做大 UI 重构或算法变更，只补一个任务控制面的最小缺口。
+
+本轮判断：
+- 欢迎页已有“项目任务与结果”面板，但如果项目里出现 `queued` / `running` 任务，用户和管理员需要能看到它们，而不是只看一张混合历史表；
+- 取消入口必须继续走 `PilotAccessService.cancel_job()`，不能只在 UI 层改状态，否则会绕过项目角色校验和审计；
+- 这仍不是后台 worker。当前同步技术/经济/推荐写入路径大多很快完成；真正长任务中断、排队、重试和资源隔离仍属于后续 worker 切片。
+
+本轮实现：
+- Streamlit 欢迎页“项目任务与结果”面板新增“排队/运行中任务”区；
+- 新增 `_active_pilot_jobs()`、`_pilot_job_option_label()` 和 `_can_cancel_pilot_job()`，筛出活动任务并按项目角色控制取消入口；
+- `analyst` 只能取消自己发起的活动任务，项目 `admin` 可取消项目内活动任务，`viewer` 和终态任务不显示可取消动作；
+- 点击取消后调用 `PilotAccessService.cancel_job()`，由服务层做权限校验、终态校验和 `CANCEL_JOB` 审计；
+- `docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md`、`docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md`、`docs/PERFORMANCE_OPTIMIZATION_PLAN.md`、`docs/SOFTWARE_OVERVIEW_AND_INTERFACE.md`、`docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md` 和 `notes/TODO.md` 均同步为“已有最小取消入口，但仍缺 worker 级取消闭环”。
+
+边界说明：
+- 当前取消入口只改变任务元数据状态，不会中断正在运行的 Python 计算进程；
+- 还没有完整任务状态页、轮询、排队 worker、重试、并发锁、数据库事务或跨 worker 资源治理；
+- 后续把技术仿真、经济性测算、图表包和报告导出改成真正后台任务时，应复用同一 `JobStatus` 和 `PilotAccessService` 权限/审计语义。
+
+验证：
+- `python -m pytest tests/test_ui_import.py::test_pilot_project_activity_frames_summarize_jobs_and_results tests/test_ui_import.py::test_pilot_active_job_helpers_filter_and_gate_cancel tests/test_pilot_access.py::test_cancel_job_allows_owner_or_admin_only -q` 通过，3 项通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `python -m pytest -q` 通过，288 项通过。
