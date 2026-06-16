@@ -3897,3 +3897,29 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_ui_import.py::test_pilot_project_activity_frames_summarize_jobs_and_results tests/test_ui_import.py::test_pilot_active_job_helpers_filter_and_gate_cancel tests/test_pilot_access.py::test_cancel_job_allows_owner_or_admin_only -q` 通过，3 项通过；
 - `python -m compileall -q src scripts tests` 通过；
 - `python -m pytest -q` 通过，288 项通过。
+
+### 2026-06-16 计算前粗略耗时提示与大批量确认
+
+本轮继续推进性能路线 Phase P1。上一轮已经有单次方案数硬上限和 summary-first，但用户点击“开始测算”前仍只看到方案数，并不知道大致等待量级；内部 10-20 人试用时，误提交几千到上万方案的同步任务仍会占住 Streamlit 进程。
+
+本轮判断：
+- 预计耗时只能作为粗略提醒，不能承诺精确 SLA；实际耗时受 CPU、Python 版本、容器、并行进程和后台负载影响；
+- 大任务确认应绑定当前工作量签名。用户改变方案数、小时数、并行进程或明细保留策略后，旧确认不能继续生效；
+- 这仍是前台 guardrail，不替代真正后台 worker、队列、worker 级取消和资源隔离。
+
+本轮实现：
+- 02 页新增 `_technical_workload_summary()`，按候选方案数、输入小时数、明细保留数量和并行进程数生成粗略耗时区间；
+- 小规模测算显示 caption；超过方案数提醒阈值时，和 summary-first 提示合并显示为 warning；
+- 超过提醒阈值且未超过硬上限时，必须勾选“大批量同步测算确认”后，“开始测算”按钮才可用；
+- 确认状态由 `_technical_workload_signature()` 绑定方案数、小时数、并行进程、明细保留数和明细模式，签名变化会自动重置确认；
+- 超过硬上限时，页面仍显示输入就绪和上限错误，但按钮禁用，不再误提示“请补齐曲线”。
+
+边界说明：
+- 耗时系数是第一版保守粗估，后续应根据目标服务器 benchmark 调整；
+- 当前只估算技术仿真同步任务，不估算经济性、推荐、图表包和报告导出；
+- 真正多人内测仍需要后台 Job/worker、轮询、worker 级取消、队列限流和监控。
+
+验证：
+- `python -m pytest tests/test_ui_import.py::test_large_run_detail_retention_plan_switches_to_summary_first tests/test_ui_import.py::test_technical_workload_estimate_scales_with_detail_retention_and_workers tests/test_ui_import.py::test_large_run_confirmation_helpers_require_and_reset_by_signature tests/test_ui_import.py::test_simulation_scenario_count_limit_uses_environment_guardrail tests/test_ui_import.py::test_scenario_count_limit_notice_blocks_oversized_pool tests/test_ui_import.py::test_technical_next_button_does_not_mutate_radio_state_after_instantiation -q` 通过，6 项通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `python -m pytest -q` 通过，290 项通过。

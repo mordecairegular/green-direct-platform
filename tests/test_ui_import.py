@@ -1158,6 +1158,78 @@ def test_large_run_detail_retention_plan_switches_to_summary_first():
     assert summary_only["hourly_detail_scenario_ids"] == ()
 
 
+def test_technical_workload_estimate_scales_with_detail_retention_and_workers():
+    import green_direct.ui.app as app
+
+    full_retention = app._technical_detail_retention_plan(
+        6000,
+        threshold=10000,
+        large_run_hourly_detail_limit=20,
+    )
+    summary_first = app._technical_detail_retention_plan(
+        6000,
+        threshold=5000,
+        large_run_hourly_detail_limit=20,
+    )
+
+    full_workload = app._technical_workload_summary(
+        6000,
+        hour_count=8760,
+        parallel_workers=1,
+        detail_retention_plan=full_retention,
+    )
+    summary_workload = app._technical_workload_summary(
+        6000,
+        hour_count=8760,
+        parallel_workers=1,
+        detail_retention_plan=summary_first,
+    )
+    parallel_workload = app._technical_workload_summary(
+        6000,
+        hour_count=8760,
+        parallel_workers=4,
+        detail_retention_plan=summary_first,
+    )
+
+    assert full_workload["retained_detail_count"] == 6000
+    assert summary_workload["retained_detail_count"] == 20
+    assert full_workload["estimate_seconds"] > summary_workload["estimate_seconds"]
+    assert parallel_workload["estimate_seconds"] < summary_workload["estimate_seconds"]
+    assert "预计耗时约" in summary_workload["estimate_text"]
+
+
+def test_large_run_confirmation_helpers_require_and_reset_by_signature():
+    import green_direct.ui.app as app
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.LARGE_RUN_CONFIRMATION_SIGNATURE_KEY: "old-signature",
+                "simulation_confirm_large_run": True,
+            }
+
+        def checkbox(self, _label, *, key, **_kwargs):
+            return self.session_state[key]
+
+    workload = {
+        "scenario_count": 6000,
+        "hour_count": 8760,
+        "parallel_workers": 1,
+        "retained_detail_count": 20,
+        "detail_mode": "summary_first",
+    }
+    dummy = DummyStreamlit()
+
+    assert app._large_run_confirmation_required(6000, threshold=5000)
+    assert not app._large_run_confirmation_required(5000, threshold=5000)
+    assert app._technical_workload_hour_count(pd.DataFrame(index=range(8760)), pd.DataFrame(index=range(8784))) == 8760
+    assert not app._render_large_run_confirmation(dummy, workload=workload)
+    assert dummy.session_state["simulation_confirm_large_run"] is False
+
+    dummy.session_state["simulation_confirm_large_run"] = True
+    assert app._render_large_run_confirmation(dummy, workload=workload)
+
+
 def test_simulation_scenario_count_limit_uses_environment_guardrail(monkeypatch):
     import green_direct.ui.app as app
 

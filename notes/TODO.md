@@ -43,6 +43,7 @@
 - 经济性入口已支持 `retain_annual_cashflows=False` 和指定方案年度现金流保留。
 - 技术批量入口已支持 `PerformanceParams.parallel_workers`，02 页高级性能区已可配置并行进程数，默认 1。
 - 技术批量入口已支持 `PerformanceParams.max_scenarios_per_run`，容器和 UI 默认读取 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN=20000`；超限时 02 页会阻止开始测算，`run_batch()` 后端也会拒绝执行。
+- 02 页已新增计算前工作量提示：按方案数、小时数、明细保留策略和并行进程数给出粗略耗时区间；超过方案数提醒阈值时需勾选大批量同步测算确认，才允许点击“开始测算”。
 - 02 页已接入第一版大批量汇总优先模式：方案数超过提醒阈值时，只常驻方案汇总和前 N 个方案逐小时明细，N 由“大批量保留明细数”控制。
 - 技术仿真已新增 summary-only 执行路径：未保留逐小时明细的方案仍逐小时滚动同一 dispatch/SOC 逻辑并累计 summary，但不构造完整 `hourly_detail` DataFrame。
 - 服务层已新增 `run_hourly_detail_for_scenario()`，可在当前会话内基于技术 summary 行和原始 `TechnicalStudyInput` 为单个方案补算完整逐小时明细。
@@ -74,7 +75,7 @@
 
 后续方向：
 
-- 大批量模式继续补前台预计耗时、大任务确认、worker 级后台进度/取消闭环、性能基准记录和完整任务状态页。
+- 大批量模式继续补 worker 级后台进度/取消闭环、性能基准记录和完整任务状态页；当前前台预计耗时与大任务确认已是第一版粗略护栏，后续可用服务器实测数据校准。
 - 把当前会话内的单方案逐小时明细补算继续升级为项目级后台任务，并在历史 summary-only 恢复后支持在权限允许且原始输入 artifact 可用时补算缺失的代表方案明细。
 - 用户选择代表方案、图表方案或导出方案后，已有项目级 hourly artifact 已可优先加载；下一步是没有 artifact 时提交后台按需补算任务。
 - 下一阶段把历史结果恢复/删除/标记、经济性年度现金流、推荐跨会话去重、图表/报告导出也提交为项目级 `Job`，并把对应 hourly/cashflow/chart/report artifacts 写入 `ResultStore`。

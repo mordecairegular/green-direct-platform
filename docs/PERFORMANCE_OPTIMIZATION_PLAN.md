@@ -22,6 +22,7 @@
 - `PerformanceParams.parallel_workers` 已支持 `ProcessPoolExecutor` 并行技术仿真；
 - 02 页已暴露并行进程数和大批量保留明细数；
 - `PerformanceParams.max_scenarios_per_run` 与 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN` 已提供单次方案数硬上限；02 页会在超限时提示并禁用开始测算，`run_batch()` 后端也会拒绝执行；
+- 02 页已新增计算前工作量提示：按方案数、小时数、明细保留策略和并行进程数给出粗略耗时区间；超过方案数提醒阈值时必须勾选大批量同步测算确认，才允许点击“开始测算”；
 - 推荐页、图表页和导出页已支持当前会话内对单方案按需补算逐小时明细；
 - `run_economic_study(..., retain_annual_cashflows=False, annual_cashflow_scenario_ids=...)` 已支持只常驻经济性 summary 或指定方案年度现金流；
 - 经济性批量评价已减少 `iterrows()`、重复校验和部分 IRR 求解开销。
@@ -63,7 +64,7 @@ python scripts\benchmark_internal_pilot_performance.py --json
 要做：
 
 - 在 UI 中继续保留方案数预估；
-- 增加大任务确认和预计耗时提示；
+- 增加大任务确认和预计耗时提示；（已完成第一版：粗略耗时区间 + 大批量确认）
 - 增加单次方案数上限的环境变量或后台配置；（已完成第一版：`GREEN_DIRECT_MAX_SCENARIOS_PER_RUN`）
 - 记录 benchmark 样本：方案数、小时数、是否保留明细、并行 worker、耗时、内存。
 

@@ -287,6 +287,7 @@ SIMULATION_WIDGET_STATE_KEYS = [
     "simulation_warn_threshold",
     "simulation_parallel_workers",
     "simulation_large_run_hourly_detail_limit",
+    "simulation_confirm_large_run",
     "simulation_allow_export",
     "simulation_enforce_export_cap",
     "simulation_self_use_rate_min",
@@ -310,6 +311,9 @@ SIMULATION_WIDGET_STATE_KEYS = [
 ]
 DEFAULT_LARGE_RUN_HOURLY_DETAIL_LIMIT = 20
 DEFAULT_MAX_SCENARIOS_PER_RUN = 20000
+TECHNICAL_RUNTIME_SECONDS_PER_8760_SUMMARY_SCENARIO = 0.045
+TECHNICAL_RUNTIME_SECONDS_PER_8760_DETAIL_SCENARIO = 0.025
+LARGE_RUN_CONFIRMATION_SIGNATURE_KEY = "_simulation_confirm_large_run_signature"
 
 WORKBENCH_CSS = """
 <style>
@@ -3407,6 +3411,103 @@ def _technical_detail_retention_plan(
         "hourly_detail_scenario_ids": retained_ids,
         "message": message,
     }
+
+
+def _technical_workload_hour_count(*frames: pd.DataFrame | None) -> int | None:
+    counts = [len(frame) for frame in frames if frame is not None]
+    if not counts:
+        return None
+    return min(counts)
+
+
+def _large_run_confirmation_required(scenario_count: int | None, *, threshold: int) -> bool:
+    return scenario_count is not None and int(scenario_count) > int(threshold)
+
+
+def _estimate_technical_runtime_seconds(
+    scenario_count: int | None,
+    *,
+    hour_count: int | None,
+    parallel_workers: int,
+    retain_hourly_details: bool,
+    hourly_detail_scenario_ids: tuple[str, ...],
+) -> float | None:
+    if scenario_count is None or int(scenario_count) <= 0:
+        return None
+
+    normalized_hours = max(int(hour_count or 8760), 1) / 8760
+    detail_count = int(scenario_count) if retain_hourly_details else len(hourly_detail_scenario_ids)
+    summary_seconds = int(scenario_count) * normalized_hours * TECHNICAL_RUNTIME_SECONDS_PER_8760_SUMMARY_SCENARIO
+    detail_seconds = detail_count * normalized_hours * TECHNICAL_RUNTIME_SECONDS_PER_8760_DETAIL_SCENARIO
+    raw_seconds = summary_seconds + detail_seconds
+    effective_workers = max(1.0, 1.0 + (max(1, int(parallel_workers)) - 1) * 0.65)
+    estimated_seconds = raw_seconds / effective_workers
+    return max(2.0, estimated_seconds)
+
+
+def _format_runtime_estimate(seconds: float | None) -> str:
+    if seconds is None:
+        return "预计耗时暂不可估算"
+    lower = max(1.0, seconds * 0.7)
+    upper = max(lower, seconds * 1.6)
+    if upper < 60:
+        return f"预计耗时约 {round(lower):.0f}-{round(upper):.0f} 秒"
+    if upper < 3600:
+        return f"预计耗时约 {lower / 60:.1f}-{upper / 60:.1f} 分钟"
+    return f"预计耗时约 {lower / 3600:.1f}-{upper / 3600:.1f} 小时"
+
+
+def _technical_workload_summary(
+    scenario_count: int | None,
+    *,
+    hour_count: int | None,
+    parallel_workers: int,
+    detail_retention_plan: dict,
+) -> dict[str, object]:
+    detail_ids = tuple(detail_retention_plan.get("hourly_detail_scenario_ids") or ())
+    retain_hourly_details = bool(detail_retention_plan.get("retain_hourly_details", True))
+    estimated_seconds = _estimate_technical_runtime_seconds(
+        scenario_count,
+        hour_count=hour_count,
+        parallel_workers=parallel_workers,
+        retain_hourly_details=retain_hourly_details,
+        hourly_detail_scenario_ids=detail_ids,
+    )
+    retained_detail_count = int(scenario_count or 0) if retain_hourly_details else len(detail_ids)
+    return {
+        "scenario_count": int(scenario_count) if scenario_count is not None else None,
+        "hour_count": int(hour_count) if hour_count is not None else None,
+        "parallel_workers": int(parallel_workers),
+        "retained_detail_count": retained_detail_count,
+        "estimate_seconds": estimated_seconds,
+        "estimate_text": _format_runtime_estimate(estimated_seconds),
+        "detail_mode": str(detail_retention_plan.get("mode", "full")),
+    }
+
+
+def _technical_workload_signature(workload: dict[str, object]) -> str:
+    parts = [
+        workload.get("scenario_count"),
+        workload.get("hour_count"),
+        workload.get("parallel_workers"),
+        workload.get("retained_detail_count"),
+        workload.get("detail_mode"),
+    ]
+    return "|".join(str(part) for part in parts)
+
+
+def _render_large_run_confirmation(st, *, workload: dict[str, object]) -> bool:
+    signature = _technical_workload_signature(workload)
+    if st.session_state.get(LARGE_RUN_CONFIRMATION_SIGNATURE_KEY) != signature:
+        st.session_state["simulation_confirm_large_run"] = False
+        st.session_state[LARGE_RUN_CONFIRMATION_SIGNATURE_KEY] = signature
+    return bool(
+        st.checkbox(
+            "我已确认本次为大批量同步测算，愿意继续运行",
+            key="simulation_confirm_large_run",
+            help="当前版本仍主要在 Streamlit 进程内同步计算；建议先缩小范围试跑，再提交大方案池。",
+        )
+    )
 
 
 def _remember_technical_study_input(st, inputs: TechnicalStudyInput) -> None:
@@ -7841,14 +7942,44 @@ def _render_simulation_page(st) -> None:
         large_run_hourly_detail_limit=int(large_run_hourly_detail_limit),
     )
     scenario_limit_notice = _scenario_count_limit_notice(scenario_count, max_scenarios_per_run)
+    workload_summary = _technical_workload_summary(
+        scenario_count,
+        hour_count=_technical_workload_hour_count(load_df, pv_df, wind_df),
+        parallel_workers=int(parallel_workers),
+        detail_retention_plan=detail_retention_plan,
+    )
+    large_run_requires_confirmation = (
+        _large_run_confirmation_required(scenario_count, threshold=int(warn_threshold))
+        and scenario_limit_notice is None
+        and scenario_grid is not None
+    )
     if scenario_limit_notice is not None:
         st.error(scenario_limit_notice)
-    if scenario_count is not None and scenario_grid is not None and detail_retention_plan["mode"] == "summary_first":
-        st.warning(
-            f"本次配置将生成 {scenario_count:,} 个方案，可能计算较慢。{detail_retention_plan['message']}"
+    if scenario_count is not None and scenario_grid is not None:
+        detail_count = int(workload_summary["retained_detail_count"])
+        hour_count_text = (
+            f"{int(workload_summary['hour_count']):,} 小时"
+            if workload_summary.get("hour_count") is not None
+            else "小时数待识别"
         )
+        workload_text = (
+            f"本次配置将生成 {scenario_count:,} 个方案，输入曲线按 {hour_count_text} 粗估，"
+            f"{workload_summary['estimate_text']}；并行进程数 {int(workload_summary['parallel_workers'])}，"
+            f"常驻逐小时明细 {detail_count:,} 个方案。"
+        )
+        if detail_retention_plan["mode"] == "summary_first":
+            st.warning(f"{workload_text}{detail_retention_plan['message']}")
+        else:
+            st.caption(f"{workload_text}实际耗时受 CPU、Python 版本和服务器负载影响。")
 
-    ready = all(
+    large_run_confirmed = True
+    if large_run_requires_confirmation:
+        st.warning("这是大批量同步测算。建议先缩小容量范围试跑；确认后再启动完整方案池。")
+        large_run_confirmed = _render_large_run_confirmation(st, workload=workload_summary)
+        if not large_run_confirmed:
+            st.info("请勾选大批量测算确认后再开始。")
+
+    inputs_ready = all(
         [
             load_file,
             pv_file,
@@ -7860,13 +7991,13 @@ def _render_simulation_page(st) -> None:
             wind_time_col,
             wind_value_col,
             scenario_grid,
-            scenario_limit_notice is None,
         ]
     )
+    can_start = inputs_ready and scenario_limit_notice is None and large_run_confirmed
 
-    _render_run_state(st, ready, scenario_count, has_result=bool(st.session_state.get("batch_result")))
+    _render_run_state(st, inputs_ready, scenario_count, has_result=bool(st.session_state.get("batch_result")))
     action_col, demo_col, next_hint_col = st.columns([0.78, 0.92, 3.0])
-    start_clicked = action_col.button("开始测算", type="primary", disabled=not ready, key="simulation_start")
+    start_clicked = action_col.button("开始测算", type="primary", disabled=not can_start, key="simulation_start")
     demo_clicked = demo_col.button(
         "一键生成 Demo 结果",
         help="使用 samples 示例曲线和一组小规模候选方案快速生成图表演示。",
