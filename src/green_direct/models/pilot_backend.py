@@ -106,6 +106,7 @@ class AuditAction(str, Enum):
     SUBMIT_JOB = "submit_job"
     CANCEL_JOB = "cancel_job"
     COMPLETE_JOB = "complete_job"
+    VIEW_ARTIFACT = "view_artifact"
     DOWNLOAD_ARTIFACT = "download_artifact"
     DELETE_ARTIFACT = "delete_artifact"
 

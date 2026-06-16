@@ -46,6 +46,7 @@
 - 技术仿真已新增 summary-only 执行路径：未保留逐小时明细的方案仍逐小时滚动同一 dispatch/SOC 逻辑并累计 summary，但不构造完整 `hourly_detail` DataFrame。
 - 服务层已新增 `run_hourly_detail_for_scenario()`，可在当前会话内基于技术 summary 行和原始 `TechnicalStudyInput` 为单个方案补算完整逐小时明细。
 - Streamlit 推荐页、图表概览页和图表下载/报告页已接入第一版“补算逐小时明细”动作；补算后会写回当前 `batch_result` / `study_result` 并清除旧图表和下载缓存。
+- 历史 summary-only 恢复后如果已有项目级 hourly artifact，图表/报告入口会优先按网页查看权限加载该明细；不可导出用户可网页查看但不能下载 artifact 文件。
 - 大批量汇总优先模式会清除当前项目级下网电价曲线，避免缺少全量逐小时明细时误跑价格曲线经济性。
 - Claude Code 上线前 review/debug、UI 提升和后台账户/Job/ResultStore 架构提示词已收敛到 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`。
 - 经济性批量评价已做低风险底层提速：去除 `iterrows()`，缓存年度折现因子，NPV 使用等价 Horner 形式，同一主体批量评价减少重复参数校验；常规单符号变化现金流的 IRR 直接走二分快路径，多符号变化仍走原候选率扫描。
@@ -67,13 +68,13 @@
 - 服务层已新增 `LocalJobStore`，支持本地 JSON 任务提交、读取、项目/研究列表、状态筛选、进度更新、成功/失败/取消状态持久化，暂未包含 worker 调度、认证、管理员页面或数据库锁。
 - 服务层已新增 `PilotAccessService`，把项目角色权限、可见项目列表、任务提交/取消、产物读取和审计日志统一成可测试服务门面，暂未包含 worker 调度、数据库事务或并发锁。
 - 技术仿真完成后已能在启用内部试用登录和当前项目时登记项目级同步 `Job`，并把 `technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord` 写入 `LocalResultStore`；经济性 summary、推荐 portfolio 和按需补算的单方案逐小时明细也已接入第一阶段项目级写入；年度现金流、图表包、报告和导出产物仍待迁移。
-- Streamlit 欢迎页已新增“项目任务与结果”面板，可查看当前项目任务数、已保存结果数、最近任务和最近结果索引；已落盘的技术 summary、经济 summary、推荐 portfolio/detail 等 artifact 可加载下载；技术 summary 已支持 summary-only 恢复到当前会话；完整历史结果恢复、删除、标记和后台任务状态页仍待实现。
+- Streamlit 欢迎页已新增“项目任务与结果”面板，可查看当前项目任务数、已保存结果数、最近任务和最近结果索引；已落盘的技术 summary、经济 summary、推荐 portfolio/detail 等 artifact 可加载下载；技术 summary 已支持 summary-only 恢复到当前会话，并保留已有 hourly artifact 索引用于后续图表/报告入口加载；完整历史结果恢复、删除、标记和后台任务状态页仍待实现。
 
 后续方向：
 
 - 大批量模式继续补前台预计耗时、后台进度、取消入口、性能基准记录和完整任务状态页。
-- 把当前会话内的单方案逐小时明细补算继续升级为项目级后台任务，并在历史 summary-only 恢复后支持在权限允许且原始输入 artifact 可用时补算或加载代表方案明细。
-- 用户选择代表方案、图表方案或导出方案后，优先加载已有项目级 hourly artifact；没有 artifact 时再提交按需补算任务。
+- 把当前会话内的单方案逐小时明细补算继续升级为项目级后台任务，并在历史 summary-only 恢复后支持在权限允许且原始输入 artifact 可用时补算缺失的代表方案明细。
+- 用户选择代表方案、图表方案或导出方案后，已有项目级 hourly artifact 已可优先加载；下一步是没有 artifact 时提交后台按需补算任务。
 - 下一阶段把历史结果恢复/删除/标记、经济性年度现金流、推荐跨会话去重、图表/报告导出也提交为项目级 `Job`，并把对应 hourly/cashflow/chart/report artifacts 写入 `ResultStore`。
 - 技术仿真优先评估 `ProcessPoolExecutor` / 后台任务队列，按方案块并行，保持 `scenario_id`、warning、error 和顺序稳定。
 - 经济性测算优先做 DataFrame/NumPy 批量化，完整年度现金流可先只对报告方案或推荐组合生成。

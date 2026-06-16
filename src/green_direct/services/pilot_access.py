@@ -434,3 +434,56 @@ class PilotAccessService:
             metadata={"kind": artifact.kind.value, "size_bytes": artifact.size_bytes, "success": True},
         )
         return payload
+
+    def read_artifact_payload_for_view(self, *, actor_user_id: str, artifact: JobArtifact) -> bytes:
+        """Read artifact bytes for in-app viewing without granting file download rights."""
+
+        try:
+            self.require_project_view(actor_user_id=actor_user_id, project_id=artifact.project_id)
+        except PilotAccessError as exc:
+            self._audit(
+                actor_user_id=actor_user_id,
+                action=AuditAction.VIEW_ARTIFACT,
+                project_id=artifact.project_id,
+                study_id=artifact.study_id,
+                job_id=artifact.job_id,
+                target_type="artifact",
+                target_id=artifact.artifact_id,
+                metadata={
+                    "kind": artifact.kind.value,
+                    "size_bytes": artifact.size_bytes,
+                    "success": False,
+                    "reason": str(exc),
+                },
+            )
+            raise
+        try:
+            payload = self.result_store.read_artifact_payload(artifact)
+        except Exception as exc:
+            self._audit(
+                actor_user_id=actor_user_id,
+                action=AuditAction.VIEW_ARTIFACT,
+                project_id=artifact.project_id,
+                study_id=artifact.study_id,
+                job_id=artifact.job_id,
+                target_type="artifact",
+                target_id=artifact.artifact_id,
+                metadata={
+                    "kind": artifact.kind.value,
+                    "size_bytes": artifact.size_bytes,
+                    "success": False,
+                    "reason": str(exc),
+                },
+            )
+            raise
+        self._audit(
+            actor_user_id=actor_user_id,
+            action=AuditAction.VIEW_ARTIFACT,
+            project_id=artifact.project_id,
+            study_id=artifact.study_id,
+            job_id=artifact.job_id,
+            target_type="artifact",
+            target_id=artifact.artifact_id,
+            metadata={"kind": artifact.kind.value, "size_bytes": artifact.size_bytes, "success": True},
+        )
+        return payload

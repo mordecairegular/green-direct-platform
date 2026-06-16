@@ -178,7 +178,7 @@ PNG 图表包后台任务也按会话隔离：
 - `viewer` 只能查看本项目任务和产物，不能提交或取消任务；
 - 成员是否能下载/导出 artifact 由 `can_export_artifacts` 独立控制，不再仅由 `viewer` / `analyst` / `admin` 推断；
 - 结果索引读取已通过 `list_project_result_records()` / `list_study_result_records()` 纳入项目查看权限；
-- 产物索引读取仍要求项目查看权限；产物 payload 读取要求项目导出权限，成功和拒绝都会写入 `DOWNLOAD_ARTIFACT` 审计；
+- 产物索引读取仍要求项目查看权限；网页内恢复/图表查看 payload 使用 `read_artifact_payload_for_view()`，要求项目查看权限并写入 `VIEW_ARTIFACT` 审计；文件下载/导出 payload 使用 `read_artifact_payload()`，要求项目导出权限，成功和拒绝都会写入 `DOWNLOAD_ARTIFACT` 审计；
 - 停用用户、停用 membership、非成员、已归档项目的新任务提交会被拒绝；
 - 创建项目、成员变更、提交任务、取消任务、读取产物 payload 会写入 `AuditLog`；
 - 当前服务仍不包含 worker 调度、数据库事务或并发锁；它是当前 Streamlit 项目工作区、后续任务入口和 SQLite/Postgres 适配器应复用的权限/审计语义。
@@ -203,7 +203,7 @@ PNG 图表包后台任务也按会话隔离：
 - `TechnicalStudyInput(retain_hourly_details=False, hourly_detail_scenario_ids=(...))` 已把该能力接入服务层，并写入 `config_snapshot["detail_retention"]`；
 - `run_hourly_detail_for_scenario(inputs, scenario_id=..., summary=...)` 已提供当前会话内的单方案逐小时明细补算入口：从技术 summary 行重建 `Scenario`，复用同一次技术输入的原始曲线、BESS 参数、政策参数和 `dt_hours`，只补算选中方案；
 - 02 页“高级：枚举性能提醒”已新增“大批量保留明细数”：当方案数超过提醒阈值时，UI 自动进入汇总优先模式，技术仿真只常驻方案汇总和前 N 个方案逐小时明细；
-- 推荐页、图表概览页和导出/报告页已接入第一版“补算逐小时明细”按钮；补算后写回当前 `batch_result.hourly_details` 和 `study_result.technical_result.batch_result`，并清空旧下载/图表缓存；在启用内部登录且当前技术结果已有项目索引时，会把补算出的单方案明细写为 `ArtifactKind.HOURLY_DETAIL` CSV，并挂回 `StudyResultRecord.hourly_detail_artifact_ids`；
+- 推荐页、图表概览页和导出/报告页已接入第一版“补算逐小时明细”按钮；缺少明细时会先尝试按网页查看权限加载已有 `ArtifactKind.HOURLY_DETAIL`，没有可用 artifact 再使用当前会话的原始技术输入补算；补算后写回当前 `batch_result.hourly_details` 和 `study_result.technical_result.batch_result`，并清空旧下载/图表缓存；在启用内部登录且当前技术结果已有项目索引时，会把补算出的单方案明细写为 `ArtifactKind.HOURLY_DETAIL` CSV，并挂回 `StudyResultRecord.hourly_detail_artifact_ids`；
 - 大批量汇总优先模式会清除当前项目级下网电价曲线，避免价格曲线经济性在缺少全量逐小时明细时误用部分数据；
 - `run_economic_study(..., retain_annual_cashflows=False, annual_cashflow_scenario_ids=[...])` 可保留经济性 summary 指标，同时不常驻全部年度现金流表，或只保留报告方案/推荐组合现金流；
 - 经济性批量评价已去除 `iterrows()` 行遍历，年度折现因子按年限和折现率缓存，NPV 使用等价 Horner 形式计算，同一主体批量评价只做一次公共参数校验；常规单符号变化现金流的 IRR 使用二分快路径，多符号变化仍保留原候选率扫描和多根判断；
@@ -257,16 +257,16 @@ PNG 图表包后台任务也按会话隔离：
 - Streamlit 02 页 Demo 和正式测算完成后，在启用内部登录且存在当前项目时，会调用该路径，并把结果引用挂到 `StudyResult.result_store_refs`。
 - `persist_economic_study_result()` 会把一次 `EconomicStudyResult` 登记为 `economic_study` 类型同步 `Job`，写入电源侧和同一主体经济性 summary；
 - `persist_recommendation_study_result()` 会把一次 `RecommendationStudyResult` 登记为 `recommendation` 类型同步 `Job`，写入推荐组合和负荷侧明细；Streamlit 推荐页使用 fingerprint 去重，避免同一组合刷新时重复写入。
-- `LocalResultStore` 和 `PilotAccessService` 已支持按项目/研究列出结果索引；Streamlit 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引，并可加载下载已落盘的 summary / portfolio artifact；技术 summary 可 summary-only 恢复到当前会话，但不恢复逐小时明细。当前会话刚跑出的 summary-first 结果可按需补算单个方案明细，并把补算明细保存为默认 30 天过期的 hourly artifact；历史 summary-only 恢复没有原始曲线输入快照，仍不能直接补算。
+- `LocalResultStore` 和 `PilotAccessService` 已支持按项目/研究列出结果索引；Streamlit 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引，并可加载下载已落盘的 summary / portfolio artifact；技术 summary 可 summary-only 恢复到当前会话，恢复时会带上已有 hourly artifact 索引。当前会话刚跑出的 summary-first 结果可按需补算单个方案明细，并把补算明细保存为默认 30 天过期的 hourly artifact；历史 summary-only 恢复如果已有 hourly artifact，可在图表/报告入口按网页查看权限加载；如果没有 hourly artifact 且没有原始输入 artifact，仍不能直接补算。
 
 仍未落地：
 - 后台 worker / 队列 / 取消闭环；
-- 技术仿真历史 summary-only 结果基于受控原始曲线/输入 artifact 的跨会话补算，和已有 hourly artifact 的跨会话自动加载；
+- 技术仿真历史 summary-only 结果基于受控原始曲线/输入 artifact 的跨会话补算；
 - 经济性年度现金流、图表包、报告产物写入 `ResultStore`；
 - 完整项目级任务状态页、完整历史结果恢复、删除、标记和跨项目搜索；
 - SQLite/Postgres 或对象存储适配、并发锁、备份和部署 runbook。
 
 下一阶段建议：
 1. 先做完整任务状态页和结果历史恢复/下载页，让用户可以在项目内找回已完成测算；
-2. 再把原始输入文件、经济性年度现金流和已有 hourly artifact 的跨会话加载纳入结果恢复链路；
+2. 再把原始输入文件和经济性年度现金流纳入结果恢复链路，让缺少 hourly artifact 的历史结果也能受控补算；
 3. 最后把图表包和报告导出统一变成项目级 artifacts，并接入后台 worker。

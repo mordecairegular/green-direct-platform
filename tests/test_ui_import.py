@@ -580,6 +580,79 @@ def test_pilot_restore_technical_summary_rebuilds_summary_only_session(tmp_path)
     assert restored["row_count"] == 2
 
 
+def test_pilot_restore_summary_can_load_hourly_artifact_for_view_without_export(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import ArtifactKind, AuditAction, Project, ProjectRole, StudyResultRecord, User
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+
+    access = app._pilot_access_service()
+    access.registry.save_user(User("admin", "admin@example.local", "Admin"))
+    access.registry.save_user(User("analyst", "analyst@example.local", "Analyst"))
+    project = access.create_project(actor_user_id="admin", project=Project("project_1", "Pilot project"))
+    access.grant_project_role(
+        actor_user_id="admin",
+        project_id=project.project_id,
+        user_id="analyst",
+        role=ProjectRole.ANALYST,
+        can_export_artifacts=False,
+    )
+    access.result_store.store_artifact(
+        artifact_id="technical_summary",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_id="job_1",
+        kind=ArtifactKind.TECHNICAL_SUMMARY,
+        payload="scenario_id,green_load_rate\nS0001,0.5\n",
+        filename="technical_summary.csv",
+        content_type="text/csv",
+    )
+    access.result_store.store_artifact(
+        artifact_id="hourly_detail_S0001",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_id="job_1",
+        kind=ArtifactKind.HOURLY_DETAIL,
+        payload="scenario_id,hour_index,load_power\nS0001,0,1.0\n",
+        filename="hourly_detail_S0001.csv",
+        content_type="text/csv",
+    )
+    record = StudyResultRecord(
+        result_id="technical_result",
+        project_id=project.project_id,
+        study_id="study_1",
+        created_by_job_id="job_1",
+        technical_summary_artifact_id="technical_summary",
+        hourly_detail_artifact_ids={"S0001": "hourly_detail_S0001"},
+    )
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.PILOT_USER_ID_KEY: "analyst",
+                app.PILOT_ACTIVE_PROJECT_ID_KEY: project.project_id,
+                app.PILOT_ACTIVE_PROJECT_CAN_EXPORT_KEY: False,
+            }
+
+    dummy = DummyStreamlit()
+    app._pilot_restore_technical_summary_to_session(
+        dummy,
+        access=access,
+        actor_user_id="analyst",
+        record=record,
+    )
+
+    loaded = app._load_pilot_hourly_detail_artifact_if_available(dummy, "S0001")
+
+    assert loaded is True
+    assert dummy.session_state["batch_result"].hourly_details["S0001"]["load_power"].tolist() == [1.0]
+    assert dummy.session_state["study_result"].result_store_refs["hourly_detail_artifact_id_S0001"] == (
+        "hourly_detail_S0001"
+    )
+    assert access.result_store.read_audit_log(project.project_id)[-1].action == AuditAction.VIEW_ARTIFACT
+
+
 def test_streamlit_app_shows_pilot_login_gate_when_enabled(tmp_path, monkeypatch):
     import green_direct.ui.app as app
     from streamlit.testing.v1 import AppTest

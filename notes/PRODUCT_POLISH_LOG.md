@@ -3810,10 +3810,37 @@ exchange_import_shortfall_energy == 0
 边界说明：
 - 这仍不是后台任务，也没有新增排队、取消或重试；
 - 历史 summary-only 恢复后仍不能跨会话补算，因为原始曲线输入尚未作为受控 input artifact 持久化；
-- 当前不会自动从已有 hourly artifact 恢复到工作流图表页，只是先补齐项目级产物保存和索引。
+- 该轮尚不会自动从已有 hourly artifact 恢复到工作流图表页，只是先补齐项目级产物保存和索引；后一轮已补网页内加载路径。
 
 验证：
 - `pytest -q tests/test_pilot_backend_models.py tests/test_pilot_study_persistence.py tests/test_ui_import.py::test_append_hourly_detail_updates_current_result tests/test_ui_import.py::test_append_hourly_detail_persists_pilot_artifact` 通过，19 项通过；
 - `python -m compileall -q src/green_direct/models/pilot_backend.py src/green_direct/services/pilot_study_persistence.py src/green_direct/ui/app.py tests/test_pilot_study_persistence.py tests/test_ui_import.py` 通过；
 - `pytest -q` 通过，282 项通过；
+- `python -m compileall -q src scripts tests` 通过。
+
+### 2026-06-16 已有 hourly artifact 跨会话加载与查看权限拆分
+
+上一轮已能把按需补算出的逐小时明细保存为项目级 artifact，但历史 summary-only 恢复后，图表/报告入口仍只会尝试重新补算；如果当前会话没有原始技术输入，就无法复用已经落盘的 hourly artifact。同时，原有 `read_artifact_payload()` 已被定义为下载/导出动作，要求 `can_export_artifacts=True`，这会让不可导出用户无法把历史结果恢复到网页工作流中查看。
+
+本轮判断：
+- 受控内测中的“不可导出”不等于“不可网页查看”，否则用户无法有效试用和复核结果；
+- 文件下载/导出 payload 与网页内恢复/图表查看 payload 应拆成两条后端语义，分别审计；
+- 已有 hourly artifact 应优先加载，只有没有 artifact 或 artifact 不可用时，才回退到当前会话原始输入的按需补算。
+
+本轮实现：
+- `PilotAccessService.read_artifact_payload_for_view()` 新增网页查看读取路径：只要求项目查看权限，写入 `AuditAction.VIEW_ARTIFACT`；
+- `read_artifact_payload()` 继续代表下载/导出，仍要求 `can_export_artifacts=True`，成功/拒绝写入 `DOWNLOAD_ARTIFACT`；
+- 历史技术 summary 恢复改用 view 读取，并把 `StudyResultRecord.hourly_detail_artifact_ids` 带入 `StudyResult.result_store_refs`；
+- 推荐页、图表概览页和导出/报告页缺少某方案明细时，会先加载已有 `hourly_detail_<scenario_id>` artifact；加载成功后写回当前 `batch_result.hourly_details`，清除旧图表/下载缓存；
+- 欢迎页历史结果面板允许不可导出用户恢复技术 summary 到网页工作流，但仍不渲染下载按钮。
+
+边界说明：
+- 这仍不是后台任务；没有已有 hourly artifact 时，跨会话仍不能凭 summary-only 结果补算缺失明细，除非后续把原始输入文件做成受控 input artifact；
+- 当前只加载逐小时 CSV 到当前工作流，不恢复经济性年度现金流、图表包或报告缓存；
+- 未来 API、反向代理静态下载和对象存储签名 URL 仍必须沿用下载/导出权限，不得把 view 读取误用成文件下载。
+
+验证：
+- `pytest -q tests/test_pilot_access.py::test_artifact_payload_download_requires_export_permission_and_audits_denial tests/test_pilot_access.py::test_artifact_payload_view_does_not_require_export_permission tests/test_ui_import.py::test_pilot_restore_technical_summary_rebuilds_summary_only_session tests/test_ui_import.py::test_pilot_restore_summary_can_load_hourly_artifact_for_view_without_export tests/test_ui_import.py::test_append_hourly_detail_updates_current_result tests/test_ui_import.py::test_append_hourly_detail_persists_pilot_artifact` 通过，6 项通过；
+- `python -m compileall -q src/green_direct/models/pilot_backend.py src/green_direct/services/pilot_access.py src/green_direct/ui/app.py tests/test_pilot_access.py tests/test_ui_import.py` 通过；
+- `pytest -q` 通过，284 项通过；
 - `python -m compileall -q src scripts tests` 通过。

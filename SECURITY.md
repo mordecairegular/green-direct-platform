@@ -35,7 +35,7 @@
 - artifact payload、hash、大小和保留策略；
 - 审计日志。
 
-上传文件当前已做后缀、大小和 hash 元数据记录；完整的原始上传文件留存、逐小时明细留存、图表包和报告 artifact 闭环仍在后续路线中。
+上传文件当前已做后缀、大小和 hash 元数据记录；按需逐小时明细已有第一版项目级 artifact 留存和网页内加载路径。完整的原始上传文件留存、图表包和报告 artifact 闭环仍在后续路线中。
 
 ## 密码与密钥
 
@@ -88,7 +88,7 @@
 - `analyst`：提交和查看本项目任务；
 - `viewer`：查看本项目任务和结果。
 
-导出权限由 `ProjectMembership.can_export_artifacts` 独立控制。不可导出成员可以查看网页结果，但后端 artifact payload 读取和 06 页导出必须被拒绝，并写入审计。
+导出权限由 `ProjectMembership.can_export_artifacts` 独立控制。不可导出成员可以查看网页结果；网页内恢复或图表查看走 `VIEW_ARTIFACT` 审计，不授予文件下载。后端下载/导出 payload 读取和 06 页导出必须被拒绝，并写入 `DOWNLOAD_ARTIFACT` 审计。
 
 未来 API、反向代理下载、对象存储签名 URL、图表包和报告 artifact 必须复用同一导出授权语义。
 
@@ -107,6 +107,6 @@
 
 - 本地 JSON/file store 没有数据库事务、并发锁和正式备份调度；
 - 计算任务仍主要在 Streamlit 进程内同步执行；
-- 历史 summary-only 结果尚不能跨会话按需补算逐小时明细；
+- 历史 summary-only 结果可加载已有 hourly artifact，但尚不能在缺少原始输入 artifact 时跨会话按需补算逐小时明细；
 - 不是正式公网 SaaS 安全架构；
 - 需要在后续引入后台 worker、SQLite/Postgres 或对象存储、集中日志、监控告警和安全扫描。

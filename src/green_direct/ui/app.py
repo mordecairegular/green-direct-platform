@@ -42,7 +42,15 @@ from green_direct.io.read_curves import read_csv_auto_encoding
 from green_direct.io.validators import DataValidationError
 from green_direct.models.diagnostics import InputDiagnostics
 from green_direct.models.params import BessParams, DataCleaningParams, PerformanceParams, PolicyParams
-from green_direct.models.pilot_backend import Job, Project, ProjectMembership, ProjectRole, StudyResultRecord, User
+from green_direct.models.pilot_backend import (
+    ArtifactKind,
+    Job,
+    Project,
+    ProjectMembership,
+    ProjectRole,
+    StudyResultRecord,
+    User,
+)
 from green_direct.recommendation import (
     ENGINEERING_VIEW_LABELS,
     SINGLE_ENTITY_VIEW_LABELS,
@@ -2361,6 +2369,29 @@ def _pilot_load_artifact_download(
     }
 
 
+def _pilot_load_artifact_view(
+    access: PilotAccessService,
+    *,
+    actor_user_id: str,
+    record: StudyResultRecord,
+    artifact_id: str,
+) -> dict[str, object]:
+    artifact = access.load_artifact(
+        actor_user_id=actor_user_id,
+        project_id=record.project_id,
+        study_id=record.study_id,
+        artifact_id=artifact_id,
+    )
+    payload = access.read_artifact_payload_for_view(actor_user_id=actor_user_id, artifact=artifact)
+    file_name = artifact.storage_uri.rsplit("/", 1)[-1] if artifact.storage_uri else f"{artifact.artifact_id}.bin"
+    return {
+        "payload": payload,
+        "file_name": file_name,
+        "mime": artifact.content_type or "application/octet-stream",
+        "size_bytes": artifact.size_bytes,
+    }
+
+
 def _pilot_restore_technical_summary_result(
     access: PilotAccessService,
     *,
@@ -2370,7 +2401,7 @@ def _pilot_restore_technical_summary_result(
     if not record.technical_summary_artifact_id:
         raise ValueError("该结果没有技术汇总 artifact，暂不能恢复为当前技术结果。")
 
-    summary_download = _pilot_load_artifact_download(
+    summary_download = _pilot_load_artifact_view(
         access,
         actor_user_id=actor_user_id,
         record=record,
@@ -2381,7 +2412,7 @@ def _pilot_restore_technical_summary_result(
     config_snapshot: dict[str, object] = {}
     config_restored = False
     try:
-        config_download = _pilot_load_artifact_download(
+        config_download = _pilot_load_artifact_view(
             access,
             actor_user_id=actor_user_id,
             record=record,
@@ -2423,6 +2454,8 @@ def _pilot_restore_technical_summary_result(
         "technical_result_id": record.result_id,
         "technical_summary_artifact_id": record.technical_summary_artifact_id,
     }
+    for scenario_id, artifact_id in sorted(record.hourly_detail_artifact_ids.items()):
+        refs[f"hourly_detail_artifact_id_{scenario_id}"] = artifact_id
     if config_restored:
         refs["config_snapshot_artifact_id"] = "config_snapshot"
     study_result = replace(StudyResult.from_technical(technical_result), result_store_refs=refs)
@@ -2499,9 +2532,9 @@ def _render_pilot_result_artifact_downloads(
         return
 
     st.caption("历史结果产物")
-    if not _current_pilot_project_can_export_artifacts(st):
-        st.info("当前项目成员权限允许查看历史结果索引，但不允许加载、下载或恢复历史产物。")
-        return
+    can_export_artifacts = _current_pilot_project_can_export_artifacts(st)
+    if not can_export_artifacts:
+        st.info("当前项目成员权限允许查看和恢复历史结果到网页工作流，但不允许下载结果文件。")
 
     downloads = st.session_state.setdefault(PILOT_HISTORY_ARTIFACT_DOWNLOADS_KEY, {})
     for record in records_with_artifacts[:limit]:
@@ -2525,6 +2558,10 @@ def _render_pilot_result_artifact_downloads(
                     else:
                         st.rerun()
                 st.caption("恢复仅写入技术汇总；逐小时明细、图表缓存、经济性和推荐结果不会随之恢复。")
+            if not can_export_artifacts:
+                for label, artifact_id in _pilot_result_artifact_refs(record):
+                    st.caption(f"{label} · {artifact_id}")
+                continue
             for label, artifact_id in _pilot_result_artifact_refs(record):
                 cache_key = _pilot_artifact_download_key(record, artifact_id)
                 load_key = f"pilot_history_load_{cache_key}"
@@ -3292,19 +3329,15 @@ def _has_technical_study_input(st) -> bool:
     return isinstance(st.session_state.get(TECHNICAL_STUDY_INPUT_KEY), TechnicalStudyInput)
 
 
-def _append_hourly_detail_to_current_result(st, scenario_id: str, summary: pd.DataFrame) -> str:
-    inputs = st.session_state.get(TECHNICAL_STUDY_INPUT_KEY)
-    if not isinstance(inputs, TechnicalStudyInput):
-        raise ValueError("当前会话没有可用于按需补算逐小时明细的原始技术输入。")
+def _attach_hourly_detail_to_current_result(st, scenario_id: str, hourly_detail: pd.DataFrame) -> BatchResult:
     batch_result = st.session_state.get("batch_result")
     if not isinstance(batch_result, BatchResult):
         raise ValueError("当前会话没有可更新的技术仿真结果。")
-    scenario_result = run_hourly_detail_for_scenario(inputs, scenario_id=str(scenario_id), summary=summary)
-    if scenario_result.hourly_detail.empty:
-        raise ValueError(f"方案 {scenario_id} 未生成逐小时明细。")
+    if hourly_detail.empty:
+        raise ValueError(f"方案 {scenario_id} 的逐小时明细为空。")
 
     hourly_details = dict(batch_result.hourly_details)
-    hourly_details[str(scenario_id)] = scenario_result.hourly_detail
+    hourly_details[str(scenario_id)] = hourly_detail
     next_batch_result = BatchResult(
         summary=batch_result.summary,
         hourly_details=hourly_details,
@@ -3319,6 +3352,62 @@ def _append_hourly_detail_to_current_result(st, scenario_id: str, summary: pd.Da
         st.session_state["study_result"] = replace(study_result, technical_result=next_technical_result)
     st.session_state.pop("download_payloads", None)
     _clear_chart_export_cache(st)
+    return next_batch_result
+
+
+def _pilot_hourly_detail_artifact_id(st, scenario_id: str) -> str | None:
+    study_result = st.session_state.get("study_result")
+    if not isinstance(study_result, StudyResult):
+        return None
+    artifact_id = study_result.result_store_refs.get(f"hourly_detail_artifact_id_{scenario_id}")
+    return str(artifact_id) if artifact_id else None
+
+
+def _load_pilot_hourly_detail_artifact_if_available(st, scenario_id: str) -> bool:
+    if not _pilot_auth_enabled():
+        return False
+    artifact_id = _pilot_hourly_detail_artifact_id(st, str(scenario_id))
+    if not artifact_id:
+        return False
+    actor_user_id = _current_pilot_user_id(st)
+    project_id = _current_pilot_project_id(st)
+    study_result = st.session_state.get("study_result")
+    if not actor_user_id or not project_id or not isinstance(study_result, StudyResult):
+        return False
+    try:
+        access = _pilot_access_service()
+        artifact = access.load_artifact(
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_result.study_id,
+            artifact_id=artifact_id,
+        )
+        if artifact.kind != ArtifactKind.HOURLY_DETAIL:
+            raise ValueError(f"Artifact {artifact_id} 不是逐小时明细。")
+        payload = access.read_artifact_payload_for_view(actor_user_id=actor_user_id, artifact=artifact)
+        hourly_detail = pd.read_csv(BytesIO(payload))
+        _attach_hourly_detail_to_current_result(st, str(scenario_id), hourly_detail)
+    except Exception as exc:  # noqa: BLE001 - loading can fall back to on-demand recomputation
+        if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
+            st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = f"项目逐小时明细加载失败：{exc}"
+            return False
+        raise
+    st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
+        f"已从项目结果库加载方案 {scenario_id} 的逐小时明细：Artifact {artifact_id}"
+    )
+    _save_runtime_snapshot(st)
+    return True
+
+
+def _append_hourly_detail_to_current_result(st, scenario_id: str, summary: pd.DataFrame) -> str:
+    inputs = st.session_state.get(TECHNICAL_STUDY_INPUT_KEY)
+    if not isinstance(inputs, TechnicalStudyInput):
+        raise ValueError("当前会话没有可用于按需补算逐小时明细的原始技术输入。")
+    scenario_result = run_hourly_detail_for_scenario(inputs, scenario_id=str(scenario_id), summary=summary)
+    if scenario_result.hourly_detail.empty:
+        raise ValueError(f"方案 {scenario_id} 未生成逐小时明细。")
+
+    _attach_hourly_detail_to_current_result(st, str(scenario_id), scenario_result.hourly_detail)
     _persist_pilot_hourly_detail_if_enabled(
         st,
         str(scenario_id),
@@ -3334,6 +3423,8 @@ def _render_on_demand_hourly_detail_action(st, scenario_id: str | None, summary:
     batch_result = st.session_state.get("batch_result")
     existing = getattr(batch_result, "hourly_details", {}) if batch_result is not None else {}
     if str(scenario_id) in existing:
+        return True
+    if _load_pilot_hourly_detail_artifact_if_available(st, str(scenario_id)):
         return True
     if not _has_technical_study_input(st):
         st.info("当前会话没有原始技术输入快照，无法按需补算逐小时明细；请重新运行技术仿真或加载含逐小时明细的结果。")
