@@ -60,7 +60,7 @@
 - 服务层已新增 `LocalPilotRegistry`，支持本地 JSON 用户、项目和项目成员角色管理，不包含密码或登录会话。
 - 服务层已新增 `LocalPilotAuth`，支持本地密码哈希、登录会话、会话校验/撤销和登录审计；Streamlit 主 UI 已接入可选登录门禁和最小项目工作区门禁，但暂未接入正式身份系统。
 - 服务层已新增 `LocalPilotAdminService`，区分平台管理员和项目管理员，支持首个管理员 bootstrap、创建用户、重置密码、授予/撤销平台管理员、停用用户并撤销会话，也支持平台管理员查看项目、授予/禁用项目成员；Streamlit 已接入最小平台管理页。
-- `src/green_direct/cli.py` 已新增 `pilot-admin` 命令行入口，支持 bootstrap、创建用户、重置密码、停用用户、授予/撤销平台管理员、列出用户/会话、清理过期 artifact payload 和标记超时 running 任务失败，作为管理员页面前的本地运维入口。
+- `src/green_direct/cli.py` 已新增 `pilot-admin` 命令行入口，支持 bootstrap、创建用户、重置密码、停用用户、授予/撤销平台管理员、列出用户/会话/任务、清理过期 artifact payload 和标记超时 running 任务失败，作为管理员页面前的本地运维入口。
 - Streamlit 主 UI 已新增可选内部试用登录门禁：设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，未登录用户不能进入六步工作流；登录使用 `GREEN_DIRECT_PILOT_STORE_DIR` 指向的本地账号 store，默认 `.runtime/pilot_store`。
 - Streamlit 主 UI 已新增最小“平台管理”页：平台管理员可创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并在“项目和成员”中维护项目成员角色；普通用户看不到该入口。
 - Streamlit 主 UI 已新增项目工作区门禁：启用 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，登录用户必须先创建或选择有效项目才能进入六步业务工作流；切换项目会清理当前测算结果和下载缓存。
@@ -70,7 +70,7 @@
 - 内部试用部署材料已新增第一版：`.env.example`、`docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md`、`scripts/backup_pilot_store.ps1` 和 `scripts/restore_pilot_store.ps1`，覆盖环境变量、账号 bootstrap、启动、备份、恢复、过期清理、冒烟检查和回滚边界。
 - 受控公网内测审计矩阵已新增第一版：`docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md`，用于逐项跟踪 Route A 要求中已满足、部分满足和未满足的 P0 项。
 - 性能基准脚本已新增第一版：`scripts/benchmark_internal_pilot_performance.py`，可对完整明细保留、summary-first 和经济性 summary-only 进行可重复耗时/内存记录。
-- 服务层已新增 `LocalJobStore`，支持本地 JSON 任务提交、读取、项目/研究列表、状态筛选、worker/heartbeat 元数据、进度更新、成功/失败/取消状态持久化，以及超时 running 任务扫描和置失败；暂未包含真正 worker 调度、重试、管理员页面或数据库锁。
+- 服务层已新增 `LocalJobStore`，支持本地 JSON 任务提交、读取、全局/项目/研究列表、状态筛选、worker/heartbeat 元数据、进度更新、成功/失败/取消状态持久化，以及超时 running 任务扫描和置失败；暂未包含真正 worker 调度、重试、管理员页面或数据库锁。
 - 服务层已新增 `PilotAccessService`，把项目角色权限、可见项目列表、任务提交/取消、产物读取和审计日志统一成可测试服务门面，暂未包含 worker 调度、数据库事务或并发锁。
 - 本地 JSON store 共享写入 helper 已改为“写临时文件后原子替换”，降低账号、会话、任务、结果索引等 JSON 元数据半写损坏风险；这仍不等于数据库事务或跨进程并发锁。
 - 技术仿真完成后已能在启用内部试用登录和当前项目时登记项目级同步 `Job`，并把 `technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord` 写入 `LocalResultStore`；经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio、按需补算的单方案逐小时明细、HTML 图表包和 Markdown 报告也已接入第一阶段项目级写入；PNG/Excel/批量包、完整报告和导出后台任务化仍待迁移。

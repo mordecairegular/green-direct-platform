@@ -158,14 +158,14 @@ PNG 图表包后台任务也按会话隔离：
 - 停用用户时会撤销该用户仍然有效的本地会话；
 - 创建用户、更新用户、重置密码、停用和平台管理员标记变更会写入全局 `AuditLog`；
 - 为避免锁死后台，服务不允许停用或降级最后一个活跃平台管理员；
-- `src/green_direct/cli.py` 已提供 `pilot-admin` 命令行入口，可执行 bootstrap、创建用户、重置密码、停用用户、授予/撤销平台管理员、列出用户、列出会话、清理过期 artifact payload 和标记超时 running 任务失败；
+- `src/green_direct/cli.py` 已提供 `pilot-admin` 命令行入口，可执行 bootstrap、创建用户、重置密码、停用用户、授予/撤销平台管理员、列出用户、列出会话、列出任务、清理过期 artifact payload 和标记超时 running 任务失败；
 - 当前服务已接入 Streamlit 最小平台管理页，但仍未替代后续 SQLite/Postgres、企业身份系统或正式审计后台。
 
 已落地的第一步 JobStore：
 
 - `src/green_direct/services/job_store.py` 提供 `LocalJobStore`；
 - 任务元数据按 `projects/{project_id}/studies/{study_id}/jobs/{job_id}.json` 隔离保存；
-- 支持提交、读取、按项目/研究列出任务，并可按 `queued`、`running`、`succeeded`、`failed`、`canceled` 状态筛选；
+- 支持提交、读取、按全局/项目/研究列出任务，并可按 `queued`、`running`、`succeeded`、`failed`、`canceled` 状态筛选；
 - 支持 `start_job()`、`update_job_progress()`、`succeed_job()`、`fail_job()` 和 `cancel_job()`，状态合法性沿用 `Job` 模型，并可保存 `worker_id` / heartbeat 元数据；
 - 支持 `list_stale_running_jobs()` 和 `fail_stale_running_jobs()`，可把超过阈值未 heartbeat 的 running 任务标记为 failed；`pilot-admin fail-stale-jobs` 会复用该能力并写 `COMPLETE_JOB` 审计；
 - 路径片段使用白名单校验，防止 `project_id`、`study_id`、`job_id` 被拼接成越权路径；

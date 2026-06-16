@@ -12,7 +12,7 @@ import sys
 from typing import Sequence
 from uuid import uuid4
 
-from green_direct.models.pilot_backend import AuditAction, AuditLog, User
+from green_direct.models.pilot_backend import AuditAction, AuditLog, Job, JobStatus, User
 from green_direct.services import (
     LocalJobStore,
     LocalPilotAdminService,
@@ -161,6 +161,48 @@ def _cmd_list_sessions(args: argparse.Namespace) -> int:
     return 0
 
 
+def _format_dt(value: datetime | None) -> str:
+    return value.isoformat() if value is not None else ""
+
+
+def _format_job_progress(job: Job) -> str:
+    if job.progress_total:
+        return f"{job.progress_current}/{job.progress_total}"
+    if job.progress_current:
+        return str(job.progress_current)
+    return ""
+
+
+def _cmd_list_jobs(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    services.admin.list_users(actor_user_id=args.actor_user_id)
+    statuses = getattr(args, "status", None)
+    stale_after_minutes = getattr(args, "stale_after_minutes", None)
+    stale_after_seconds = None if stale_after_minutes is None else int(stale_after_minutes) * 60
+    if stale_after_seconds is not None and stale_after_seconds < 0:
+        raise ValueError("--stale-after-minutes must be non-negative.")
+    now = datetime.now(timezone.utc)
+    jobs = services.job_store.list_jobs(
+        project_id=args.project_id,
+        statuses=statuses,
+    )
+    print(
+        "project_id\tstudy_id\tjob_id\tjob_type\tstatus\trequested_by\t"
+        "progress\tworker_id\tqueued_at\tstarted_at\tfinished_at\tlast_heartbeat_at\tstale"
+    )
+    for job in jobs:
+        stale = ""
+        if stale_after_seconds is not None:
+            stale = "yes" if job.is_stale(now=now, stale_after_seconds=stale_after_seconds) else "no"
+        print(
+            f"{job.project_id}\t{job.study_id}\t{job.job_id}\t{job.job_type.value}\t"
+            f"{job.status.value}\t{job.requested_by_user_id}\t{_format_job_progress(job)}\t"
+            f"{job.worker_id or ''}\t{_format_dt(job.queued_at)}\t{_format_dt(job.started_at)}\t"
+            f"{_format_dt(job.finished_at)}\t{_format_dt(job.last_heartbeat_at)}\t{stale}"
+        )
+    return 0
+
+
 def _cmd_purge_expired_artifacts(args: argparse.Namespace) -> int:
     services = _pilot_services(args.store_dir)
     services.admin.list_users(actor_user_id=args.actor_user_id)
@@ -196,6 +238,8 @@ def _cmd_fail_stale_jobs(args: argparse.Namespace) -> int:
     services.admin.list_users(actor_user_id=args.actor_user_id)
     now = datetime.now(timezone.utc)
     stale_after_seconds = int(args.stale_after_minutes) * 60
+    if stale_after_seconds < 0:
+        raise ValueError("--stale-after-minutes must be non-negative.")
     message = (
         "Marked failed by pilot-admin fail-stale-jobs after "
         f"{args.stale_after_minutes} minutes without heartbeat."
@@ -316,6 +360,23 @@ def build_parser() -> argparse.ArgumentParser:
     list_sessions.add_argument("--user-id", required=True)
     list_sessions.add_argument("--active-only", action="store_true")
     list_sessions.set_defaults(func=_cmd_list_sessions)
+
+    list_jobs = pilot_admin_sub.add_parser("list-jobs", help="List project job metadata for operations.")
+    _add_common_store_arg(list_jobs)
+    _add_actor_arg(list_jobs)
+    list_jobs.add_argument("--project-id", help="Limit output to one project.")
+    list_jobs.add_argument(
+        "--status",
+        action="append",
+        choices=[status.value for status in JobStatus],
+        help="Filter by job status. May be provided multiple times.",
+    )
+    list_jobs.add_argument(
+        "--stale-after-minutes",
+        type=int,
+        help="Mark running jobs as stale in the output if older than this heartbeat threshold.",
+    )
+    list_jobs.set_defaults(func=_cmd_list_jobs)
 
     purge_artifacts = pilot_admin_sub.add_parser(
         "purge-expired-artifacts",

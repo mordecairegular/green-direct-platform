@@ -75,7 +75,7 @@ python -m pytest -q
    - PNG ZIP 后台任务 key 是否按会话隔离；
    - 新技术仿真后旧导出缓存是否失效；
    - 欢迎页活动任务面板是否只展示当前项目任务，取消入口是否仍走后端权限和审计；
-   - `Job.worker_id` / `last_heartbeat_at` 和 `pilot-admin fail-stale-jobs` 是否能把超时 running 元数据转为 failed，并保留项目级审计；
+   - `Job.worker_id` / `last_heartbeat_at`、`pilot-admin list-jobs` 和 `pilot-admin fail-stale-jobs` 是否能先查看超时 running 元数据、再转为 failed，并保留项目级审计；
    - 长任务失败、取消、重复点击、页面切换后的状态是否可恢复或可解释。
 3. 计算口径风险：
    - V0.1 储能只能由富余新能源充电；
@@ -190,7 +190,7 @@ python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/tes
 2. 按需逐小时明细是否与全量保留结果一致；
 3. 并行仿真是否保持 scenario_id、warning、error、进度和结果顺序稳定；
 4. 经济性测算是否仍为每个方案常驻年度现金流；
-5. UI 的方案数硬上限、粗略耗时提示和大批量确认是否清晰，已有最小取消入口和 stale running 置失败命令是否足够清晰，是否还需要后台 worker 的下一步切片；
+5. UI 的方案数硬上限、粗略耗时提示和大批量确认是否清晰，已有最小取消入口、`list-jobs` 和 stale running 置失败命令是否足够清晰，是否还需要后台 worker 的下一步切片；
 6. benchmark 是否能复现优化前后差异。
 
 允许直接修改不改变计算口径的性能与内存问题；任何可能改变技术 dispatch、经济性现金流或推荐排序的改动必须先说明，并同步测试和文档。

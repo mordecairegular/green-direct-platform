@@ -141,6 +141,18 @@ class LocalJobStore:
             jobs = [job for job in jobs if job.status in accepted_statuses]
         return sorted(jobs, key=lambda job: (job.queued_at, job.study_id, job.job_id))
 
+    def list_jobs(
+        self,
+        *,
+        project_id: str | None = None,
+        statuses: Iterable[JobStatus | str] | None = None,
+    ) -> list[Job]:
+        """List jobs across the local store, optionally scoped to one project."""
+
+        if project_id is not None:
+            return self.list_project_jobs(project_id, statuses=statuses)
+        return self._all_jobs(statuses=statuses)
+
     def start_job(
         self,
         project_id: str,

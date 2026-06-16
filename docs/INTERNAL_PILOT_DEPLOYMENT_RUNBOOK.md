@@ -136,7 +136,18 @@ python -m green_direct.cli pilot-admin purge-expired-artifacts `
 
 ## 10. 任务卡死恢复
 
-当前 `LocalJobStore` 已记录 `worker_id` 和 `last_heartbeat_at`，但试用版还没有真正后台 worker、进程守护或自动重试。如果 Streamlit 进程中断、服务器重启或未来 worker 异常退出，可能留下长期 `running` 的任务元数据。管理员可执行：
+当前 `LocalJobStore` 已记录 `worker_id` 和 `last_heartbeat_at`，但试用版还没有真正后台 worker、进程守护或自动重试。如果 Streamlit 进程中断、服务器重启或未来 worker 异常退出，可能留下长期 `running` 的任务元数据。管理员可先查看任务状态：
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m green_direct.cli pilot-admin list-jobs `
+    --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --actor-user-id admin `
+    --status running `
+    --stale-after-minutes 60
+```
+
+确认需要恢复后再执行：
 
 ```powershell
 $env:PYTHONPATH = "src"
@@ -156,7 +167,7 @@ python -m green_direct.cli pilot-admin fail-stale-jobs `
 - 普通用户必须选择或创建项目后才进入六步工作流；
 - Demo 技术仿真、经济性测算、方案推荐能跑通；
 - 禁止导出的项目成员不能下载历史 artifact 或 06 页导出文件；
-- `pilot-admin list-users`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
+- `pilot-admin list-users`、`list-jobs`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
 - 新运行日志不包含明文密码、明文 token、原始曲线内容。
 
 ## 12. 回滚

@@ -4332,3 +4332,29 @@ exchange_import_shortfall_energy == 0
 - `pytest tests/test_pilot_backend_models.py tests/test_job_store.py tests/test_cli.py tests/test_pilot_access.py -q` 通过，44 项通过；
 - `python -m compileall -q src scripts tests` 通过；
 - `pytest -q` 通过，314 项通过。
+
+### 2026-06-16 pilot-admin 任务列表运维入口
+
+本轮继续补内部试用后台任务可见性。上一轮已有 `fail-stale-jobs` 能把卡死 running 任务置为 failed，但管理员在执行处置前还需要一个只读入口，先看当前有哪些任务、属于哪个项目、进度如何、worker 是谁、是否超过 heartbeat 阈值。完整 Streamlit 任务状态页还没做时，先把同一查询口径放入服务层和 `pilot-admin` CLI，能提升 10-20 人试用期的排障能力。
+
+本轮判断：
+- 不在本轮实现完整任务状态页或真正 worker；
+- 任务查询应由 `LocalJobStore` 提供公开方法，CLI 和未来 UI 复用同一口径；
+- `list-jobs` 只读取任务元数据，不改变状态、不写审计；
+- stale 标记只用于输出提示，真正置失败仍由 `fail-stale-jobs` 完成。
+
+本轮实现：
+- `LocalJobStore.list_jobs(project_id=None, statuses=None)` 支持全局或单项目任务列表；
+- `pilot-admin list-jobs` 支持 `--project-id`、可重复 `--status` 和 `--stale-after-minutes`；
+- 输出包含项目、研究、任务、类型、状态、发起人、进度、worker、排队/开始/完成/heartbeat 时间和 stale 标记；
+- 软件接口总览、内部试用 runbook、上线审计矩阵、预发布质量审查、架构计划、性能路线、Claude Code 提示词、TODO 和 handoff 已同步。
+
+边界说明：
+- 该命令是运维可见性入口，不是正式审计后台；
+- 它不校验项目 membership，而是要求平台管理员身份，适合作为服务器侧运维命令；
+- 后续完整任务状态页仍需通过 `PilotAccessService` 做项目级可见性控制，普通项目成员只能看自己有权限项目的任务。
+
+验证：
+- `pytest tests/test_job_store.py tests/test_cli.py -q` 通过，15 项通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `pytest -q` 通过，315 项通过。

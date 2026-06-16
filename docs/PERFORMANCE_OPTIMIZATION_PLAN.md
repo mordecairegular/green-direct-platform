@@ -100,6 +100,7 @@ python scripts\benchmark_internal_pilot_performance.py --json
 
 - 欢迎页“项目任务与结果”面板已可筛出当前项目 `queued` / `running` 活动任务，并提供最小取消入口；取消动作仍走 `PilotAccessService.cancel_job()` 权限校验和审计。
 - `Job` 已记录 `worker_id` / `last_heartbeat_at`，`LocalJobStore` 和 `pilot-admin fail-stale-jobs` 可把超时 running 任务元数据标记为 failed；这只是运维恢复入口，不是正式 worker 级中断。
+- `pilot-admin list-jobs` 已可按项目和状态列出任务，并可标记 running 任务是否超过 heartbeat 阈值，作为完整任务状态页前的运维可见性入口。
 
 要做：
 

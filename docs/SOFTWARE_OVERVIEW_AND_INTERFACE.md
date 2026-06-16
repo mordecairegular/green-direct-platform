@@ -1049,6 +1049,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `disable-user`：停用用户并撤销有效会话；
 - `grant-platform-admin` / `revoke-platform-admin`：授予或撤销平台管理员；
 - `list-users` / `list-sessions`：查看用户和会话；
+- `list-jobs`：查看全局或单项目任务元数据，可按状态筛选，并可标记是否超过 heartbeat 阈值；
 - `purge-expired-artifacts`：由平台管理员清理已过期 artifact payload，保留元数据并写入项目级 `DELETE_ARTIFACT` 审计；
 - `fail-stale-jobs`：由平台管理员把超时未 heartbeat 的 running 任务标记为 failed，并写入项目级 `COMPLETE_JOB` 审计。
 
@@ -1069,6 +1070,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 `src/green_direct/services/job_store.py` 已提供第一版 `LocalJobStore`：
 
 - `submit_job()` / `load_job()`：保存和读取排队任务；
+- `list_jobs()`：跨本地 store 列出任务，可选按项目和状态过滤；
 - `list_project_jobs()` / `list_study_jobs()`：按项目或研究列出任务，并支持按状态筛选；
 - `start_job()` / `update_job_progress()` / `succeed_job()` / `fail_job()` / `cancel_job()`：持久化任务状态、进度、失败原因、完成时间、`worker_id` 和 `last_heartbeat_at`；
 - `list_stale_running_jobs()` / `fail_stale_running_jobs()`：按 `last_heartbeat_at` 或 `started_at` 判断超时 running 任务，并可批量标记失败；
@@ -1136,6 +1138,12 @@ python -m green_direct.cli pilot-admin create-user `
 python -m green_direct.cli pilot-admin list-users `
     --store-dir .runtime/pilot_store `
     --actor-user-id admin
+
+python -m green_direct.cli pilot-admin list-jobs `
+    --store-dir .runtime/pilot_store `
+    --actor-user-id admin `
+    --status running `
+    --stale-after-minutes 60
 
 python -m green_direct.cli pilot-admin purge-expired-artifacts `
     --store-dir .runtime/pilot_store `
