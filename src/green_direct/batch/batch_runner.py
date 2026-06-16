@@ -65,6 +65,7 @@ def _scenario_run_record(
     policy_params: PolicyParams | None,
     dt_hours: float,
     retain_hourly_detail: bool,
+    collect_diagnostics: bool,
 ) -> _ScenarioRunRecord:
     try:
         result: ScenarioResult = run_single_scenario(
@@ -74,6 +75,7 @@ def _scenario_run_record(
             policy_params=policy_params,
             dt_hours=dt_hours,
             retain_hourly_detail=retain_hourly_detail,
+            collect_diagnostics=collect_diagnostics,
         )
     except Exception as exc:  # noqa: BLE001 - per-scenario failure must be recorded
         return _error_record(scenario, exc)
@@ -116,6 +118,7 @@ def _scenario_run_record_from_worker(scenario: Scenario) -> _ScenarioRunRecord:
         retain_hourly_detail=(
             _WORKER_RETAIN_HOURLY_DETAILS or scenario.scenario_id in _WORKER_RETAINED_HOURLY_IDS
         ),
+        collect_diagnostics=False,
     )
 
 
@@ -159,6 +162,7 @@ def _scenario_records(
                 policy_params=policy_params,
                 dt_hours=dt_hours,
                 retain_hourly_detail=retain_hourly_details or scenario.scenario_id in retained_hourly_ids,
+                collect_diagnostics=False,
             )
         return
 

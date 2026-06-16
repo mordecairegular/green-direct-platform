@@ -55,6 +55,41 @@ HOURLY_LEDGER_COLUMNS = [
 # Backward-compatible alias for existing export/tests/downstream imports.
 HOURLY_COLUMNS = HOURLY_LEDGER_COLUMNS
 
+HOURLY_NUMERIC_LEDGER_COLUMNS = [
+    "load_power",
+    "pv_power",
+    "wind_power",
+    "pv_generation_power",
+    "wind_generation_power",
+    "renewable_generation_power",
+    "pv_station_use_power",
+    "wind_station_use_power",
+    "station_use_power",
+    "renewable_power",
+    "direct_self_use_power",
+    "bess_charge_power",
+    "bess_discharge_power",
+    "grid_import_power",
+    "grid_export_power",
+    "curtail_power",
+    "curtail_due_to_export_cap_power",
+    "curtail_due_to_exchange_limit_power",
+    "exchange_import_shortfall_power",
+    "soc_start",
+    "soc_end",
+    "bess_energy_start",
+    "bess_energy_end",
+]
+
+
+def _zero_close_hourly_arrays(data: dict[str, object]) -> None:
+    """Normalize tiny float artifacts before pandas DataFrame construction."""
+
+    for column in HOURLY_NUMERIC_LEDGER_COLUMNS:
+        values = data[column]
+        if isinstance(values, np.ndarray) and np.issubdtype(values.dtype, np.floating):
+            values[np.isclose(values, 0.0)] = 0.0
+
 
 def collect_single_scenario_input_diagnostics(
     curves: pd.DataFrame,
@@ -165,6 +200,7 @@ def run_single_scenario(
     strategy: DispatchStrategy | str | None = DispatchStrategy.GRID_CONNECTED_RENEWABLE_FIRST_GREEDY,
     dt_hours: float = 1.0,
     retain_hourly_detail: bool = True,
+    collect_diagnostics: bool = True,
 ) -> ScenarioResult:
     """Run hourly energy-balance simulation for one scenario."""
 
@@ -174,13 +210,17 @@ def run_single_scenario(
     if dispatch_strategy is not DispatchStrategy.GRID_CONNECTED_RENEWABLE_FIRST_GREEDY:
         raise ValueError(f"Unsupported dispatch strategy: {dispatch_strategy.value}")
     _validate_inputs(curves, scenario, bess, dt_hours)
-    diagnostics = collect_single_scenario_input_diagnostics(
-        curves,
-        scenario,
-        bess,
-        policy,
-        dt_hours=dt_hours,
-        strategy=dispatch_strategy,
+    diagnostics = (
+        collect_single_scenario_input_diagnostics(
+            curves,
+            scenario,
+            bess,
+            policy,
+            dt_hours=dt_hours,
+            strategy=dispatch_strategy,
+        )
+        if collect_diagnostics
+        else InputDiagnostics()
     )
 
     pv_capacity = scenario.pv_capacity
@@ -376,36 +416,8 @@ def run_single_scenario(
             data["hour_case"][idx] = step_hour_case
 
     if data is not None:
+        _zero_close_hourly_arrays(data)
         hourly = pd.DataFrame(data, columns=HOURLY_LEDGER_COLUMNS)
-        if not hourly.empty:
-            numeric_columns = [
-                "load_power",
-                "pv_power",
-                "wind_power",
-                "pv_generation_power",
-                "wind_generation_power",
-                "renewable_generation_power",
-                "pv_station_use_power",
-                "wind_station_use_power",
-                "station_use_power",
-                "renewable_power",
-                "direct_self_use_power",
-                "bess_charge_power",
-                "bess_discharge_power",
-                "grid_import_power",
-                "grid_export_power",
-                "curtail_power",
-                "curtail_due_to_export_cap_power",
-                "curtail_due_to_exchange_limit_power",
-                "exchange_import_shortfall_power",
-                "soc_start",
-                "soc_end",
-                "bess_energy_start",
-                "bess_energy_end",
-            ]
-            hourly[numeric_columns] = hourly[numeric_columns].replace({-0.0: 0.0})
-            hourly[numeric_columns] = hourly[numeric_columns].mask(np.isclose(hourly[numeric_columns], 0), 0.0)
-
         summary = calculate_summary(
             hourly,
             scenario,

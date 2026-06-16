@@ -476,6 +476,16 @@ def test_single_scenario_result_records_input_diagnostics():
     assert not result.diagnostics.has_errors()
 
 
+def test_single_scenario_can_skip_diagnostics_for_batch_hot_path():
+    result = run_single_scenario(
+        _curves([10], [0]),
+        Scenario("S001", pv_capacity=1, wind_capacity=0, bess_power=0, bess_energy=0),
+        collect_diagnostics=False,
+    )
+
+    assert result.diagnostics.items == []
+
+
 def test_collect_input_diagnostics_detects_invalid_soc_without_running():
     diagnostics = collect_single_scenario_input_diagnostics(
         _curves([10], [0]),

@@ -5194,3 +5194,34 @@ benchmark：
 - 本轮不改变 Streamlit、worker、经济性或技术仿真代码；
 - 手动克隆重试仍不是自动重试策略、退避机制、失败分类、资源限流或 worker 级取消；
 - 本地 JSON store 的原子写入仍不等于数据库事务或并发冲突合并。
+
+### 2026-06-16 技术仿真 retained-hourly 固定开销优化
+
+本轮回到用户持续关注的“方案遍历逐个计算，成千上万个方案等待很久”问题。当前 summary-first 已能避免为大多数方案构造完整 hourly detail，但仍会为前 N 个代表方案保留逐小时明细；profile 显示这些 retained hourly DataFrame 的后处理里，pandas `replace/mask/_where` 会产生明显固定开销。同时，batch runner 并不消费每个 `ScenarioResult.diagnostics`，但单方案函数仍为每个方案构造 diagnostics。
+
+实现：
+- `run_single_scenario()` 新增 `collect_diagnostics` 参数，默认 `True`，保持公开单方案调用行为不变；
+- `run_batch()` 的串行和并行 worker hot path 显式传 `collect_diagnostics=False`，避免批量场景构造后又丢弃逐方案 input diagnostics；
+- 新增 `HOURLY_NUMERIC_LEDGER_COLUMNS` 和 `_zero_close_hourly_arrays()`；
+- 保留 hourly detail 时，tiny float / `-0.0` 清零从 DataFrame 构造后的 pandas `replace/mask` 移到 DataFrame 构造前的 numpy 数组处理；
+- `tests/test_single_scenario.py` 增加显式跳过 diagnostics 的测试，`tests/test_batch_runner.py` 覆盖 batch hot path 传入 `collect_diagnostics=False`。
+
+边界：
+- 不改变 V0.1 储能调度、并网/上网限制、SOC 滚动、hourly ledger 字段或 summary 字段；
+- 单方案直接调用仍默认返回 `DISPATCH_STRATEGY_SELECTED` 等 diagnostics；
+- batch 本来也没有保存逐方案 diagnostics，因此关闭构造不改变 `BatchResult` 输出契约；
+- benchmark 脚本带 `tracemalloc`，速度样本受机器负载影响，不作为 SLA。
+
+profile / benchmark：
+- 改前本轮 profile：`run_batch(... 189 个方案, 168 小时, retain 20 hourly details)` 约 1,837,448 calls / 0.661s，热点包含 pandas `mask/_where`；
+- 改后同一 profile：约 1,493,928 calls / 0.517s，`mask/_where` 热点消失；
+- 改前同参数 benchmark 样本：`technical_summary_first` 约 3.6625s，峰值 Python heap 约 2.470 MB；
+- 改后同参数 benchmark 样本：`technical_summary_first` 约 3.8808s，峰值 Python heap 约 1.546 MB；速度受 `tracemalloc` 和负载波动影响，内存下降更稳定；
+- 较大样本：572 个方案、168 小时、retain 20 details，`technical_summary_first` 约 10.8062s，峰值 Python heap 约 2.682 MB。
+
+验证：
+- `python -m pytest tests\test_single_scenario.py tests\test_batch_runner.py tests\test_performance_benchmark_script.py -q` 通过，45 项通过；
+- `python -m compileall -q src\green_direct\core\single_scenario_simulator.py src\green_direct\batch\batch_runner.py tests\test_single_scenario.py tests\test_batch_runner.py` 通过；
+- `python -m pytest -q` 通过，363 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `git diff --check` 通过，仅有 Windows 换行转换提示。
