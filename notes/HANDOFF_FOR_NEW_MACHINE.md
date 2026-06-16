@@ -89,7 +89,7 @@
 - `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`：UI 提升提示词已明确要求先做当前运行截图/浏览器审查，再选择一个可验收小切片；首轮 UI 提升优先考虑窄屏/手机可用性或 03 经济性首屏节奏，不要让 Claude Code 一次性“美化全部六页”。
 
 2026-06-17 当前部署前事实状态：
-- 最新部署/运维 checkpoint 提交主题为 `chore(deploy): require private github source`；最新性能 checkpoint 提交主题为 `perf(economy): vectorize irr candidate scan`；此前连续部署/性能 checkpoint 包括 `428fcfa chore(deploy): align browser path defaults`、`86b9319 chore(deploy): check runtime dependency sync`、`d6e8cb6 chore(deploy): verify render pilot disk`、`805f601 chore(deploy): require pilot backup materials`、`d6c33d4 perf(core): inline bess summary accumulation`、`fd8ca63 perf(core): reduce bess summary dispatch calls`、`511c0d4 perf(core): skip bess hour case in summaries`、`725f465 chore(deploy): lock pilot runtime env checks`、`68d43f8 docs(pilot): sharpen claudecode launch prompts`、`345f3a9 perf(economy): fast path temporary replacement irr dips` 和 `b28d4c5 perf(core): skip redundant bess output clamps`；
+- 最新部署/运维 checkpoint 提交主题为 `chore(perf): make parallel worker default configurable`；最新经济性性能 checkpoint 提交主题为 `perf(economy): vectorize irr candidate scan`；此前连续部署/性能 checkpoint 包括 `807fb1b chore(deploy): require private github source`、`428fcfa chore(deploy): align browser path defaults`、`86b9319 chore(deploy): check runtime dependency sync`、`d6e8cb6 chore(deploy): verify render pilot disk`、`805f601 chore(deploy): require pilot backup materials`、`d6c33d4 perf(core): inline bess summary accumulation`、`fd8ca63 perf(core): reduce bess summary dispatch calls`、`511c0d4 perf(core): skip bess hour case in summaries`、`725f465 chore(deploy): lock pilot runtime env checks`、`68d43f8 docs(pilot): sharpen claudecode launch prompts`、`345f3a9 perf(economy): fast path temporary replacement irr dips` 和 `b28d4c5 perf(core): skip redundant bess output clamps`；
 - `python -m pytest -q` 最近一次全量结果为 `392 passed`；
 - `python -m pytest tests\test_bess_dispatch.py tests\test_single_scenario.py tests\test_batch_runner.py -q` 最近一次针对 BESS summary-only hot path 结果为 `68 passed`；
 - 最近一次 BESS summary-only profile 小切片把 48 个 8760 小时含储能方案、summary-only、无常驻明细的 cProfile 函数调用数约从 2,112,037 降到 430,117，cProfile 总耗时约从 0.753s 降到 0.430s；该优化只减少 `max()` / `min()` 和最大功率维护的 Python 调用，不改变 V0.1 dispatch 口径；
@@ -102,9 +102,10 @@
 - Render Blueprint 静态门槛已锁定 persistent disk 名称 `green-direct-pilot-store`、挂载路径 `/data` 和容量至少 10GB；`preflight_internal_pilot_deploy.py --json` 会输出 `render:disk-name` 与 `render:disk-size` 检查；
 - Docker/Render runtime 依赖同步已纳入 preflight：`runtime-deps:pyproject-sync` 会校验 `requirements-runtime.txt` 与 `pyproject.toml` 的 `[project].dependencies` 一致；Dockerfile 检查也锁定运行镜像通过 `requirements-runtime.txt` 安装依赖；
 - Docker/Compose/Render 的 Chromium/Kaleido browser path 已对齐为 `BROWSER_PATH=/usr/bin/chromium`；部署 preflight 会检查 Dockerfile、Compose Web、Compose worker 和 Render Web 环境变量，降低图表 PNG 导出在不同部署入口下行为不一致的风险；
+- 02 页默认并行技术仿真进程数已改为部署可调：`GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS` 默认 1，并被 Dockerfile、docker-compose、Render、`.env.example` 和 preflight 锁定。小 benchmark 显示 105 个 168 小时方案 summary-first 时 1 进程约 0.338s、2 进程约 1.1925s，因此默认保持 1，目标服务器若调到 2-4 必须先跑真实大样本 benchmark；
 - GitHub 私有仓库核验已纳入可选 preflight：`--require-github-private` 会读取 `remote.origin.url` 并通过 `gh repo view` 确认 visibility 为 `PRIVATE`；当前机器未安装 `gh`，因此该命令在本机按预期失败，但会先通过 `github:origin` 识别当前 repo slug。首次发布前应安装/登录 `gh` 后重跑，或在 GitHub 页面人工确认仓库为 Private；
-- `python -m pytest tests\test_deployment_artifacts.py -q` 已通过，12 项通过，覆盖首次发布作战单、Render 分支、GitHub Actions 质量门、GitHub 私有仓库可选检查和部署 preflight；
-- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 最近一次按预期失败，唯一失败项是 `git:sync`：本地 `codex/UI` 跟踪 `origin/codex/UI`，ahead 132、behind 0，工作树干净。该命令现在还会核对当前分支和 upstream 是否匹配 `render.yaml` 的部署分支；部署前应重新运行该命令获取实时状态；
+- `python -m pytest tests\test_deployment_artifacts.py -q` 已通过，12 项通过，覆盖首次发布作战单、Render 分支、GitHub Actions 质量门、GitHub 私有仓库可选检查、默认并行进程数部署变量和部署 preflight；
+- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 最近一次按预期失败，唯一失败项是 `git:sync`：本地 `codex/UI` 跟踪 `origin/codex/UI`，ahead 133、behind 0，工作树干净。该命令现在还会核对当前分支和 upstream 是否匹配 `render.yaml` 的部署分支；部署前应重新运行该命令获取实时状态；
 - 当前 `origin` 为 `https://github.com/mordecairegular/green-direct-platform.git`；
 - 因此下一步不是继续改 Vercel 适配，而是经用户确认后推送当前分支到私有 GitHub，等待 GitHub Actions 质量门通过，再按 Render/Cloudflare checklist 做真实部署演练。
 

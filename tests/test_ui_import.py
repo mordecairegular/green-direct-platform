@@ -2108,6 +2108,25 @@ def test_technical_workload_estimate_scales_with_detail_retention_and_workers():
     assert "预计耗时约" in summary_workload["estimate_text"]
 
 
+def test_default_parallel_workers_reads_env_with_safe_bounds(monkeypatch):
+    import green_direct.ui.app as app
+
+    monkeypatch.delenv(app.DEFAULT_PARALLEL_WORKERS_ENV, raising=False)
+    assert app._default_parallel_workers() == 1
+
+    monkeypatch.setenv(app.DEFAULT_PARALLEL_WORKERS_ENV, "4")
+    assert app._default_parallel_workers() == 4
+
+    monkeypatch.setenv(app.DEFAULT_PARALLEL_WORKERS_ENV, "0")
+    assert app._default_parallel_workers() == 1
+
+    monkeypatch.setenv(app.DEFAULT_PARALLEL_WORKERS_ENV, "99")
+    assert app._default_parallel_workers() == 8
+
+    monkeypatch.setenv(app.DEFAULT_PARALLEL_WORKERS_ENV, "not-an-int")
+    assert app._default_parallel_workers() == 1
+
+
 def test_large_run_confirmation_helpers_require_and_reset_by_signature():
     import green_direct.ui.app as app
 
@@ -2958,10 +2977,11 @@ def test_simulation_capacity_input_survives_workflow_navigation():
     assert len(app_test.exception) == 0
 
 
-def test_simulation_page_exposes_parallel_worker_control():
+def test_simulation_page_exposes_parallel_worker_control(monkeypatch):
     import green_direct.ui.app as app
     from streamlit.testing.v1 import AppTest
 
+    monkeypatch.delenv(app.DEFAULT_PARALLEL_WORKERS_ENV, raising=False)
     app_test = AppTest.from_file("src/green_direct/ui/app.py")
     app_test.session_state["workflow_page"] = "方案仿真"
     app_test.run(timeout=10)

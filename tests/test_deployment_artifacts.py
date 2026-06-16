@@ -38,6 +38,7 @@ def test_docker_compose_defaults_to_internal_pilot_safety():
     assert environment["GREEN_DIRECT_PILOT_STORE_DIR"] == "/data/pilot_store"
     assert environment["GREEN_DIRECT_MAX_UPLOAD_MB"] == "${GREEN_DIRECT_MAX_UPLOAD_MB:-20}"
     assert environment["GREEN_DIRECT_MAX_SCENARIOS_PER_RUN"] == "${GREEN_DIRECT_MAX_SCENARIOS_PER_RUN:-20000}"
+    assert environment["GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS"] == "${GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS:-1}"
     assert environment["GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD"] == (
         "${GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD:-1000}"
     )
@@ -71,6 +72,7 @@ def test_dockerfile_defaults_to_safe_server_mode():
     assert "GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0" in dockerfile
     assert "GREEN_DIRECT_PILOT_STORE_DIR=/data/pilot_store" in dockerfile
     assert "GREEN_DIRECT_MAX_SCENARIOS_PER_RUN=20000" in dockerfile
+    assert "GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS=1" in dockerfile
     assert "GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD=1000" in dockerfile
     assert "GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT=20" in dockerfile
     assert "BROWSER_PATH=/usr/bin/chromium" in dockerfile
@@ -104,6 +106,7 @@ def test_render_blueprint_targets_pilot_branch_after_checks_pass():
     assert service["disk"]["sizeGB"] >= 10
     env = {item["key"]: str(item["value"]) for item in service["envVars"]}
     assert env["GREEN_DIRECT_MAX_UPLOAD_MB"] == "20"
+    assert env["GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS"] == "1"
     assert env["STREAMLIT_SERVER_ADDRESS"] == "0.0.0.0"
     assert env["STREAMLIT_SERVER_PORT"] == "8503"
     assert env["STREAMLIT_SERVER_HEADLESS"] == "true"
@@ -171,14 +174,17 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     assert "render:disk-size" in check_names
     assert "compose:volume" in check_names
     assert "compose:env:GREEN_DIRECT_MAX_UPLOAD_MB" in check_names
+    assert "compose:env:GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS" in check_names
     assert "compose:env:STREAMLIT_SERVER_HEADLESS" in check_names
     assert "compose:env:BROWSER_PATH" in check_names
     assert "compose:worker-env:GREEN_DIRECT_PILOT_STORE_DIR" in check_names
     assert "compose:worker-env:BROWSER_PATH" in check_names
     assert "compose:worker-job-types" in check_names
     assert "dockerfile:PORT=8503" in check_names
+    assert "dockerfile:GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS=1" in check_names
     assert "dockerfile:--server.maxUploadSize=${STREAMLIT_SERVER_MAX_UPLOAD_SIZE:-${GREEN_DIRECT_MAX_UPLOAD_MB:-20}}" in check_names
     assert "render:env:STREAMLIT_SERVER_HEADLESS" in check_names
+    assert "render:env:GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS" in check_names
     assert "render:env:BROWSER_PATH" in check_names
     assert "git-tracked:env-files" in check_names
     assert "git-tracked:local-state" in check_names
@@ -272,6 +278,7 @@ def test_public_beta_first_launch_playbook_covers_handoff_steps():
         "preflight_internal_pilot_deploy.py --require-git-sync",
         "preflight_internal_pilot_deploy.py --require-github-private",
         "Internal Pilot Quality Gate",
+        "GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS=1",
         "Render Web Service Shell",
         "pilot-admin doctor",
         "pilot-admin bootstrap",

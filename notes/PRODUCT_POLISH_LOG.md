@@ -5965,3 +5965,27 @@ profile / benchmark：
 - 该能力不替代 GitHub 页面和组织权限的人工复核；首次发布前仍应确认仓库 Collaborators/Teams、Actions 权限和 Render 授权范围；
 - 当前实现只核验 GitHub visibility，不检查 Render 控制台是否选中了同一个仓库和分支；
 - 不改变部署拓扑、应用权限、技术仿真、经济性 V1 或推荐排序。
+
+### 2026-06-17 默认并行技术仿真进程数改为部署可调
+
+本轮继续推进“大方案池等待时间”问题，但选择的是上线运维可调切片，而不是改技术调度口径。02 页已经支持手动设置并行计算进程数，`run_batch()` 也已按方案块提交给 `ProcessPoolExecutor`；但此前 UI 默认值固定为 1，部署者如果在目标机器 benchmark 后希望把默认值调到 2-4，需要改代码或要求每个用户手动设置。
+
+调整：
+- 新增 `GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS`，用于控制 02 页“并行计算进程数”的默认值；
+- UI helper `_default_parallel_workers()` 会读取环境变量，非法值回退 1，小于 1 夹到 1，大于 8 夹到 8；
+- Dockerfile、docker-compose、Render Blueprint 和 `.env.example` 默认都设置为 1，保持保守安全默认；
+- 部署 preflight 锁定 Docker/Compose/Render Web 环境变量，移动网络清单、首次发布作战单、部署 README 和性能路线文档已同步；
+- 单次运行仍可在 UI 中手动覆盖该值，不改变 `PerformanceParams.parallel_workers` 语义。
+
+验证与反馈环：
+- `python -m pytest tests\test_ui_import.py::test_default_parallel_workers_reads_env_with_safe_bounds tests\test_ui_import.py::test_simulation_page_exposes_parallel_worker_control tests\test_ui_import.py::test_technical_workload_estimate_scales_with_detail_retention_and_workers -q` 通过，3 项通过；
+- `python -m pytest tests\test_deployment_artifacts.py -q` 通过，12 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`，包含 `GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS` 的 Dockerfile、Compose 和 Render 检查；
+- `python -m compileall -q src\green_direct\ui\app.py scripts\preflight_internal_pilot_deploy.py tests\test_ui_import.py tests\test_deployment_artifacts.py` 通过；
+- 小 benchmark：`python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 6 --wind-count 6 --bess-power-count 3 --durations 0,2 --skip-full-retention --skip-economy --parallel-workers 1 --json` 得到 105 个方案 summary-first 约 0.338s；
+- 同参数 `--parallel-workers 2` 约 1.1925s，说明小任务会被多进程启动/序列化开销拖慢，默认保持 1 是合理的；目标服务器是否调高必须以真实大样本 benchmark 为准。
+
+边界：
+- 这不是新的调度算法，也不改变 V0.1 技术仿真、经济性 V1 或推荐排序；
+- Render 单 Web Service + 本地 file store 首发仍不建议盲目拉满 CPU；多人试用时提高并行度可能让一个用户的大任务抢占其他用户响应；
+- 后续真正解决长任务体验仍要推进后台 Job、worker 心跳/取消、数据库/对象存储和任务队列。

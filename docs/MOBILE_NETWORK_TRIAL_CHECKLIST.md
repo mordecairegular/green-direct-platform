@@ -65,7 +65,7 @@ GitHub private repository
 6. 确认 persistent disk：
    - mount path: `/data`
    - app store: `/data/pilot_store`
-7. 确认关键环境变量：登录门禁为 `1`，runtime snapshot 为 `0`，单次技术方案数上限为 `20000`，经济性现金流保留阈值为 `1000`，保留数量为 `20`。
+7. 确认关键环境变量：登录门禁为 `1`，runtime snapshot 为 `0`，单次技术方案数上限为 `20000`，默认并行技术仿真进程数为 `1`，经济性现金流保留阈值为 `1000`，保留数量为 `20`。
 8. 部署完成后，访问 Render 默认域名。
 9. 若显示应用登录页，说明公网入口已通。
 10. 在 Render Web Service Shell 运行 `pilot-admin doctor --store-dir /data/pilot_store --json`，确认 persistent disk、JSON metadata、payload 写入、协作锁和审计 JSONL 都正常。
@@ -125,6 +125,7 @@ Cloudflare Access 是公网入口第一层门禁；应用内账号是第二层�
 - 平台管理页“审计日志”和 CLI 审计抽查都能看到登录、项目、下载、artifact 操作；
 - 如测试后台逐小时明细或年度现金流补算，确认 queued job 会出现在欢迎页任务面板，并由平台管理页“任务运维”、`run-worker-once` 或 `run-worker-loop` 处理完成；
 - `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0`；
+- `GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS=1` 已按内测机器资源确认；如调到 2-4，应先完成 benchmark，避免多人试用时 CPU/RAM 被抢满；
 - `GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD=1000`、`GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT=20` 已按内测资源配置确认；
 - 数据目录不是 Git 仓库目录。
 - Render/Docker 构建日志中没有上传本地 `.runtime`、输出文件、历史归档或调试日志。

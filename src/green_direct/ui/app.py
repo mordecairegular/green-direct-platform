@@ -160,6 +160,7 @@ LATEST_SESSION_SNAPSHOT_PATH = RUNTIME_STATE_DIR / "latest_session_snapshot.pkl"
 RUNTIME_SNAPSHOT_ENV = "GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT"
 MAX_UPLOAD_MB_ENV = "GREEN_DIRECT_MAX_UPLOAD_MB"
 MAX_SCENARIOS_PER_RUN_ENV = "GREEN_DIRECT_MAX_SCENARIOS_PER_RUN"
+DEFAULT_PARALLEL_WORKERS_ENV = "GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS"
 ECONOMY_CASHFLOW_RETENTION_THRESHOLD_ENV = "GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD"
 ECONOMY_RETAINED_CASHFLOW_LIMIT_ENV = "GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT"
 PILOT_AUTH_ENV = "GREEN_DIRECT_ENABLE_PILOT_AUTH"
@@ -326,6 +327,7 @@ SIMULATION_WIDGET_STATE_KEYS = [
 ]
 DEFAULT_LARGE_RUN_HOURLY_DETAIL_LIMIT = 20
 DEFAULT_MAX_SCENARIOS_PER_RUN = 20000
+DEFAULT_PARALLEL_WORKERS = 1
 DEFAULT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD = 1000
 DEFAULT_ECONOMY_RETAINED_CASHFLOW_LIMIT = 20
 TECHNICAL_RUNTIME_SECONDS_PER_8760_SUMMARY_SCENARIO = 0.045
@@ -5732,6 +5734,17 @@ def _max_scenarios_per_run() -> int | None:
     return limit
 
 
+def _default_parallel_workers() -> int:
+    raw_value = os.getenv(DEFAULT_PARALLEL_WORKERS_ENV, "").strip()
+    if not raw_value:
+        return DEFAULT_PARALLEL_WORKERS
+    try:
+        workers = int(raw_value)
+    except ValueError:
+        return DEFAULT_PARALLEL_WORKERS
+    return min(8, max(1, workers))
+
+
 def _scenario_count_limit_notice(scenario_count: int | None, max_scenarios: int | None) -> str | None:
     if scenario_count is None or max_scenarios is None or int(scenario_count) <= int(max_scenarios):
         return None
@@ -9322,7 +9335,8 @@ def _render_simulation_page(st) -> None:
     scenario_count: int | None = None
     warn_threshold = 5000
     max_scenarios_per_run = _max_scenarios_per_run()
-    parallel_workers = 1
+    default_parallel_workers = _default_parallel_workers()
+    parallel_workers = default_parallel_workers
     large_run_hourly_detail_limit = DEFAULT_LARGE_RUN_HOURLY_DETAIL_LIMIT
     grid_exchange_power_limit = None
     duration_text = str(_stored_widget_value(st, "simulation_bess_duration_text", "2,4"))
@@ -9575,11 +9589,11 @@ def _render_simulation_page(st) -> None:
                 parallel_workers = int(
                     perf_cols[1].number_input(
                         "并行计算进程数",
-                        value=int(_stored_widget_value(st, "simulation_parallel_workers", 1)),
+                        value=int(_stored_widget_value(st, "simulation_parallel_workers", default_parallel_workers)),
                         min_value=1,
                         max_value=8,
                         step=1,
-                        help="默认 1 为串行。设置为 2-8 时会并行执行单方案技术仿真；小方案可能因多进程启动开销不一定更快。",
+                        help="默认值由部署配置决定。设置为 2-8 时会并行执行单方案技术仿真；小方案可能因多进程启动开销不一定更快。",
                         key="simulation_parallel_workers",
                         on_change=_sync_stored_widget_value,
                         args=(st, "simulation_parallel_workers"),
@@ -9616,6 +9630,10 @@ def _render_simulation_page(st) -> None:
                         f"当前单次测算上限为 {max_scenarios_per_run:,} 个方案；"
                         f"管理员可通过 `{MAX_SCENARIOS_PER_RUN_ENV}` 调整。"
                     )
+                st.caption(
+                    f"默认并行进程数为 {default_parallel_workers}；"
+                    f"管理员可通过 `{DEFAULT_PARALLEL_WORKERS_ENV}` 调整默认值，单次运行仍可在本页手动覆盖。"
+                )
 
             if scenario_mode == "指定单方案":
                 exact_row_1 = st.columns(2, gap="small")

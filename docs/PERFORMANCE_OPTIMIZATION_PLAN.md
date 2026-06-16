@@ -21,7 +21,7 @@
 - `run_batch(..., retain_hourly_details=False, hourly_detail_scenario_ids=...)` 已支持汇总优先和指定方案明细保留；
 - `PerformanceParams.parallel_workers` 已支持 `ProcessPoolExecutor` 并行技术仿真；
 - 并行技术仿真已改为自动按方案块提交给进程池，减少大方案池下一个方案一个 task 的调度开销，结果聚合仍保持方案顺序；
-- 02 页已暴露并行进程数和大批量保留明细数；
+- 02 页已暴露并行进程数和大批量保留明细数；默认并行进程数可通过 `GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS` 调整，部署默认仍为 1，目标机器 benchmark 后再提高到 2-4；
 - `PerformanceParams.max_scenarios_per_run` 与 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN` 已提供单次方案数硬上限；02 页会在超限时提示并禁用开始测算，`run_batch()` 后端也会拒绝执行；
 - `estimate_scenario_count()` 已改为轴计数路径，不再为方案数预估构造完整 `Scenario` 列表，也不展开光伏容量轴 × 风电容量轴；`run_batch()` 会先用该路径做硬上限判断，再生成可执行方案池；
 - `generate_scenarios()` 已把容量轴和储能功率/时长组合移到嵌套循环外预计算，减少大方案池枚举前的固定开销；
@@ -86,6 +86,7 @@ python scripts\benchmark_internal_pilot_performance.py --json
 - 增加单次方案数上限的环境变量或后台配置；（已完成第一版：`GREEN_DIRECT_MAX_SCENARIOS_PER_RUN`）
 - 方案数预估和硬上限判断避免先物化完整方案池；（已完成第二版：轴计数估算 + 超限前置拒绝）
 - 记录 benchmark 样本：方案数、小时数、是否保留明细、并行 worker、耗时、内存。
+- 若目标服务器 CPU/RAM 允许，可通过 `GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS` 调高 UI 默认并行进程数，但必须保留用户手动覆盖入口。
 
 验收：
 

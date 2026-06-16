@@ -20,6 +20,8 @@ services:
         value: "20"
       - key: GREEN_DIRECT_MAX_SCENARIOS_PER_RUN
         value: "20000"
+      - key: GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS
+        value: "1"
       - key: GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD
         value: "1000"
       - key: GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT
