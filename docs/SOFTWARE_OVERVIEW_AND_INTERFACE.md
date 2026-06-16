@@ -1290,6 +1290,7 @@ Explicit export artifact
 - `power_economy_summary.csv` / `single_entity_summary.csv`：电源侧和同一主体经济性汇总；
 - `recommendation_inputs.json`：推荐 V1 重新生成/排序所需的经济参数、负荷侧可避免电费价格、绿电结算价、环境价值和电源侧最低可接受 FIRR；
 - `power_annual_cashflows.zip` / `single_entity_annual_cashflows.zip`：当前运行实际保留的年度现金流，每个方案一个 CSV；若经济性以 summary-only 方式运行且未保留现金流，则不会生成这些 artifact，也不会为未保留方案构造完整年度现金流 `DataFrame`；
+- Streamlit 03 页默认以 `GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD=1000` 控制经济性年度现金流常驻策略：超过阈值时仍对全量方案计算经济性 summary、FIRR/NPV 和推荐排序，但只保留前 `GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT=20` 个方案的年度现金流；06 页会对未常驻现金流的所选方案显示说明；
 - `Job(job_type="recommendation")`：记录推荐组合写入；
 - `recommendation_portfolio.csv` / `recommendation_load_side_detail.csv`：推荐组合和负荷侧可成交收益明细；
 - `Job(job_type="chart_export")` / `Job(job_type="report_export")`：记录用户显式保存的导出产物；

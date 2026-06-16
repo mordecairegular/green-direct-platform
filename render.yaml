@@ -17,6 +17,10 @@ services:
         value: "20"
       - key: GREEN_DIRECT_MAX_SCENARIOS_PER_RUN
         value: "20000"
+      - key: GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD
+        value: "1000"
+      - key: GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT
+        value: "20"
       - key: STREAMLIT_SERVER_ADDRESS
         value: 0.0.0.0
       - key: STREAMLIT_SERVER_PORT

@@ -83,6 +83,8 @@ Vercel 可以作为未来正式化后的前端托管平台：例如将前端改�
    - `GREEN_DIRECT_PILOT_STORE_DIR=/data/pilot_store`
    - `GREEN_DIRECT_MAX_UPLOAD_MB=20`
    - `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN=20000`
+   - `GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD=1000`
+   - `GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT=20`
    - `PORT=8503`，或使用平台默认端口；Docker 启动命令会优先读取 `PORT`
 7. 确认 persistent disk 挂载：
    - mount path: `/data`

@@ -4816,3 +4816,26 @@ benchmark：
 
 验证：
 - 新增 `tests/test_ui_import.py::test_completed_hourly_detail_job_refreshes_result_ref_and_loads_artifact` 覆盖 worker 成功后前台刷新结果索引并加载 hourly artifact。
+
+### 2026-06-16 Streamlit 经济性大批量 summary-first 接入
+
+本轮继续推进“内部 10-20 人公网试用”所需的大方案池性能护栏。此前底层 `run_economic_study(..., retain_annual_cashflows=False, annual_cashflow_scenario_ids=...)` 已能避免为未保留方案构造完整年度现金流 `DataFrame`，但 Streamlit 03 页仍按默认 `retain_annual_cashflows=True` 调用，导致大方案池经济性测算仍会常驻全部方案年度现金流。
+
+实现：
+- `src/green_direct/ui/app.py` 新增 `GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD` 和 `GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT`；
+- 默认超过 1,000 个方案时，03 页进入经济性 summary-first：仍全量计算电源侧/同一主体 summary、FIRR/NPV、回收期和推荐排序所需指标，但只保留前 20 个方案年度现金流；
+- 本次保留策略写入 `economy_v1_result["cashflow_retention"]` 和 `single_entity_economy_result["cashflow_retention"]`；
+- 06 导出页在所选方案未常驻年度现金流时显示说明，不再让年度现金流按钮“静默消失”；
+- Dockerfile、docker-compose、render.yaml、`.env.example`、`README_DEPLOY.md`、`SECURITY.md`、部署 runbook、托管公网部署路线、移动网络试用清单、性能路线和公网审计矩阵已同步新默认值。
+
+边界：
+- 不改变经济性 V1 现金流口径、FIRR/NPV 口径或推荐排序口径；
+- 当前只保留前 N 个方案年度现金流，还没有根据推荐组合或用户所选方案自动补年度现金流；
+- 后续应新增“按需补经济年度现金流”后台 Job，并写回 `ResultStore`。
+
+验证：
+- `python -m pytest tests/test_ui_import.py::test_economy_cashflow_retention_plan_switches_to_summary_first tests/test_ui_import.py::test_economy_cashflow_retention_environment_guardrails tests/test_ui_import.py::test_economy_cashflow_retention_missing_notice_only_for_unretained_scenario tests/test_study_runner.py::test_economic_study_can_skip_annual_cashflow_retention tests/test_study_runner.py::test_economic_study_can_keep_selected_annual_cashflows_only -q` 通过，5 项通过；
+- `python -m pytest tests/test_ui_import.py::test_economy_cashflow_retention_plan_switches_to_summary_first tests/test_ui_import.py::test_economy_cashflow_retention_environment_guardrails tests/test_ui_import.py::test_economy_cashflow_retention_missing_notice_only_for_unretained_scenario tests/test_study_runner.py::test_economic_study_can_skip_annual_cashflow_retention tests/test_study_runner.py::test_economic_study_can_keep_selected_annual_cashflows_only tests/test_deployment_artifacts.py -q` 通过，11 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过；
+- `python -m compileall -q src\green_direct\ui\app.py tests\test_ui_import.py scripts\preflight_internal_pilot_deploy.py` 通过；
+- `python -m pytest -q` 通过，344 项通过。

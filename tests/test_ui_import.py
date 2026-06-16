@@ -1769,6 +1769,57 @@ def test_large_run_detail_retention_plan_switches_to_summary_first():
     assert summary_only["hourly_detail_scenario_ids"] == ()
 
 
+def test_economy_cashflow_retention_plan_switches_to_summary_first():
+    import green_direct.ui.app as app
+
+    summary = pd.DataFrame({"scenario_id": ["S0101", "S0102", "S0103", "S0104"]})
+
+    small = app._economy_cashflow_retention_plan(summary.iloc[:2], threshold=3, retained_limit=2)
+    large = app._economy_cashflow_retention_plan(summary, threshold=3, retained_limit=2)
+    summary_only = app._economy_cashflow_retention_plan(summary, threshold=3, retained_limit=0)
+
+    assert small["mode"] == "full"
+    assert small["retain_annual_cashflows"] is True
+    assert small["annual_cashflow_scenario_ids"] == ()
+    assert large["mode"] == "summary_first"
+    assert large["retain_annual_cashflows"] is False
+    assert large["annual_cashflow_scenario_ids"] == ("S0101", "S0102")
+    assert summary_only["annual_cashflow_scenario_ids"] == ()
+
+
+def test_economy_cashflow_retention_environment_guardrails(monkeypatch):
+    import green_direct.ui.app as app
+
+    monkeypatch.setenv(app.ECONOMY_CASHFLOW_RETENTION_THRESHOLD_ENV, "12")
+    monkeypatch.setenv(app.ECONOMY_RETAINED_CASHFLOW_LIMIT_ENV, "3")
+    assert app._economy_cashflow_retention_threshold() == 12
+    assert app._economy_retained_cashflow_limit() == 3
+
+    monkeypatch.setenv(app.ECONOMY_CASHFLOW_RETENTION_THRESHOLD_ENV, "invalid")
+    monkeypatch.setenv(app.ECONOMY_RETAINED_CASHFLOW_LIMIT_ENV, "-1")
+    assert app._economy_cashflow_retention_threshold() == app.DEFAULT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD
+    assert app._economy_retained_cashflow_limit() == 0
+
+
+def test_economy_cashflow_retention_missing_notice_only_for_unretained_scenario():
+    import green_direct.ui.app as app
+
+    economy_result = {
+        "cashflow_retention": {
+            "mode": "summary_first",
+            "retain_annual_cashflows": False,
+            "annual_cashflow_scenario_ids": ["S0101", "S0102"],
+            "scenario_count": 5000,
+        }
+    }
+
+    assert app._economy_cashflow_retention_missing_notice(economy_result, "S0101") is None
+    notice = app._economy_cashflow_retention_missing_notice(economy_result, "S0103")
+    assert notice is not None
+    assert "summary-first" in notice
+    assert "S0103" in notice
+
+
 def test_technical_workload_estimate_scales_with_detail_retention_and_workers():
     import green_direct.ui.app as app
 

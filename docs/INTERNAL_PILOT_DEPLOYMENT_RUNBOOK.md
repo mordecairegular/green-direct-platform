@@ -42,10 +42,13 @@ $env:GREEN_DIRECT_PILOT_STORE_DIR = "D:\GreenDirectPilot\pilot_store"
 $env:GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT = "0"
 $env:GREEN_DIRECT_MAX_UPLOAD_MB = "20"
 $env:GREEN_DIRECT_MAX_SCENARIOS_PER_RUN = "20000"
+$env:GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD = "1000"
+$env:GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT = "20"
 ```
 
 `START_GREEN_DIRECT_APP.bat` 和 `scripts/start_green_direct_app.ps1` 主要服务本地桌面体验。服务器或多人试用建议使用显式 Streamlit 命令，并确认 `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0`。
 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN` 是多人试用阶段的同步计算护栏；默认 20,000 个候选方案，超过时前台和 `run_batch()` 后端都会拒绝本次任务。
+`GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD` 和 `GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT` 控制经济性大批量年度现金流常驻策略；默认超过 1,000 个方案时只保留前 20 个方案的年度现金流表，经济性 summary、FIRR/NPV 和推荐排序仍按全量方案计算。
 
 ## 4. 安装与自检
 

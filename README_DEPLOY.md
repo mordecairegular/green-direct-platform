@@ -112,6 +112,8 @@ GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0
 GREEN_DIRECT_PILOT_STORE_DIR=/data/pilot_store
 GREEN_DIRECT_MAX_UPLOAD_MB=20
 GREEN_DIRECT_MAX_SCENARIOS_PER_RUN=20000
+GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD=1000
+GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT=20
 PORT=8503
 ```
 
@@ -122,6 +124,7 @@ PORT=8503
 - 账号、会话、项目、任务、结果、artifact 和审计日志写入容器外 volume；
 - 上传文件默认单文件 20MB 上限。
 - 技术仿真默认单次最多 20,000 个候选方案，超过时前台会阻止启动，后端 `run_batch()` 也会拒绝执行。
+- 经济性默认在超过 1,000 个方案时进入 summary-first：仍计算全量汇总、FIRR/NPV 和推荐排序，但只常驻前 20 个方案的年度现金流，避免公网试用环境一次生成过多现金流表。
 - 容器默认监听 8503；托管平台如注入 `PORT`，Docker 启动命令会优先使用平台端口。
 
 ## 4. 数据卷

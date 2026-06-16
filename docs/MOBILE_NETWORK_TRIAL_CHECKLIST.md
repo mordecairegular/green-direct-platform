@@ -40,8 +40,9 @@ GitHub private repository
 5. 确认 persistent disk：
    - mount path: `/data`
    - app store: `/data/pilot_store`
-6. 部署完成后，访问 Render 默认域名。
-7. 若显示应用登录页，说明公网入口已通。
+6. 确认关键环境变量：登录门禁为 `1`，runtime snapshot 为 `0`，单次技术方案数上限为 `20000`，经济性现金流保留阈值为 `1000`，保留数量为 `20`。
+7. 部署完成后，访问 Render 默认域名。
+8. 若显示应用登录页，说明公网入口已通。
 
 当前 `render.yaml` 只创建 Web Service。按需逐小时明细后台任务已有 `run-worker-loop`，但本地 file store 版在 Render 上不应简单拆成另一个独立 Worker Service 共享 `/data/pilot_store`；该类持久盘绑定在服务侧，正式拆分 worker 前应先迁移到数据库/对象存储，或改用同一主机/Compose 共享卷方案。第一次移动网络试用可先保留同步补算 fallback，必要时由管理员在同一服务环境里执行 `run-worker-once`。
 
@@ -96,6 +97,7 @@ Cloudflare Access 是公网入口第一层门禁；应用内账号是第二层�
 - 审计日志能看到登录、项目、下载、artifact 操作；
 - 如测试后台逐小时明细补算，确认 queued job 会出现在欢迎页任务面板，并由 `run-worker-once` 或 `run-worker-loop` 处理完成；
 - `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0`；
+- `GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD=1000`、`GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT=20` 已按内测资源配置确认；
 - 数据目录不是 Git 仓库目录。
 - Render/Docker 构建日志中没有上传本地 `.runtime`、输出文件、历史归档或调试日志。
 - 本地 smoke、Render health check 和 Cloudflare 入口检查都通过后，再发给真实同事。

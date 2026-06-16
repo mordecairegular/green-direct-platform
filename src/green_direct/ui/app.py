@@ -157,6 +157,8 @@ LATEST_SESSION_SNAPSHOT_PATH = RUNTIME_STATE_DIR / "latest_session_snapshot.pkl"
 RUNTIME_SNAPSHOT_ENV = "GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT"
 MAX_UPLOAD_MB_ENV = "GREEN_DIRECT_MAX_UPLOAD_MB"
 MAX_SCENARIOS_PER_RUN_ENV = "GREEN_DIRECT_MAX_SCENARIOS_PER_RUN"
+ECONOMY_CASHFLOW_RETENTION_THRESHOLD_ENV = "GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD"
+ECONOMY_RETAINED_CASHFLOW_LIMIT_ENV = "GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT"
 PILOT_AUTH_ENV = "GREEN_DIRECT_ENABLE_PILOT_AUTH"
 PILOT_STORE_DIR_ENV = "GREEN_DIRECT_PILOT_STORE_DIR"
 PILOT_DEFAULT_STORE_DIR = RUNTIME_STATE_DIR / "pilot_store"
@@ -318,6 +320,8 @@ SIMULATION_WIDGET_STATE_KEYS = [
 ]
 DEFAULT_LARGE_RUN_HOURLY_DETAIL_LIMIT = 20
 DEFAULT_MAX_SCENARIOS_PER_RUN = 20000
+DEFAULT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD = 1000
+DEFAULT_ECONOMY_RETAINED_CASHFLOW_LIMIT = 20
 TECHNICAL_RUNTIME_SECONDS_PER_8760_SUMMARY_SCENARIO = 0.045
 TECHNICAL_RUNTIME_SECONDS_PER_8760_DETAIL_SCENARIO = 0.025
 LARGE_RUN_CONFIRMATION_SIGNATURE_KEY = "_simulation_confirm_large_run_signature"
@@ -4019,6 +4023,116 @@ def _sequential_scenario_ids(limit: int, *, scenario_count: int | None = None) -
     return tuple(f"S{index:04d}" for index in range(1, max(0, capped) + 1))
 
 
+def _int_env_or_default(name: str, default: int) -> int:
+    raw_value = os.getenv(name, "").strip()
+    if not raw_value:
+        return int(default)
+    try:
+        return int(raw_value)
+    except ValueError:
+        return int(default)
+
+
+def _economy_cashflow_retention_threshold() -> int:
+    return max(
+        0,
+        _int_env_or_default(
+            ECONOMY_CASHFLOW_RETENTION_THRESHOLD_ENV,
+            DEFAULT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD,
+        ),
+    )
+
+
+def _economy_retained_cashflow_limit() -> int:
+    return max(
+        0,
+        _int_env_or_default(
+            ECONOMY_RETAINED_CASHFLOW_LIMIT_ENV,
+            DEFAULT_ECONOMY_RETAINED_CASHFLOW_LIMIT,
+        ),
+    )
+
+
+def _scenario_ids_from_summary(summary: pd.DataFrame) -> tuple[str, ...]:
+    if not isinstance(summary, pd.DataFrame) or summary.empty:
+        return ()
+    if "scenario_id" in summary.columns:
+        scenario_ids = tuple(
+            str(value).strip()
+            for value in summary["scenario_id"].dropna().tolist()
+            if str(value).strip()
+        )
+        if scenario_ids:
+            return scenario_ids
+    return _sequential_scenario_ids(len(summary), scenario_count=len(summary))
+
+
+def _economy_cashflow_retention_plan(
+    summary: pd.DataFrame,
+    *,
+    threshold: int | None = None,
+    retained_limit: int | None = None,
+) -> dict[str, object]:
+    scenario_count = len(summary) if isinstance(summary, pd.DataFrame) else 0
+    threshold_value = _economy_cashflow_retention_threshold() if threshold is None else max(0, int(threshold))
+    retained_limit_value = _economy_retained_cashflow_limit() if retained_limit is None else max(0, int(retained_limit))
+
+    if scenario_count <= threshold_value:
+        return {
+            "mode": "full",
+            "retain_annual_cashflows": True,
+            "annual_cashflow_scenario_ids": (),
+            "scenario_count": scenario_count,
+            "threshold": threshold_value,
+            "retained_limit": retained_limit_value,
+            "message": "小规模经济性测算将保留全部方案年度现金流。",
+        }
+
+    retained_ids = _scenario_ids_from_summary(summary)[:retained_limit_value]
+    if retained_ids:
+        message = (
+            f"大批量经济性将计算全部 {scenario_count:,} 个方案的汇总指标和排序，"
+            f"但只常驻前 {len(retained_ids)} 个方案的年度现金流；其他方案后续需要按需补算年度现金流。"
+        )
+    else:
+        message = (
+            f"大批量经济性将计算全部 {scenario_count:,} 个方案的汇总指标和排序，"
+            "但不常驻年度现金流；后续需要按需补算单个方案年度现金流。"
+        )
+    return {
+        "mode": "summary_first",
+        "retain_annual_cashflows": False,
+        "annual_cashflow_scenario_ids": retained_ids,
+        "scenario_count": scenario_count,
+        "threshold": threshold_value,
+        "retained_limit": retained_limit_value,
+        "message": message,
+    }
+
+
+def _economy_cashflow_retention_missing_notice(economy_result: dict | None, selected_id: str) -> str | None:
+    if not isinstance(economy_result, dict):
+        return None
+    retention = economy_result.get("cashflow_retention")
+    if not isinstance(retention, dict) or bool(retention.get("retain_annual_cashflows", True)):
+        return None
+    retained_ids = {str(value) for value in retention.get("annual_cashflow_scenario_ids") or []}
+    if str(selected_id) in retained_ids:
+        return None
+    scenario_count = retention.get("scenario_count")
+    retained_count = len(retained_ids)
+    count_text = f"{int(scenario_count):,} 个" if isinstance(scenario_count, int) else "全量"
+    if retained_count:
+        return (
+            f"当前经济性按大批量 summary-first 模式运行，已计算 {count_text}方案的汇总指标、FIRR/NPV 和推荐排序，"
+            f"但只常驻 {retained_count} 个方案的年度现金流；所选方案 {selected_id} 的年度现金流未常驻。"
+        )
+    return (
+        f"当前经济性按大批量 summary-first 模式运行，已计算 {count_text}方案的汇总指标、FIRR/NPV 和推荐排序，"
+        f"但未常驻年度现金流；所选方案 {selected_id} 的年度现金流未常驻。"
+    )
+
+
 def _technical_detail_retention_plan(
     scenario_count: int | None,
     *,
@@ -5918,6 +6032,10 @@ def _render_economy_v1(
     else:
         st.info("当前未上传项目级下网电价曲线，经济性测算将按固定价/网页组价模式执行。")
 
+    cashflow_retention_plan = _economy_cashflow_retention_plan(summary)
+    if cashflow_retention_plan["mode"] == "summary_first":
+        st.info(str(cashflow_retention_plan["message"]))
+
     run_economy_top_clicked = _render_economy_task_overview(
         st,
         summary,
@@ -6265,7 +6383,15 @@ def _render_economy_v1(
 
     if run_economy_top_clicked or run_economy_form_clicked:
         try:
-            with st.spinner("正在计算电源侧和同一主体经济性年度现金流..."):
+            retained_cashflow_ids = tuple(cashflow_retention_plan.get("annual_cashflow_scenario_ids") or ())
+            cashflow_retention_state = dict(cashflow_retention_plan)
+            cashflow_retention_state["annual_cashflow_scenario_ids"] = list(retained_cashflow_ids)
+            spinner_text = (
+                "正在计算电源侧和同一主体经济性汇总，并按大批量策略保留部分年度现金流..."
+                if cashflow_retention_plan["mode"] == "summary_first"
+                else "正在计算电源侧和同一主体经济性年度现金流..."
+            )
+            with st.spinner(spinner_text):
                 economic_study_result = run_economic_study(
                     summary,
                     economic_params=params,
@@ -6279,6 +6405,8 @@ def _render_economy_v1(
                     dt_hours=dt_hours,
                     fixed_down_grid_landed_price_with_vat=fixed_down_grid_landed_price,
                     fixed_green_self_use_extra_fee_with_vat=fixed_green_self_use_extra_fee,
+                    retain_annual_cashflows=bool(cashflow_retention_plan["retain_annual_cashflows"]),
+                    annual_cashflow_scenario_ids=retained_cashflow_ids,
                 )
             persisted_economy_result = _persist_pilot_economic_result_if_enabled(st, economic_study_result)
             st.session_state["economy_v1_result"] = {
@@ -6288,10 +6416,12 @@ def _render_economy_v1(
                 "price_curve_summary": economic_study_result.price_curve_summary,
                 "price_curve_diagnostics": economic_study_result.price_curve_diagnostics,
                 "landed_price_summary": economic_study_result.landed_price_summary,
+                "cashflow_retention": cashflow_retention_state,
             }
             st.session_state["single_entity_economy_result"] = {
                 "summary": economic_study_result.single_entity_summary,
                 "annual_cashflows": economic_study_result.single_entity_annual_cashflows,
+                "cashflow_retention": cashflow_retention_state,
             }
             st.session_state["recommendation_v1_inputs"] = economic_study_result.recommendation_inputs.to_session_dict()
             st.session_state.pop("recommendation_v1_result", None)
@@ -8501,6 +8631,12 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
                     metadata={"scenario_id": selected_id},
                 ),
             )
+
+        cashflow_missing_notice = _economy_cashflow_retention_missing_notice(economy_result, selected_id)
+        if cashflow_missing_notice and (
+            selected_id not in power_annual_cashflows or selected_id not in single_entity_annual_cashflows
+        ):
+            st.info(f"{cashflow_missing_notice} 当前版本尚未接入年度现金流按需后台补算入口。")
 
         if recommendation_result_for_export is not None:
             try:

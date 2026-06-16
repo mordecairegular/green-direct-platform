@@ -55,6 +55,7 @@
 - Claude Code 上线前 review/debug、UI 提升和后台账户/Job/ResultStore 架构提示词已收敛到 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`。
 - 经济性批量评价已做低风险底层提速：去除 `iterrows()`，缓存年度折现因子，NPV 使用等价 Horner 形式，同一主体批量评价减少重复参数校验；常规单符号变化现金流的 IRR 直接走二分快路径，多符号变化仍走原候选率扫描。
 - 经济性 summary-only 已避免为未保留方案构造完整年度现金流 `DataFrame`；未保留方案仍用同一现金流数组计算 FNPV、FIRR 和回收期，只对报告/推荐/用户指定方案保留完整年度现金流表。
+- Streamlit 03 页已把经济性 summary-only 接到前台：默认超过 1,000 个方案时只常驻前 20 个方案年度现金流，经济性汇总、FIRR/NPV 和推荐排序仍全量计算；06 页会提示未常驻现金流的方案需要后续按需补算。
 - 内部试用后台已新增持久化无关模型骨架：`User`、`Project`、`ProjectMembership`、`ProjectStudy`、`Job`、`JobArtifact`、`StudyResultRecord`、`AuditLog`。
 - 服务层已新增 `LocalResultStore`，支持按项目/研究保存产物、结果索引和审计日志；当前已接入技术/经济/推荐 summary 写入、最小结果索引读取、结果索引软删除和结果标记/置顶，暂未接入数据库或完整历史结果恢复。
 - 服务层已新增 `LocalPilotRegistry`，支持本地 JSON 用户、项目和项目成员角色管理，不包含密码或登录会话。
@@ -83,7 +84,7 @@
 - 大批量模式继续补 worker 级后台进度/取消闭环和性能基准记录；当前前台预计耗时、大任务确认、项目任务状态明细和 job 输入 artifact 引用契约已是第一版粗略护栏，后续可用服务器实测数据校准。
 - 继续补按需逐小时明细后台闭环：当前 UI 已能提交 `queue_job_with_input_artifact()` 后台按需补算任务，`execute_next_worker_job()` / `pilot-admin run-worker-once` / `pilot-admin run-worker-loop` 已能读取 `Job.input_artifact_ids` 执行并写回 hourly artifact；按需明细区域已能轮询任务状态并在成功后加载 artifact。下一步是全局任务通知、worker 级取消和失败重试。
 - 用户选择代表方案、图表方案或导出方案后，已有项目级 hourly artifact 已可优先加载；没有 artifact 时可先排队补算，但正式内测仍需要把任务完成提示、刷新策略和历史结果恢复体验打磨成闭环。
-- 下一阶段把完整历史结果恢复、推荐视角选择与重新排序工作台状态、PNG/Excel/批量包、完整报告导出也提交为项目级后台 `Job`，并把对应 hourly/chart/report/export artifacts 写入 `ResultStore`；summary-only 经济运行如需后补年度现金流，应作为按需 Job 生成。
+- 下一阶段把完整历史结果恢复、推荐视角选择与重新排序工作台状态、PNG/Excel/批量包、完整报告导出也提交为项目级后台 `Job`，并把对应 hourly/chart/report/export artifacts 写入 `ResultStore`；summary-first 经济运行如需后补年度现金流，应作为按需 Job 生成。
 - 技术仿真已完成当前进程内 `ProcessPoolExecutor` 按方案块并行；下一步评估后台任务队列时继续沿用块级调度，保持 `scenario_id`、warning、error 和顺序稳定。
 - 经济性测算继续做 DataFrame/NumPy 批量化和后台 Job 化；完整年度现金流已可先只对报告方案、推荐组合或用户指定方案生成。
 - 本地 JSON 写入已做原子替换；下一步仍需补数据库/跨进程锁/并发冲突策略。

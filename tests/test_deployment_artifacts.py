@@ -17,6 +17,12 @@ def test_docker_compose_defaults_to_internal_pilot_safety():
     assert environment["GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT"] == "0"
     assert environment["GREEN_DIRECT_PILOT_STORE_DIR"] == "/data/pilot_store"
     assert environment["GREEN_DIRECT_MAX_SCENARIOS_PER_RUN"] == "${GREEN_DIRECT_MAX_SCENARIOS_PER_RUN:-20000}"
+    assert environment["GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD"] == (
+        "${GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD:-1000}"
+    )
+    assert environment["GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT"] == (
+        "${GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT:-20}"
+    )
     assert "green_direct_pilot_store:/data/pilot_store" in service["volumes"]
     assert compose["volumes"]["green_direct_pilot_store"]["name"] == "green_direct_pilot_store"
     assert service["ports"] == ["8503:8503"]
@@ -29,6 +35,8 @@ def test_dockerfile_defaults_to_safe_server_mode():
     assert "GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0" in dockerfile
     assert "GREEN_DIRECT_PILOT_STORE_DIR=/data/pilot_store" in dockerfile
     assert "GREEN_DIRECT_MAX_SCENARIOS_PER_RUN=20000" in dockerfile
+    assert "GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD=1000" in dockerfile
+    assert "GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT=20" in dockerfile
     assert "streamlit" in dockerfile
     assert "_stcore/health" in dockerfile
     assert "USER appuser" in dockerfile
