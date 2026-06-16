@@ -261,9 +261,9 @@ PerformanceParams(
 )
 ```
 
-用于批量测算时给出大方案数量提醒、控制技术仿真的可选并行 worker 数，并可配置单次方案数硬上限。`parallel_workers=1` 为默认串行口径；设置为大于 1 时，`run_batch()` 会使用 `ProcessPoolExecutor` 并按方案块提交并行任务，块内仍逐方案调用同一单方案调度，结果聚合仍保持 `scenario_id`、warning、error 和进度回调顺序稳定。`max_scenarios_per_run` 为后端兜底保护；如果候选方案数超过该值，`run_batch()` 会在正式调度前拒绝执行，不改变任何已允许方案的计算口径。
+用于批量测算时给出大方案数量提醒、控制技术仿真的可选并行 worker 数，并可配置单次方案数硬上限。`parallel_workers=1` 为默认串行口径；设置为大于 1 时，`run_batch()` 会使用 `ProcessPoolExecutor` 并按方案块提交并行任务，块内仍逐方案调用同一单方案调度，结果聚合仍保持 `scenario_id`、warning、error 和进度回调顺序稳定。`max_scenarios_per_run` 为后端兜底保护；如果候选方案数超过该值，`run_batch()` 会先通过 count-only 估算路径拒绝执行，再生成完整 `Scenario` 对象列表，不改变任何已允许方案的计算口径。
 
-02 页 UI 还基于 `warn_if_scenarios_exceed` 做大批量保留策略：候选方案数未超过阈值时保留全部逐小时明细；超过阈值时进入汇总优先模式，只常驻方案汇总和前 N 个方案逐小时明细。N 由 02 页“大批量保留明细数”控制，默认 20。多人部署默认从 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN=20000` 读取单次方案数上限；超限时前台禁用“开始测算”，同时服务层传入 `PerformanceParams.max_scenarios_per_run` 做后端兜底。02 页会按方案数、输入小时数、明细保留策略和并行进程数显示粗略预计耗时；当候选方案数超过提醒阈值时，还要求用户勾选大批量同步测算确认后才能开始。未保留明细的方案会走 `run_single_scenario(..., retain_hourly_detail=False)` summary-only 路径：仍逐小时执行同一 dispatch/SOC 逻辑并累计 summary，但不构造完整 `hourly_detail` DataFrame。该策略会影响后续图表/导出可用明细；当前会话内可通过 `run_hourly_detail_for_scenario()` 为选中方案补算明细，不改变任何方案的逐小时调度计算口径。
+02 页 UI 还基于 `warn_if_scenarios_exceed` 做大批量保留策略：候选方案数未超过阈值时保留全部逐小时明细；超过阈值时进入汇总优先模式，只常驻方案汇总和前 N 个方案逐小时明细。N 由 02 页“大批量保留明细数”控制，默认 20。多人部署默认从 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN=20000` 读取单次方案数上限；超限时前台禁用“开始测算”，同时服务层传入 `PerformanceParams.max_scenarios_per_run` 做后端兜底。方案数预估由 `estimate_scenario_count()` 走 count-only 路径，不再为每次 UI 预估完整构造方案对象；真正执行前的 `generate_scenarios()` 会预先计算容量轴和储能组合，减少枚举固定开销。02 页会按方案数、输入小时数、明细保留策略和并行进程数显示粗略预计耗时；当候选方案数超过提醒阈值时，还要求用户勾选大批量同步测算确认后才能开始。未保留明细的方案会走 `run_single_scenario(..., retain_hourly_detail=False)` summary-only 路径：仍逐小时执行同一 dispatch/SOC 逻辑并累计 summary，但不构造完整 `hourly_detail` DataFrame。该策略会影响后续图表/导出可用明细；当前会话内可通过 `run_hourly_detail_for_scenario()` 为选中方案补算明细，不改变任何方案的逐小时调度计算口径。
 
 ## 8. 方案模型接口
 

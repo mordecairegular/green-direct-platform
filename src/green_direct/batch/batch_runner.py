@@ -8,7 +8,7 @@ from typing import Callable, Iterable, Sequence, TypeVar
 
 import pandas as pd
 
-from green_direct.batch.scenario_generator import generate_scenarios
+from green_direct.batch.scenario_generator import count_scenarios, generate_scenarios
 from green_direct.core.single_scenario_simulator import run_single_scenario
 from green_direct.models.params import BessParams, PerformanceParams, PolicyParams
 from green_direct.models.results import ScenarioResult
@@ -44,7 +44,7 @@ _WORKER_RETAINED_HOURLY_IDS: set[str] = set()
 
 
 def estimate_scenario_count(raw_grid: dict) -> int:
-    return len(generate_scenarios(raw_grid))
+    return count_scenarios(raw_grid)
 
 
 def _error_record(scenario: Scenario, exc: Exception) -> _ScenarioRunRecord:
@@ -188,14 +188,15 @@ def run_batch(
     hourly_detail_scenario_ids: Iterable[str] | None = None,
     progress_callback: Callable[[int, int, Scenario], None] | None = None,
 ) -> BatchResult:
-    scenarios = generate_scenarios(scenario_grid)
     performance = performance_params or PerformanceParams()
+    estimated_scenario_count = estimate_scenario_count(scenario_grid)
     max_scenarios = performance.max_scenarios_per_run
-    if max_scenarios is not None and int(max_scenarios) > 0 and len(scenarios) > int(max_scenarios):
+    if max_scenarios is not None and int(max_scenarios) > 0 and estimated_scenario_count > int(max_scenarios):
         raise ValueError(
-            f"本次配置将生成 {len(scenarios)} 个方案，超过单次测算上限 {int(max_scenarios)} 个。"
+            f"本次配置将生成 {estimated_scenario_count} 个方案，超过单次测算上限 {int(max_scenarios)} 个。"
             "请增大步长、缩小容量范围或改用指定单方案。"
         )
+    scenarios = generate_scenarios(scenario_grid)
     parallel_workers = max(1, int(performance.parallel_workers or 1))
     retained_hourly_ids = {str(scenario_id) for scenario_id in hourly_detail_scenario_ids or []}
     warnings: list[str] = []

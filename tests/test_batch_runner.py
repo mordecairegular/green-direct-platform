@@ -35,6 +35,33 @@ def test_generate_scenarios_from_grid():
     assert scenarios[-1].bess_energy == 4
 
 
+def test_estimate_scenario_count_uses_count_only_path(monkeypatch):
+    grid = {
+        "pv_capacity": {"start": 0, "end": 1, "step": 1},
+        "wind_capacity": {"start": 0, "end": 1, "step": 1},
+        "bess_power": {"start": 0, "end": 1, "step": 1},
+        "bess_duration_hours": [0, 2],
+    }
+
+    def fail_generate_scenarios(raw_grid):
+        raise AssertionError("estimate_scenario_count should not materialise scenarios")
+
+    monkeypatch.setattr(batch_runner, "generate_scenarios", fail_generate_scenarios)
+
+    assert batch_runner.estimate_scenario_count(grid) == 6
+
+
+def test_estimate_scenario_count_matches_generated_scenarios():
+    grid = {
+        "pv_capacity": {"start": 0, "end": 2, "step": 1},
+        "wind_capacity": {"start": 0, "end": 1, "step": 1},
+        "bess_power": {"start": 0, "end": 2, "step": 1},
+        "bess_duration_hours": [0, 1.5, 2],
+    }
+
+    assert batch_runner.estimate_scenario_count(grid) == len(generate_scenarios(grid))
+
+
 def test_batch_runner_collects_summary_and_hourly_details():
     grid = {
         "pv_capacity": {"start": 0, "end": 1, "step": 1},
@@ -152,6 +179,27 @@ def test_batch_runner_rejects_scenario_count_above_hard_limit():
         "bess_power": {"start": 0, "end": 1, "step": 1},
         "bess_duration_hours": [0, 2],
     }
+
+    try:
+        run_batch(_curves(), grid, performance_params=PerformanceParams(max_scenarios_per_run=5))
+    except ValueError as exc:
+        assert "超过单次测算上限" in str(exc)
+    else:
+        raise AssertionError("Expected run_batch to reject a scenario pool above the hard limit.")
+
+
+def test_batch_runner_rejects_above_hard_limit_before_materialising_scenarios(monkeypatch):
+    grid = {
+        "pv_capacity": {"start": 0, "end": 1, "step": 1},
+        "wind_capacity": {"start": 0, "end": 1, "step": 1},
+        "bess_power": {"start": 0, "end": 1, "step": 1},
+        "bess_duration_hours": [0, 2],
+    }
+
+    def fail_generate_scenarios(raw_grid):
+        raise AssertionError("run_batch should reject oversized pools before generating scenarios")
+
+    monkeypatch.setattr(batch_runner, "generate_scenarios", fail_generate_scenarios)
 
     try:
         run_batch(_curves(), grid, performance_params=PerformanceParams(max_scenarios_per_run=5))

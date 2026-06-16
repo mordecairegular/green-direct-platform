@@ -5354,3 +5354,31 @@ profile / benchmark：
 - `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
 - `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 通过，`failed_count=0`，包含 `smoke:streamlit`；
 - `git diff --check` 通过，仅有 Windows 换行转换提示。
+
+### 2026-06-17 方案数预估 count-only 与枚举固定开销优化
+
+本轮继续处理“成千上万个方案等待很久”的前置性能问题。此前 UI 和 `run_batch()` 已有方案数提醒、硬上限和 summary-first，但 `estimate_scenario_count()` 仍通过 `generate_scenarios()` 完整构造 `Scenario` 列表来计数；当容量范围设置过大时，即使最终要被硬上限拒绝，也会先花时间和内存物化方案对象。`generate_scenarios()` 自身还在嵌套循环中重复计算风电容量轴、储能功率轴和储能时长过滤组合。
+
+实现：
+- `scenario_generator.py` 新增 `count_scenarios()`，按容量轴和合法储能功率/时长组合做 count-only 计数，不构造 `Scenario` 对象；
+- `estimate_scenario_count()` 改为调用 `count_scenarios()`，用于 UI 方案数预估；
+- `run_batch()` 先用 count-only 结果检查 `PerformanceParams.max_scenarios_per_run`，超限时直接拒绝，不再先生成完整方案池；
+- `generate_scenarios()` 预先计算光伏容量轴、风电容量轴和合法储能功率/时长组合，保持原 `scenario_id` 顺序和过滤规则不变；
+- 新增测试覆盖 count-only 路径、计数与真实生成数量一致，以及超限拒绝发生在方案池物化之前。
+
+边界：
+- 不改变 V0.1 技术调度、经济性 V1 或推荐排序口径；
+- 不改变方案枚举顺序、`scenario_id` 命名或“光伏/风电不能同时为 0、储能功率与时长组合过滤”的规则；
+- 这只是启动前枚举/限流开销优化，不替代逐小时 dispatch 提速、后台 Job、worker 级取消或正式队列。
+
+小基准：
+- 25,596 个候选方案样本，优化前 `estimate_scenario_count()` 约 0.0407s，优化后约 0.0004s；
+- 同一样本，`generate_scenarios()` 约从 0.0410s 降到 0.0253s。
+
+验证：
+- `python -m pytest tests\test_batch_runner.py -q` 通过，14 项通过；
+- `python -m compileall -q src\green_direct\batch\scenario_generator.py src\green_direct\batch\batch_runner.py tests\test_batch_runner.py` 通过；
+- `python -m pytest tests\test_batch_runner.py tests\test_study_runner.py tests\test_performance_benchmark_script.py tests\test_ui_import.py::test_simulation_page_exposes_parallel_worker_control tests\test_ui_import.py::test_large_run_detail_retention_plan_switches_to_summary_first tests\test_ui_import.py::test_scenario_count_limit_notice_blocks_oversized_pool -q` 通过，30 项通过；
+- `python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 4 --wind-count 4 --bess-power-count 2 --durations 0,2 --skip-full-retention --json` 通过，30 个方案，技术 summary-first 0.5316s，经济性 summary-only 0.0938s；
+- `python -m pytest -q` 通过，376 项通过；
+- `git diff --check` 通过，仅有 Windows 换行转换提示。

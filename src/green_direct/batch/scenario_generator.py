@@ -54,31 +54,58 @@ def parse_scenario_grid(raw: dict | ScenarioGrid) -> ScenarioGrid:
     )
 
 
+def _bess_power_duration_pairs(grid: ScenarioGrid) -> list[tuple[float, float]]:
+    pairs: list[tuple[float, float]] = []
+    durations = list(grid.bess_duration_hours)
+    for duration in durations:
+        if duration < 0:
+            raise ValueError("储能时长不能小于 0。")
+    for bess_power in values_from_range(grid.bess_power):
+        for duration in durations:
+            if bess_power == 0 and duration > 0:
+                continue
+            if bess_power > 0 and duration == 0:
+                continue
+            pairs.append((bess_power, duration))
+    return pairs
+
+
+def count_scenarios(raw_grid: dict | ScenarioGrid) -> int:
+    """Count candidate scenarios without materialising Scenario objects."""
+
+    grid = parse_scenario_grid(raw_grid)
+    pv_values = values_from_range(grid.pv_capacity)
+    wind_values = values_from_range(grid.wind_capacity)
+    renewable_pair_count = sum(
+        1
+        for pv_capacity in pv_values
+        for wind_capacity in wind_values
+        if pv_capacity > 0 or wind_capacity > 0
+    )
+    return renewable_pair_count * len(_bess_power_duration_pairs(grid))
+
+
 def generate_scenarios(raw_grid: dict | ScenarioGrid, *, scenario_prefix: str = "S") -> list[Scenario]:
     grid = parse_scenario_grid(raw_grid)
+    pv_values = values_from_range(grid.pv_capacity)
+    wind_values = values_from_range(grid.wind_capacity)
+    bess_pairs = _bess_power_duration_pairs(grid)
     scenarios: list[Scenario] = []
     index = 1
-    for pv_capacity in values_from_range(grid.pv_capacity):
-        for wind_capacity in values_from_range(grid.wind_capacity):
+    for pv_capacity in pv_values:
+        for wind_capacity in wind_values:
             if pv_capacity <= 0 and wind_capacity <= 0:
                 continue
-            for bess_power in values_from_range(grid.bess_power):
-                for duration in grid.bess_duration_hours:
-                    if duration < 0:
-                        raise ValueError("储能时长不能小于 0。")
-                    if bess_power == 0 and duration > 0:
-                        continue
-                    if bess_power > 0 and duration == 0:
-                        continue
-                    bess_energy = bess_power * duration
-                    scenarios.append(
-                        Scenario(
-                            scenario_id=f"{scenario_prefix}{index:04d}",
-                            pv_capacity=pv_capacity,
-                            wind_capacity=wind_capacity,
-                            bess_power=bess_power,
-                            bess_energy=bess_energy,
-                        )
+            for bess_power, duration in bess_pairs:
+                bess_energy = bess_power * duration
+                scenarios.append(
+                    Scenario(
+                        scenario_id=f"{scenario_prefix}{index:04d}",
+                        pv_capacity=pv_capacity,
+                        wind_capacity=wind_capacity,
+                        bess_power=bess_power,
+                        bess_energy=bess_energy,
                     )
-                    index += 1
+                )
+                index += 1
     return scenarios
