@@ -1068,6 +1068,8 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 
 `src/green_direct/services/pilot_store_doctor.py` 提供 `run_pilot_store_doctor()`，用于服务器部署、Render persistent disk 挂载和备份恢复后的运行时自检。该检查不读取明文密码或 token，不要求平台管理员存在；它只验证本地存储目录和元数据文件的基本可用性，不能替代正式数据库健康检查、备份校验或监控告警。
 
+`scripts/preflight_internal_pilot_deploy.py` 可用 `--pilot-store-dir <dir>` 把上述 doctor 检查合入部署 preflight。该参数默认不启用，避免 CI 静态检查或推送前检查擅自创建运行时 store；自有 VM、本地服务器或源码树部署时可显式传入真实 `GREEN_DIRECT_PILOT_STORE_DIR`。
+
 `src/green_direct/ui/app.py` 已接入可选内部试用登录门禁：
 
 - 默认不启用，保持本地开发和现有桌面启动体验；

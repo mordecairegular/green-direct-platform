@@ -80,12 +80,13 @@
 - `docs/PERFORMANCE_OPTIMIZATION_PLAN.md`：记录方案遍历、summary-first、并行、经济性批量化和后台 Job 的性能路线；
 - `README_DEPLOY.md` 和 `SECURITY.md`：记录 Docker/compose 内测部署、安全边界、反向代理、备份恢复和已知限制；
 - `scripts/benchmark_internal_pilot_performance.py`：用于记录技术仿真和经济性测算的可重复 benchmark。
-- `scripts/preflight_internal_pilot_deploy.py`：用于推送 GitHub/Render 前检查部署文件、安全默认值、Render 持久盘配置、`.dockerignore`、可选 Streamlit smoke，以及可选 `--require-git-sync` 确认本地分支已推到 upstream。
+- `scripts/preflight_internal_pilot_deploy.py`：用于推送 GitHub/Render 前检查部署文件、安全默认值、Render 持久盘配置、`.dockerignore`、可选 Streamlit smoke，可选 `--pilot-store-dir` 运行 store doctor，以及可选 `--require-git-sync` 确认本地分支已推到 upstream。
 - `scripts/smoke_streamlit_app.py`：用于推送 GitHub/Render 前做本地服务器口径冒烟检查，默认启用 pilot auth、关闭 runtime snapshot、使用临时 pilot store 并检查 `/_stcore/health`。
 - `.github/workflows/internal-pilot-quality.yml`：GitHub 推送/PR 质量门，自动运行 compile、部署 preflight 和全量 pytest；手动触发并勾选 `run_smoke` 时会额外启动 Streamlit 做健康检查。
 
 2026-06-16 当前部署前事实状态：
 - `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 已通过，`failed_count=0`，包含 `smoke:streamlit`；
+- `python scripts\preflight_internal_pilot_deploy.py --pilot-store-dir .runtime\preflight_doctor_smoke --json` 已通过，`failed_count=0`，包含 `pilot-store:*` 检查；
 - `python scripts\preflight_internal_pilot_deploy.py --json` 已通过，`failed_count=0`；
 - `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 按预期失败，唯一失败项是 `git:sync`：本地 `codex/UI` 跟踪 `origin/codex/UI`，仍领先 upstream；部署前应重新运行该命令获取实时 ahead/behind；
 - 当前 `origin` 为 `https://github.com/mordecairegular/green-direct-platform.git`；

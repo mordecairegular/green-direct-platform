@@ -19,6 +19,11 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from green_direct.services import run_pilot_store_doctor  # noqa: E402
 
 
 REQUIRED_FILES = (
@@ -178,6 +183,19 @@ def _run_smoke(timeout_seconds: int, checks: list[dict[str, str]]) -> None:
     _check(ok, checks, "smoke:streamlit", message)
 
 
+def _pilot_store_doctor_checks(store_dir: str, checks: list[dict[str, str]]) -> None:
+    result = run_pilot_store_doctor(store_dir)
+    _record(
+        checks,
+        "pilot-store:doctor",
+        result.status,
+        f"pilot store doctor {result.status}: {result.store_dir}",
+    )
+    for check in result.checks:
+        name = check.name.removeprefix("store:")
+        _record(checks, f"pilot-store:{name}", check.status, check.message)
+
+
 def _git_output(args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True)
 
@@ -233,6 +251,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fail if the working tree is dirty or the current branch is not synchronized with its upstream.",
     )
     parser.add_argument("--smoke-timeout-seconds", type=int, default=80)
+    parser.add_argument(
+        "--pilot-store-dir",
+        help="Run pilot store doctor checks against this directory. Omit to skip runtime store checks.",
+    )
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     return parser
 
@@ -247,6 +269,8 @@ def main(argv: list[str] | None = None) -> int:
     _render_checks(checks)
     if args.require_git_sync:
         _git_sync_checks(checks)
+    if args.pilot_store_dir:
+        _pilot_store_doctor_checks(args.pilot_store_dir, checks)
     if args.run_smoke:
         _run_smoke(args.smoke_timeout_seconds, checks)
 

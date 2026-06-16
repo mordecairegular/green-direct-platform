@@ -105,6 +105,14 @@ python scripts\preflight_internal_pilot_deploy.py --run-smoke
 
 preflight 会检查部署文件、GitHub Actions 质量门、Docker/Render 安全默认值、`.dockerignore`、持久盘路径和可选 Streamlit smoke。
 
+如果是在本地服务器或自有 VM 上已经准备好真实试用 store，也可以把 store doctor 纳入同一条 preflight：
+
+```powershell
+python scripts\preflight_internal_pilot_deploy.py --pilot-store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR --run-smoke
+```
+
+注意：Docker/Render 运行镜像不包含 `scripts/`，托管平台 Shell 中请使用 `python -m green_direct.cli pilot-admin doctor --store-dir /data/pilot_store --json`。
+
 推送到 GitHub 后、在 Render 部署前，可再运行：
 
 ```powershell

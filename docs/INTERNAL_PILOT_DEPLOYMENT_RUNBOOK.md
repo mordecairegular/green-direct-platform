@@ -61,9 +61,12 @@ python -m green_direct.cli pilot-admin --help
 python -m green_direct.cli pilot-admin doctor `
     --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
     --json
+python scripts\preflight_internal_pilot_deploy.py `
+    --pilot-store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --json
 ```
 
-如果服务器只跑试用服务，仍建议保留上述测试作为上线前 gate。`pilot-admin doctor` 不要求已有平台管理员，会检查 pilot store 目录可用、JSON 原子写入/读取、payload 写入、协作文件锁、既有 JSON metadata 和审计 JSONL；在 Render persistent disk 挂载后、首个管理员 bootstrap 前、备份恢复后都应先跑一次。返回 `status=fail` 时先修复目录、权限或损坏文件，不要继续创建账号或启动 worker。
+如果服务器只跑试用服务，仍建议保留上述测试作为上线前 gate。`pilot-admin doctor` 不要求已有平台管理员，会检查 pilot store 目录可用、JSON 原子写入/读取、payload 写入、协作文件锁、既有 JSON metadata 和审计 JSONL；在 Render persistent disk 挂载后、首个管理员 bootstrap 前、备份恢复后都应先跑一次。源码树或自有 VM 可用 `preflight_internal_pilot_deploy.py --pilot-store-dir` 把该检查合入部署 preflight；Docker/Render 运行镜像不包含 `scripts/` 时，使用 CLI doctor。返回 `status=fail` 时先修复目录、权限或损坏文件，不要继续创建账号或启动 worker。
 
 ## 5. 首个管理员
 

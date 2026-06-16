@@ -103,6 +103,56 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     assert "dockerfile:PORT=8503" in check_names
 
 
+def test_internal_pilot_preflight_can_run_pilot_store_doctor(tmp_path):
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "preflight_internal_pilot_deploy.py"),
+            "--pilot-store-dir",
+            str(tmp_path),
+            "--json",
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = yaml.safe_load(completed.stdout)
+    assert payload["status"] == "pass"
+    check_names = {check["name"] for check in payload["checks"]}
+    assert "pilot-store:doctor" in check_names
+    assert "pilot-store:lock" in check_names
+    assert "pilot-store:json_metadata" in check_names
+
+
+def test_internal_pilot_preflight_fails_on_corrupt_pilot_store_metadata(tmp_path):
+    bad_path = tmp_path / "auth" / "credentials" / "broken.json"
+    bad_path.parent.mkdir(parents=True)
+    bad_path.write_text("{not json", encoding="utf-8")
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "preflight_internal_pilot_deploy.py"),
+            "--pilot-store-dir",
+            str(tmp_path),
+            "--json",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = yaml.safe_load(completed.stdout)
+    assert completed.returncode == 1
+    assert payload["status"] == "fail"
+    assert any(
+        check["name"] == "pilot-store:json_metadata" and check["status"] == "fail"
+        for check in payload["checks"]
+    )
+
+
 def test_internal_pilot_preflight_exposes_git_sync_check():
     completed = subprocess.run(
         [
@@ -117,3 +167,4 @@ def test_internal_pilot_preflight_exposes_git_sync_check():
     )
 
     assert "--require-git-sync" in completed.stdout
+    assert "--pilot-store-dir" in completed.stdout

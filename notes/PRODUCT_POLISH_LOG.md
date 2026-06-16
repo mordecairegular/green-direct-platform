@@ -5100,6 +5100,33 @@ benchmark：
 - `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
 - `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 通过，`failed_count=0`，包含 `smoke:streamlit`。
 
+### 2026-06-17 preflight 接入 pilot store doctor
+
+上一小节新增了 `pilot-admin doctor`，但部署 preflight 仍只检查静态文件、Docker/Render 默认值、Git 同步和可选 Streamlit smoke。对自有 VM 或源码树部署来说，最好能一条 preflight 同时检查真实 `GREEN_DIRECT_PILOT_STORE_DIR`；对 CI 和普通推送前检查，则不应默认创建运行时目录。
+
+实现：
+- `scripts/preflight_internal_pilot_deploy.py` 新增可选 `--pilot-store-dir <dir>`；
+- 传入该参数时，preflight 复用 `run_pilot_store_doctor()`，并输出 `pilot-store:doctor`、`pilot-store:directory`、`pilot-store:json_roundtrip`、`pilot-store:payload_write`、`pilot-store:lock`、`pilot-store:json_metadata` 和 `pilot-store:audit_jsonl` 检查项；
+- 任一 store doctor 检查失败时，preflight 总状态为 fail，退出码为 1；
+- 默认不启用该参数，避免 CI 静态检查或普通推送前检查擅自创建 store；
+- README、runbook、托管部署路线、软件接口总览、受控公网审计矩阵、TODO、handoff 和 Claude Code 提示词已同步。
+
+边界：
+- Docker/Render 运行镜像当前不包含 `scripts/`；托管平台 Shell 中仍应使用 `python -m green_direct.cli pilot-admin doctor --store-dir /data/pilot_store --json`；
+- `--pilot-store-dir` 适合源码树、本地服务器、自有 VM 或部署前实机检查；
+- 这不改变技术仿真、经济性、推荐或 UI 行为。
+
+验证：
+- `python -m pytest tests\test_deployment_artifacts.py::test_internal_pilot_preflight_can_run_pilot_store_doctor tests\test_deployment_artifacts.py::test_internal_pilot_preflight_fails_on_corrupt_pilot_store_metadata tests\test_deployment_artifacts.py::test_internal_pilot_preflight_exposes_git_sync_check -q` 通过，3 项通过；
+- `python -m compileall -q scripts\preflight_internal_pilot_deploy.py tests\test_deployment_artifacts.py` 通过；
+- `python scripts\preflight_internal_pilot_deploy.py --help` 通过，显示 `--pilot-store-dir`；
+- `python scripts\preflight_internal_pilot_deploy.py --pilot-store-dir .runtime\preflight_doctor_smoke --json` 通过，`failed_count=0`，包含 `pilot-store:*` 检查；
+- `python -m pytest tests\test_deployment_artifacts.py tests\test_pilot_store_doctor.py -q` 通过，12 项通过；
+- `python -m pytest -q` 通过，373 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 通过，`failed_count=0`，包含 `smoke:streamlit`；
+- `git diff --check` 通过，仅有 Windows 换行转换提示。
+
 ### 2026-06-16 经济性 summary-only 跳过年度 row 构造
 
 本轮继续推进“成千上万个方案下经济性测算等待时间”的性能路线。上一轮已经让未保留年度现金流的方案不再构造完整 `DataFrame`，但 evaluator 内部仍会为 Year 0-Year N 构造完整年度 row dict，然后只从里面取 `year` 和 `net_cash_flow` 计算 summary 指标。
