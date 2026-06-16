@@ -3,8 +3,9 @@ import pandas as pd
 import green_direct.batch.batch_runner as batch_runner
 import green_direct.batch.scenario_generator as scenario_generator
 from green_direct.batch.batch_runner import run_batch
-from green_direct.batch.scenario_generator import RangeSpec, ScenarioGrid, generate_scenarios
+from green_direct.batch.scenario_generator import RangeSpec, ScenarioGrid, generate_scenarios, iter_scenarios
 from green_direct.models.params import PerformanceParams, PolicyParams
+from green_direct.models.scenario import Scenario
 
 
 def _curves():
@@ -36,6 +37,20 @@ def test_generate_scenarios_from_grid():
     assert scenarios[-1].bess_energy == 4
 
 
+def test_iter_scenarios_matches_generated_order():
+    grid = {
+        "pv_capacity": {"start": 0, "end": 2, "step": 1},
+        "wind_capacity": {"start": 0, "end": 1, "step": 1},
+        "bess_power": {"start": 0, "end": 1, "step": 1},
+        "bess_duration_hours": [0, 2],
+    }
+
+    generated = generate_scenarios(grid)
+    streamed = list(iter_scenarios(grid))
+
+    assert streamed == generated
+
+
 def test_estimate_scenario_count_uses_count_only_path(monkeypatch):
     grid = {
         "pv_capacity": {"start": 0, "end": 1, "step": 1},
@@ -44,10 +59,10 @@ def test_estimate_scenario_count_uses_count_only_path(monkeypatch):
         "bess_duration_hours": [0, 2],
     }
 
-    def fail_generate_scenarios(raw_grid):
+    def fail_iter_scenarios(raw_grid):
         raise AssertionError("estimate_scenario_count should not materialise scenarios")
 
-    monkeypatch.setattr(batch_runner, "generate_scenarios", fail_generate_scenarios)
+    monkeypatch.setattr(batch_runner, "iter_scenarios", fail_iter_scenarios)
 
     assert batch_runner.estimate_scenario_count(grid) == 6
 
@@ -225,10 +240,10 @@ def test_batch_runner_rejects_above_hard_limit_before_materialising_scenarios(mo
         "bess_duration_hours": [0, 2],
     }
 
-    def fail_generate_scenarios(raw_grid):
+    def fail_iter_scenarios(raw_grid):
         raise AssertionError("run_batch should reject oversized pools before generating scenarios")
 
-    monkeypatch.setattr(batch_runner, "generate_scenarios", fail_generate_scenarios)
+    monkeypatch.setattr(batch_runner, "iter_scenarios", fail_iter_scenarios)
 
     try:
         run_batch(_curves(), grid, performance_params=PerformanceParams(max_scenarios_per_run=5))
@@ -236,6 +251,36 @@ def test_batch_runner_rejects_above_hard_limit_before_materialising_scenarios(mo
         assert "超过单次测算上限" in str(exc)
     else:
         raise AssertionError("Expected run_batch to reject a scenario pool above the hard limit.")
+
+
+def test_batch_runner_accepts_streamed_scenario_iterator(monkeypatch):
+    grid = {
+        "pv_capacity": {"start": 0, "end": 99, "step": 1},
+        "wind_capacity": {"start": 0, "end": 99, "step": 1},
+        "bess_power": {"start": 0, "end": 0, "step": 1},
+        "bess_duration_hours": [0],
+    }
+
+    def streamed_scenarios(raw_grid):
+        assert raw_grid is grid
+        yield Scenario("S0001", pv_capacity=1.0, wind_capacity=0.0, bess_power=0.0, bess_energy=0.0)
+        yield Scenario("S0002", pv_capacity=0.0, wind_capacity=1.0, bess_power=0.0, bess_energy=0.0)
+
+    monkeypatch.setattr(batch_runner, "estimate_scenario_count", lambda raw_grid: 2)
+    monkeypatch.setattr(batch_runner, "iter_scenarios", streamed_scenarios)
+
+    progress: list[tuple[int, int, str]] = []
+    result = run_batch(
+        _curves(),
+        grid,
+        policy_params=PolicyParams(allow_export=False),
+        retain_hourly_details=False,
+        progress_callback=lambda done, total, scenario: progress.append((done, total, scenario.scenario_id)),
+    )
+
+    assert result.scenario_count == 2
+    assert set(result.summary["scenario_id"]) == {"S0001", "S0002"}
+    assert progress == [(1, 2, "S0001"), (2, 2, "S0002")]
 
 
 def test_batch_runner_reports_progress():

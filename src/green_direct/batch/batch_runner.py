@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
-from typing import Callable, Iterable, Sequence, TypeVar
+from typing import Callable, Iterable, TypeVar
 
 import pandas as pd
 
-from green_direct.batch.scenario_generator import count_scenarios, generate_scenarios
+from green_direct.batch.scenario_generator import count_scenarios, iter_scenarios
 from green_direct.core.single_scenario_simulator import PreparedCurveData, prepare_curve_data, run_single_scenario
 from green_direct.models.params import BessParams, PerformanceParams, PolicyParams
 from green_direct.models.results import ScenarioResult
@@ -139,10 +139,16 @@ def _parallel_chunk_size(scenario_count: int, parallel_workers: int) -> int:
     return min(32, max(1, (scenario_count + worker_count * 8 - 1) // (worker_count * 8)))
 
 
-def _scenario_chunks(items: Sequence[_T], chunk_size: int) -> Iterable[list[_T]]:
+def _scenario_chunks(items: Iterable[_T], chunk_size: int) -> Iterable[list[_T]]:
     safe_chunk_size = max(1, int(chunk_size))
-    for start in range(0, len(items), safe_chunk_size):
-        yield list(items[start : start + safe_chunk_size])
+    chunk: list[_T] = []
+    for item in items:
+        chunk.append(item)
+        if len(chunk) >= safe_chunk_size:
+            yield chunk
+            chunk = []
+    if chunk:
+        yield chunk
 
 
 def _scenario_chunk_records_from_worker(scenarios: list[Scenario]) -> list[_ScenarioRunRecord]:
@@ -151,8 +157,9 @@ def _scenario_chunk_records_from_worker(scenarios: list[Scenario]) -> list[_Scen
 
 def _scenario_records(
     curves: pd.DataFrame,
-    scenarios: list[Scenario],
+    scenarios: Iterable[Scenario],
     *,
+    scenario_count: int,
     bess_params: BessParams | None,
     policy_params: PolicyParams | None,
     dt_hours: float,
@@ -161,7 +168,7 @@ def _scenario_records(
     retained_hourly_ids: set[str],
 ) -> Iterable[_ScenarioRunRecord]:
     prepared_curves = prepare_curve_data(curves)
-    if parallel_workers <= 1 or len(scenarios) <= 1:
+    if parallel_workers <= 1 or scenario_count <= 1:
         for scenario in scenarios:
             yield _scenario_run_record(
                 curves,
@@ -188,7 +195,7 @@ def _scenario_records(
             retained_hourly_ids,
         ),
     ) as executor:
-        chunks = _scenario_chunks(scenarios, _parallel_chunk_size(len(scenarios), parallel_workers))
+        chunks = _scenario_chunks(scenarios, _parallel_chunk_size(scenario_count, parallel_workers))
         for records in executor.map(_scenario_chunk_records_from_worker, chunks):
             yield from records
 
@@ -213,13 +220,12 @@ def run_batch(
             f"本次配置将生成 {estimated_scenario_count} 个方案，超过单次测算上限 {int(max_scenarios)} 个。"
             "请增大步长、缩小容量范围或改用指定单方案。"
         )
-    scenarios = generate_scenarios(scenario_grid)
     parallel_workers = max(1, int(performance.parallel_workers or 1))
     retained_hourly_ids = {str(scenario_id) for scenario_id in hourly_detail_scenario_ids or []}
     warnings: list[str] = []
-    if len(scenarios) > performance.warn_if_scenarios_exceed:
+    if estimated_scenario_count > performance.warn_if_scenarios_exceed:
         warnings.append(
-            f"本次配置将生成 {len(scenarios)} 个方案，可能计算较慢，建议增大步长或缩小范围。"
+            f"本次配置将生成 {estimated_scenario_count} 个方案，可能计算较慢，建议增大步长或缩小范围。"
         )
     if not retain_hourly_details and not retained_hourly_ids:
         warnings.append("本次批量测算仅保留方案汇总，未常驻保存逐小时明细；如需制图或导出，请对代表方案按需生成明细。")
@@ -232,11 +238,13 @@ def run_batch(
     summaries: list[dict] = []
     hourly_details: dict[str, pd.DataFrame] = {}
     errors: list[dict] = []
-    total = len(scenarios)
+    total = estimated_scenario_count
+    scenarios = iter_scenarios(scenario_grid)
     for index, record in enumerate(
         _scenario_records(
             curves,
             scenarios,
+            scenario_count=estimated_scenario_count,
             bess_params=bess_params,
             policy_params=policy_params,
             dt_hours=dt_hours,
@@ -286,5 +294,5 @@ def run_batch(
         hourly_details=hourly_details,
         errors=pd.DataFrame(errors),
         warnings=warnings,
-        scenario_count=len(scenarios),
+        scenario_count=estimated_scenario_count,
     )

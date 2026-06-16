@@ -25,6 +25,7 @@
 - `PerformanceParams.max_scenarios_per_run` 与 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN` 已提供单次方案数硬上限；02 页会在超限时提示并禁用开始测算，`run_batch()` 后端也会拒绝执行；
 - `estimate_scenario_count()` 已改为轴计数路径，不再为方案数预估构造完整 `Scenario` 列表，也不展开光伏容量轴 × 风电容量轴；`run_batch()` 会先用该路径做硬上限判断，再生成可执行方案池；
 - `generate_scenarios()` 已把容量轴和储能功率/时长组合移到嵌套循环外预计算，减少大方案池枚举前的固定开销；
+- `run_batch()` 已改为通过 `iter_scenarios()` 流式消费方案池，串行和并行路径都不再先物化完整 `Scenario` list；并行进程池按 chunk 从 iterator 拉取方案，仍保持 `scenario_id`、progress total 和结果顺序稳定；
 - 02 页已新增计算前工作量提示：按方案数、小时数、明细保留策略和并行进程数给出粗略耗时区间；超过方案数提醒阈值时必须勾选大批量同步测算确认，才允许点击“开始测算”；
 - 推荐页、图表页和导出页已支持当前会话内对单方案按需补算逐小时明细；
 - `run_economic_study(..., retain_annual_cashflows=False, annual_cashflow_scenario_ids=...)` 已支持只常驻经济性 summary 或指定方案年度现金流；未保留年度现金流的方案已不再构造完整年度现金流 `DataFrame`，也不再构造逐年现金流表 row dict，只保留计算 summary 指标所需的现金流数组；
@@ -85,6 +86,7 @@ python scripts\benchmark_internal_pilot_performance.py --json
 - 增加大任务确认和预计耗时提示；（已完成第一版：粗略耗时区间 + 大批量确认）
 - 增加单次方案数上限的环境变量或后台配置；（已完成第一版：`GREEN_DIRECT_MAX_SCENARIOS_PER_RUN`）
 - 方案数预估和硬上限判断避免先物化完整方案池；（已完成第二版：轴计数估算 + 超限前置拒绝）
+- 批量执行阶段避免先物化完整方案池；（已完成第三版：`iter_scenarios()` + 流式 chunk）
 - 记录 benchmark 样本：方案数、小时数、是否保留明细、并行 worker、耗时、内存。
 - 若目标服务器 CPU/RAM 允许，可通过 `GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS` 调高 UI 默认并行进程数，但必须保留用户手动覆盖入口。
 

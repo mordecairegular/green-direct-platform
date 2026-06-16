@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import gc
+from itertools import islice
 import json
 import math
 from pathlib import Path
@@ -26,7 +27,7 @@ if str(SRC) not in sys.path:
 import pandas as pd
 
 from green_direct.batch.batch_runner import BatchResult, run_batch
-from green_direct.batch.scenario_generator import generate_scenarios
+from green_direct.batch.scenario_generator import count_scenarios, iter_scenarios
 from green_direct.economy import AvoidedGridPurchaseParams, EconomicParams
 from green_direct.models.params import PerformanceParams
 from green_direct.services.study_runner import EconomicStudyResult, run_economic_study
@@ -175,8 +176,10 @@ def main(argv: list[str] | None = None) -> int:
         bess_power_count=args.bess_power_count,
         durations=args.durations,
     )
-    scenarios = generate_scenarios(grid)
-    retained_ids = tuple(scenario.scenario_id for scenario in scenarios[: args.retain_detail_count])
+    scenario_count = count_scenarios(grid)
+    retained_ids = tuple(
+        scenario.scenario_id for scenario in islice(iter_scenarios(grid), args.retain_detail_count)
+    )
     performance = PerformanceParams(
         warn_if_scenarios_exceed=args.warn_threshold,
         parallel_workers=args.parallel_workers,
@@ -184,7 +187,7 @@ def main(argv: list[str] | None = None) -> int:
     payload: dict[str, Any] = {
         "config": {
             "hours": args.hours,
-            "scenario_count": len(scenarios),
+            "scenario_count": scenario_count,
             "parallel_workers": args.parallel_workers,
             "retain_detail_count": args.retain_detail_count,
             "durations": args.durations,

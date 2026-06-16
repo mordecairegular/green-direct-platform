@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 import math
 from dataclasses import dataclass
 
@@ -151,11 +152,14 @@ def count_scenarios(raw_grid: dict | ScenarioGrid) -> int:
 
 
 def generate_scenarios(raw_grid: dict | ScenarioGrid, *, scenario_prefix: str = "S") -> list[Scenario]:
+    return list(iter_scenarios(raw_grid, scenario_prefix=scenario_prefix))
+
+
+def iter_scenarios(raw_grid: dict | ScenarioGrid, *, scenario_prefix: str = "S") -> Iterator[Scenario]:
     grid = parse_scenario_grid(raw_grid)
     pv_values = values_from_range(grid.pv_capacity)
     wind_values = values_from_range(grid.wind_capacity)
     bess_pairs = _bess_power_duration_pairs(grid)
-    scenarios: list[Scenario] = []
     index = 1
     for pv_capacity in pv_values:
         for wind_capacity in wind_values:
@@ -163,14 +167,11 @@ def generate_scenarios(raw_grid: dict | ScenarioGrid, *, scenario_prefix: str = 
                 continue
             for bess_power, duration in bess_pairs:
                 bess_energy = bess_power * duration
-                scenarios.append(
-                    Scenario(
-                        scenario_id=f"{scenario_prefix}{index:04d}",
-                        pv_capacity=pv_capacity,
-                        wind_capacity=wind_capacity,
-                        bess_power=bess_power,
-                        bess_energy=bess_energy,
-                    )
+                yield Scenario(
+                    scenario_id=f"{scenario_prefix}{index:04d}",
+                    pv_capacity=pv_capacity,
+                    wind_capacity=wind_capacity,
+                    bess_power=bess_power,
+                    bess_energy=bess_energy,
                 )
                 index += 1
-    return scenarios

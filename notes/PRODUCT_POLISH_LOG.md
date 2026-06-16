@@ -5989,3 +5989,27 @@ profile / benchmark：
 - 这不是新的调度算法，也不改变 V0.1 技术仿真、经济性 V1 或推荐排序；
 - Render 单 Web Service + 本地 file store 首发仍不建议盲目拉满 CPU；多人试用时提高并行度可能让一个用户的大任务抢占其他用户响应；
 - 后续真正解决长任务体验仍要推进后台 Job、worker 心跳/取消、数据库/对象存储和任务队列。
+
+### 2026-06-17 批量方案执行改为流式方案迭代
+
+本轮继续处理“方案遍历启动慢、成千上万个方案等待久”的问题。此前 `estimate_scenario_count()` 已经是 count-only，但 `run_batch()` 在通过硬上限检查后仍会调用 `generate_scenarios()` 一次性构造完整 `Scenario` list，然后才进入串行或并行仿真。对 10-20 人试用来说，硬上限默认 20,000 已经能控住最坏情况，但完整 list 仍会增加启动阶段内存和一次性对象创建。
+
+调整：
+- `scenario_generator.py` 新增 `iter_scenarios()`，按原有容量轴顺序逐个 `yield Scenario`；
+- `generate_scenarios()` 保留公开兼容行为，内部改为 `list(iter_scenarios(...))`；
+- `run_batch()` 改为使用 `estimated_scenario_count` 作为 total/warning/scenario_count，并直接消费 `iter_scenarios()`；
+- `_scenario_chunks()` 改为接受任意 iterable，进程池并行时从 iterator 流式拉取方案 chunk，不再要求完整 list；
+- `scripts/benchmark_internal_pilot_performance.py` 也改为 `count_scenarios()` + `islice(iter_scenarios(...))` 取得保留明细 ID，避免 benchmark 脚本自己先物化完整方案池。
+
+验证与反馈环：
+- `python -m pytest tests\test_batch_runner.py -q` 通过，18 项通过，覆盖 iterator 与 list 顺序一致、硬上限在迭代前拒绝、generator 输入、进度顺序和并行 chunk；
+- `python -m pytest tests\test_study_runner.py tests\test_ui_import.py::test_technical_workload_estimate_scales_with_detail_retention_and_workers tests\test_ui_import.py::test_scenario_count_limit_notice_blocks_oversized_pool -q` 通过，14 项通过；
+- `python -m compileall -q src\green_direct\batch\scenario_generator.py src\green_direct\batch\batch_runner.py scripts\benchmark_internal_pilot_performance.py tests\test_batch_runner.py` 通过；
+- 小样本 benchmark：`python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 6 --wind-count 6 --bess-power-count 3 --durations 0,2 --skip-full-retention --skip-economy --parallel-workers 1 --json` 得到 105 个方案 summary-first 约 0.3494s、峰值 Python heap 约 1.25MB；
+- 同参数 `--parallel-workers 2` 约 1.3318s、峰值约 1.546MB，继续说明小任务不适合默认并行；
+- 年度样本：`python scripts\benchmark_internal_pilot_performance.py --hours 8760 --pv-count 12 --wind-count 12 --bess-power-count 4 --durations 0,2 --skip-full-retention --skip-economy --retain-detail-count 0 --parallel-workers 1 --json` 得到 572 个方案 summary-first 约 38.8425s、峰值 Python heap 约 2.625MB。
+
+边界：
+- 这是方案池对象生成和 chunk 调度的内存/启动阶段优化，不改变任何单方案技术调度、summary 字段、排序字段、经济性或推荐口径；
+- 对 8760 小时含储能大样本，总耗时仍主要由逐小时 BESS SOC 滚动决定，流式 iterator 不会神奇消除线性计算量；
+- 后续大幅改善用户等待体验仍要靠后台 Job、真实 worker、取消/heartbeat、以及更深层的调度内核优化。
