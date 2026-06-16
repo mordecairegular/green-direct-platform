@@ -5179,3 +5179,18 @@ benchmark：
 - `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
 - `$env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin retry-job --help` 通过；
 - `git diff --check` 通过，仅有 Windows 换行转换提示。
+
+### 2026-06-16 上线文档 worker / 重试边界一致性校准
+
+本轮没有改运行代码，只把上线相关文档对齐到当前真实状态。上一片已经新增 failed/canceled 任务手动克隆重试，但部分上线材料仍写成“没有重试”或只提 `hourly_detail` worker，容易让下一轮 Claude Code 审查、Render 部署操作者或安全复核误判能力边界。
+
+调整：
+- `README_DEPLOY.md` 的“仍未完成”改为缺少自动重试策略，而不是笼统缺少所有重试；
+- `SECURITY.md` 的已知限制补充：本地 JSON 元数据已有原子写入保护；worker 已支持 `hourly_detail`、固定价/网页组价 `annual_cashflow`、stale running 置失败和 failed/canceled 手动克隆重试；
+- `docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md` 的 P0 矩阵补入 `pilot-admin retry-job` 证据，并把仍缺项改为正式队列、跨进程队列锁、worker 级取消和自动重试策略；
+- `notes/PRELAUNCH_QUALITY_REVIEW_20260615.md` 同步上述边界，避免质量审查材料停留在旧 checkpoint。
+
+边界：
+- 本轮不改变 Streamlit、worker、经济性或技术仿真代码；
+- 手动克隆重试仍不是自动重试策略、退避机制、失败分类、资源限流或 worker 级取消；
+- 本地 JSON store 的原子写入仍不等于数据库事务或并发冲突合并。
