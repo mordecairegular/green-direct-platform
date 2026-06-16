@@ -17,6 +17,7 @@ import re
 import sys
 import time
 from tempfile import TemporaryDirectory
+from typing import Iterable
 import uuid
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -4225,6 +4226,41 @@ def _load_pilot_hourly_detail_artifact_if_available(st, scenario_id: str) -> boo
     return True
 
 
+def _refresh_pilot_hourly_detail_artifact_ref_from_record(st, scenario_id: str) -> bool:
+    if not _pilot_auth_enabled():
+        return False
+    actor_user_id = _current_pilot_user_id(st)
+    project_id = _current_pilot_project_id(st)
+    study_result = st.session_state.get("study_result")
+    if not actor_user_id or not project_id or not isinstance(study_result, StudyResult):
+        return False
+    result_id = str(study_result.result_store_refs.get("technical_result_id") or "technical_result")
+    try:
+        records = _pilot_access_service().list_study_result_records(
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_result.study_id,
+        )
+    except Exception as exc:  # noqa: BLE001 - polling should not block sync fallback
+        if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
+            return False
+        raise
+    scenario_key = str(scenario_id)
+    for record in records:
+        if record.result_id != result_id:
+            continue
+        artifact_id = record.hourly_detail_artifact_ids.get(scenario_key)
+        if not artifact_id:
+            return False
+        refs = {
+            **study_result.result_store_refs,
+            f"hourly_detail_artifact_id_{scenario_key}": str(artifact_id),
+        }
+        st.session_state["study_result"] = replace(study_result, result_store_refs=refs)
+        return True
+    return False
+
+
 def _dataclass_snapshot_kwargs(model_cls, raw: object) -> dict[str, object]:
     if not isinstance(raw, dict):
         return {}
@@ -4416,24 +4452,33 @@ def _can_queue_pilot_hourly_detail_job(st, scenario_id: str | None) -> bool:
     )
 
 
-def _active_pilot_hourly_detail_job(st, scenario_id: str) -> Job | None:
+def _pilot_hourly_detail_job_progress_message(scenario_id: str) -> str:
+    return f"hourly detail queued: {scenario_id}"
+
+
+def _pilot_hourly_detail_job_for_scenario(
+    st,
+    scenario_id: str,
+    *,
+    statuses: Iterable[JobStatus | str] | None = None,
+) -> Job | None:
     actor_user_id = _current_pilot_user_id(st)
     project_id = _current_pilot_project_id(st)
     study_result = st.session_state.get("study_result")
     if not actor_user_id or not project_id or not isinstance(study_result, StudyResult):
         return None
-    progress_message = f"hourly detail queued: {scenario_id}"
+    progress_message = _pilot_hourly_detail_job_progress_message(scenario_id)
     try:
         jobs = _pilot_access_service().list_project_jobs(
             actor_user_id=actor_user_id,
             project_id=project_id,
-            statuses=ACTIVE_PILOT_JOB_STATUSES,
+            statuses=statuses,
         )
     except Exception as exc:  # noqa: BLE001 - duplicate check is best-effort
         if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
             return None
         raise
-    for job in jobs:
+    for job in reversed(jobs):
         if (
             job.study_id == study_result.study_id
             and job.job_type == JobType.TECHNICAL_STUDY
@@ -4441,6 +4486,77 @@ def _active_pilot_hourly_detail_job(st, scenario_id: str) -> Job | None:
         ):
             return job
     return None
+
+
+def _active_pilot_hourly_detail_job(st, scenario_id: str) -> Job | None:
+    return _pilot_hourly_detail_job_for_scenario(
+        st,
+        scenario_id,
+        statuses=ACTIVE_PILOT_JOB_STATUSES,
+    )
+
+
+def _load_completed_pilot_hourly_detail_job_if_available(st, scenario_id: str) -> bool:
+    if _load_pilot_hourly_detail_artifact_if_available(st, scenario_id):
+        return True
+    if _refresh_pilot_hourly_detail_artifact_ref_from_record(st, scenario_id):
+        if _load_pilot_hourly_detail_artifact_if_available(st, scenario_id):
+            return True
+    job = _pilot_hourly_detail_job_for_scenario(st, scenario_id)
+    if job is None or job.status != JobStatus.SUCCEEDED:
+        return False
+    if not _refresh_pilot_hourly_detail_artifact_ref_from_record(st, scenario_id):
+        st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
+            f"方案 {scenario_id} 的后台任务已完成，但结果索引暂未找到逐小时明细 artifact。"
+        )
+        return False
+    return _load_pilot_hourly_detail_artifact_if_available(st, scenario_id)
+
+
+def _render_pilot_hourly_detail_job_status(st, scenario_id: str) -> bool:
+    def render_status() -> None:
+        job = _pilot_hourly_detail_job_for_scenario(st, scenario_id)
+        if job is None:
+            return
+        if job.status == JobStatus.SUCCEEDED:
+            if _load_completed_pilot_hourly_detail_job_if_available(st, scenario_id):
+                st.success(f"方案 {scenario_id} 的后台逐小时明细已完成并加载。")
+                st.rerun()
+            else:
+                st.warning("后台任务已完成，但暂未加载到逐小时明细 artifact；请稍后刷新或在欢迎页查看任务。")
+            return
+        if job.status == JobStatus.FAILED:
+            st.error(f"方案 {scenario_id} 的后台逐小时明细补算失败：{job.error_message or '未提供错误信息'}")
+            return
+        if job.status == JobStatus.CANCELED:
+            st.warning(f"方案 {scenario_id} 的后台逐小时明细补算任务已取消。")
+            return
+
+        progress_text = _pilot_job_progress_text(job)
+        if job.status == JobStatus.QUEUED:
+            st.info(f"后台逐小时明细补算排队中：{job.job_id} · {progress_text}")
+        else:
+            total = int(job.progress_total or 0)
+            current = int(job.progress_current or 0)
+            ratio = 0.05 if total <= 0 else min(1.0, max(0.05, current / total))
+            st.progress(
+                ratio,
+                text=f"后台逐小时明细补算运行中：{job.job_id} · {progress_text}",
+            )
+        st.caption("本区域会自动刷新任务状态；worker 完成后会尝试加载逐小时明细。")
+
+    job = _pilot_hourly_detail_job_for_scenario(st, scenario_id)
+    if job is None:
+        return False
+    if job.status in ACTIVE_PILOT_JOB_STATUSES:
+        fragment = getattr(st, "fragment", None)
+        if callable(fragment):
+            fragment(run_every="5s")(render_status)()
+        else:
+            render_status()
+    else:
+        render_status()
+    return job.status == JobStatus.SUCCEEDED
 
 
 def _queue_pilot_hourly_detail_job_if_enabled(st, scenario_id: str) -> Job | None:
@@ -4475,7 +4591,7 @@ def _queue_pilot_hourly_detail_job_if_enabled(st, scenario_id: str) -> Job | Non
             },
             input_artifact_ids=input_artifact_ids,
             progress_total=1,
-            progress_message=f"hourly detail queued: {scenario_id}",
+            progress_message=_pilot_hourly_detail_job_progress_message(scenario_id),
         )
     except Exception as exc:  # noqa: BLE001 - UI should keep sync fallback available
         if isinstance(exc, (PilotAccessError, FileExistsError, FileNotFoundError, ValueError, OSError)):
@@ -4485,7 +4601,7 @@ def _queue_pilot_hourly_detail_job_if_enabled(st, scenario_id: str) -> Job | Non
 
     st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
         f"已提交方案 {scenario_id} 的后台逐小时明细补算任务：{queued.job.job_id}。"
-        "请在欢迎页项目任务面板查看进度，worker 完成后再重新进入图表或导出页面加载明细。"
+        "本页会自动刷新任务状态；worker 完成后将尝试加载逐小时明细。"
     )
     return queued.job
 
@@ -4497,8 +4613,9 @@ def _render_on_demand_hourly_detail_action(st, scenario_id: str | None, summary:
     existing = getattr(batch_result, "hourly_details", {}) if batch_result is not None else {}
     if str(scenario_id) in existing:
         return True
-    if _load_pilot_hourly_detail_artifact_if_available(st, str(scenario_id)):
+    if _load_completed_pilot_hourly_detail_job_if_available(st, str(scenario_id)):
         return True
+    _render_pilot_hourly_detail_job_status(st, str(scenario_id))
     can_queue_background = _can_queue_pilot_hourly_detail_job(st, str(scenario_id))
     if not _has_technical_study_input(st):
         _restore_technical_study_input_from_pilot_artifacts(st)
@@ -4516,7 +4633,7 @@ def _render_on_demand_hourly_detail_action(st, scenario_id: str | None, summary:
                 notice = st.session_state.get(PILOT_RESULT_STORE_NOTICE_KEY) or "后台任务提交失败，请尝试同步补算。"
                 st.warning(notice)
         queue_right.caption(
-            "后台补算会写入项目任务队列，不阻塞当前页面；worker 完成后可回到图表或导出页面加载明细。"
+            "后台补算会写入项目任务队列，不阻塞当前页面；worker 完成后本区域会尝试自动加载明细。"
         )
     if not _has_technical_study_input(st):
         return False

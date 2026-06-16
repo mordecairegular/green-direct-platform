@@ -172,7 +172,7 @@ PNG 图表包后台任务也按会话隔离：
 - `Job.input_artifact_ids` 会随 job JSON 持久化；`pilot-admin list-jobs` 已显示输入 artifact 数量，便于运维判断某个 queued/running job 是否带了受控输入引用；
 - 任务请求 payload 可通过 `queue_job_with_input_artifact()` 保存为 `job_input_<job_id>.json`，并以默认 `job_payload` key 挂入 `Job.input_artifact_ids`；外部输入如 `technical_summary`、`config_snapshot`、`input_curve_*` 也会在同一映射中保留；
 - `src/green_direct/services/pilot_worker.py` 已提供第一条 worker 执行路径：`execute_next_worker_job()` 先认领 queued job，再根据 `Job.input_artifact_ids` 读取输入 artifact 并执行；`execute_worker_loop()` 可持续轮询并执行受支持任务；当前仅支持 `technical_study` + `job_payload.task="hourly_detail"`；
-- Streamlit 推荐页、图表概览页和导出/报告页在缺少所选方案逐小时明细时，若当前项目结果已有 `technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，已可提交 `technical_study/hourly_detail` queued job；当前 UI 只排队，不自动启动 worker，也不轮询完成后自动加载结果；
+- Streamlit 推荐页、图表概览页和导出/报告页在缺少所选方案逐小时明细时，若当前项目结果已有 `technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，已可提交 `technical_study/hourly_detail` queued job；当前按需明细区域会轮询 queued/running 状态，任务成功后刷新 result record 的 hourly artifact 索引并加载结果；
 - 支持 `list_stale_running_jobs()` 和 `fail_stale_running_jobs()`，可把超过阈值未 heartbeat 的 running 任务标记为 failed；`pilot-admin fail-stale-jobs` 会复用该能力并写 `COMPLETE_JOB` 审计；
 - 路径片段使用白名单校验，防止 `project_id`、`study_id`、`job_id` 被拼接成越权路径；
 - 当前实现只持久化任务状态、本地认领原语、一条最小执行路径和 CLI 轮询 worker；JSON 写入已使用原子替换，但仍不包含正式调度器、重试策略、跨进程并发锁或管理员 UI；后续任务队列或数据库实现应沿用同一 `Job` 契约。
@@ -281,12 +281,12 @@ PNG 图表包后台任务也按会话隔离：
 
 仍未落地：
 - 正式队列 / worker 级取消重试闭环 / 跨进程锁；
-- 技术仿真历史 summary-only 结果基于受控 input artifact 的后台补算已能排队并由 one-shot worker 或最小轮询 worker 执行，但仍缺前台自动轮询、完成提示和自动加载；
+- 技术仿真历史 summary-only 结果基于受控 input artifact 的后台补算已能排队并由 one-shot worker 或最小轮询 worker 执行，当前按需明细区域已有前台轮询、完成提示和自动加载；仍缺全局任务通知、worker 级取消和重试；
 - 推荐视角选择/重新排序状态、PNG/Excel/批量导出包、完整报告产物写入 `ResultStore`；
 - 完整项目级任务状态页仍需继续扩展为真正 worker 轮询/重试/取消页面；当前已有项目内任务状态明细。推荐结果重新排序工作台恢复和跨项目搜索仍未落地；结果索引标记/置顶和软删除已有第一版，但仍不是完整历史结果管理页；
 - SQLite/Postgres 或对象存储适配、跨进程并发锁、备份和部署 runbook；本地 JSON 写入已有原子替换，但仍不是数据库事务。
 
 下一阶段建议：
 1. 先把当前任务状态明细升级为真正 worker 轮询/重试/取消页面，并完善结果历史恢复/下载页，让用户可以在项目内找回已完成测算；
-2. 再把按需逐小时明细的后台排队入口补成完整体验：前台轮询、完成后自动加载 hourly artifact，并把 summary-only 经济运行的按需年度现金流生成纳入 Job 链路；
+2. 再把按需逐小时明细后台体验扩展到全局任务通知、失败重试和 worker 级取消，并把 summary-only 经济运行的按需年度现金流生成纳入 Job 链路；
 3. 最后把剩余图表包和报告导出统一变成项目级 artifacts，并接入后台 worker。

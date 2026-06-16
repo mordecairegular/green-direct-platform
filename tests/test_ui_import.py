@@ -2138,6 +2138,129 @@ def test_queue_hourly_detail_job_uses_saved_project_artifacts(tmp_path, monkeypa
     assert "后台逐小时明细补算任务" in dummy.session_state[app.PILOT_RESULT_STORE_NOTICE_KEY]
 
 
+def test_completed_hourly_detail_job_refreshes_result_ref_and_loads_artifact(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.batch.batch_runner import BatchResult
+    from green_direct.models.diagnostics import InputDiagnostics
+    from green_direct.models.pilot_backend import JobStatus, Project, User
+    from green_direct.services import (
+        StudyResult,
+        TechnicalStudyInput,
+        TechnicalStudyResult,
+        persist_hourly_detail_artifact,
+    )
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+    monkeypatch.setattr(app, "_clear_chart_export_cache", lambda st: None)
+    monkeypatch.setattr(app, "_save_runtime_snapshot", lambda st: None)
+
+    access = app._pilot_access_service()
+    access.registry.save_user(User("admin", "admin@example.local", "Admin", is_platform_admin=True))
+    project = access.create_project(
+        actor_user_id="admin",
+        project=Project("project_1", "Internal pilot project"),
+    )
+    summary = pd.DataFrame(
+        {
+            "scenario_id": ["S0002"],
+            "pv_capacity": [1.0],
+            "wind_capacity": [0.0],
+            "bess_power": [0.0],
+            "bess_energy": [0.0],
+        }
+    )
+    batch_result = BatchResult(
+        summary=summary,
+        hourly_details={},
+        errors=pd.DataFrame(),
+        warnings=[],
+        scenario_count=1,
+    )
+    technical_result = TechnicalStudyResult(
+        study_id="study-ui-worker",
+        batch_result=batch_result,
+        input_diagnostics=InputDiagnostics(),
+        config_snapshot={
+            "study_id": "study-ui-worker",
+            "curve_columns": {
+                "load": {"time_col": "time", "value_col": "load"},
+                "pv": {"time_col": "time", "value_col": "pv"},
+                "wind": {"time_col": "time", "value_col": "wind"},
+            },
+        },
+    )
+    technical_input = TechnicalStudyInput(
+        load_source=b"time,load\n2026-01-01 00:00:00,1\n",
+        pv_source=b"time,pv\n2026-01-01 00:00:00,0\n",
+        wind_source=b"time,wind\n2026-01-01 00:00:00,0\n",
+        load_time_col="time",
+        load_value_col="load",
+        pv_time_col="time",
+        pv_value_col="pv",
+        wind_time_col="time",
+        wind_value_col="wind",
+        scenario_grid={},
+    )
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.PILOT_USER_ID_KEY: "admin",
+                app.PILOT_ACTIVE_PROJECT_ID_KEY: project.project_id,
+                app.PILOT_ACTIVE_PROJECT_ROLE_KEY: "admin",
+                app.TECHNICAL_STUDY_INPUT_KEY: technical_input,
+                "batch_result": batch_result,
+            }
+
+    dummy = DummyStreamlit()
+    persisted_technical = app._persist_pilot_technical_result_if_enabled(
+        dummy,
+        technical_result,
+        technical_input=technical_input,
+    )
+    dummy.session_state["study_result"] = app._study_result_with_pilot_refs(
+        StudyResult.from_technical(technical_result),
+        persisted_technical,
+    )
+    queued = app._queue_pilot_hourly_detail_job_if_enabled(dummy, "S0002")
+    assert queued is not None
+    claimed = access.claim_next_job_for_worker(
+        actor_user_id="admin",
+        worker_id="worker_1",
+        job_types=["technical_study"],
+    )
+    assert claimed is not None
+    hourly = pd.DataFrame({"scenario_id": ["S0002"], "hour_index": [0], "load_power": [1.5]})
+    persist_hourly_detail_artifact(
+        access_service=access,
+        actor_user_id="admin",
+        project_id=project.project_id,
+        study_id="study-ui-worker",
+        scenario_id="S0002",
+        hourly_detail=hourly,
+        technical_result_id="technical_result",
+        artifact_job_id=claimed.job_id,
+    )
+    completed = access.succeed_worker_job(
+        actor_user_id="admin",
+        worker_id="worker_1",
+        project_id=project.project_id,
+        study_id="study-ui-worker",
+        job_id=claimed.job_id,
+    )
+    assert completed.status == JobStatus.SUCCEEDED
+    assert "hourly_detail_artifact_id_S0002" not in dummy.session_state["study_result"].result_store_refs
+
+    loaded = app._load_completed_pilot_hourly_detail_job_if_available(dummy, "S0002")
+
+    assert loaded is True
+    assert dummy.session_state["batch_result"].hourly_details["S0002"]["load_power"].tolist() == [1.5]
+    assert dummy.session_state["study_result"].result_store_refs["hourly_detail_artifact_id_S0002"] == (
+        "hourly_detail_S0002"
+    )
+
+
 def test_partial_hourly_retention_clears_price_curve():
     import green_direct.ui.app as app
     from green_direct.economy import read_price_curve

@@ -617,7 +617,7 @@ BatchResult(
 - 02 页已接入第一版“汇总优先”大批量模式，超过方案数提醒阈值时不再默认常驻全部逐小时明细；
 - 未保留明细的方案只生成技术 summary，不构造完整 `hourly_detail` DataFrame；
 - 当前会话内已支持为代表方案、图表方案或导出方案按需补算单个 `hourly_detail`；补算优先加载已有项目级 hourly artifact，项目结果仍保留 `technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact 时可提交 `technical_study/hourly_detail` 后台 queued job，当前 session 保存的 `TechnicalStudyInput` 仍可作为同步补算 fallback，runtime snapshot 仍不保存原始技术输入；
-- 后续建议把按需明细补算补成常驻 worker / 前台轮询 / 完成后自动加载闭环，并把技术仿真、经济性测算和图表导出逐步改为后台任务；
+- 按需明细补算已具备后台排队、worker loop、前台状态轮询和完成后加载 artifact 的第一版闭环；后续建议把技术仿真、经济性测算和图表导出逐步改为后台任务，并补 worker 级取消/重试；
 - 多人内部试用时，计算任务应通过 `Job` / `ResultStore` 隔离到项目和用户，不能依赖全局 `session_state` 或项目级运行快照；
 - 图表模块若只展示 1 到 5 个方案，不应强制依赖所有方案的逐小时明细都已保存在内存中。
 
@@ -641,7 +641,7 @@ StudyResult.from_technical(technical_result) -> StudyResult
 
 `run_hourly_detail_for_scenario()` 用于大批量 summary-first 之后的单方案明细补算。它从 `summary` 中按 `scenario_id` 找到容量配置，重建 `Scenario`，再复用 `TechnicalStudyInput` 中的三条原始曲线、列名、储能参数、政策参数和 `dt_hours` 运行同一单方案仿真。该函数不重新遍历全量方案，也不改变 summary-first 阶段的调度口径。
 
-当前 Streamlit 仍只把刚完成测算的 `TechnicalStudyInput` 保存在当前浏览器会话中，用于即时按需补算；它不会写入 `.runtime/latest_session_snapshot.pkl`。启用内部试用登录并恢复历史 technical summary 时，若同一项目结果仍保留 `technical_summary`、`config_snapshot` 和三条 input artifact，UI 可提交 `technical_study/hourly_detail` 后台 queued job；若当前会话也能重建 `TechnicalStudyInput`，仍可同步补算单个方案明细。后台提交路径当前只排队，不自动启动 worker，也不轮询完成后自动加载；若旧结果缺列名快照或 input artifact 已清理，则只保留 summary/已有 hourly artifact 查看能力。
+当前 Streamlit 仍只把刚完成测算的 `TechnicalStudyInput` 保存在当前浏览器会话中，用于即时按需补算；它不会写入 `.runtime/latest_session_snapshot.pkl`。启用内部试用登录并恢复历史 technical summary 时，若同一项目结果仍保留 `technical_summary`、`config_snapshot` 和三条 input artifact，UI 可提交 `technical_study/hourly_detail` 后台 queued job，并在当前按需明细区域轮询任务状态；worker 完成后，UI 会刷新当前结果记录的 hourly artifact 索引并尝试加载明细。若当前会话也能重建 `TechnicalStudyInput`，仍可同步补算单个方案明细；若旧结果缺列名快照或 input artifact 已清理，则只保留 summary/已有 hourly artifact 查看能力。
 
 后续新模块建议优先依赖服务层对象，再按需读取其中的 `batch_result` 兼容旧模块；不建议继续把 Streamlit 页面函数作为业务入口。
 

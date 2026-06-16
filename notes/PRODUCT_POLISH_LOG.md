@@ -4770,7 +4770,7 @@ benchmark：
 
 边界说明：
 - 当前 UI 只提交任务，不自动启动 worker；管理员或部署进程需要已启动 `pilot-admin run-worker-loop`，或手动执行 `pilot-admin run-worker-once`；
-- 当前 UI 还没有自动轮询并在 worker 完成后刷新加载 artifact；用户需在任务完成后重新进入图表/导出入口或手动刷新；
+- 本小节提交时 UI 还没有自动轮询并在 worker 完成后刷新加载 artifact；下一小节已补按需明细区域的轮询和完成后加载；
 - 这条链路只覆盖按需逐小时明细，不覆盖全量技术仿真、经济性、推荐、图表包、PNG/Excel/批量包或完整报告后台化。
 
 验证：
@@ -4792,8 +4792,27 @@ benchmark：
 - 当前 loop 只执行已支持的 `technical_study/hourly_detail`，不执行全量技术仿真、经济性、推荐、图表或报告；
 - 本地 JSON store 仍没有跨进程事务/锁；试用期最多启动一个 worker loop；
 - 这不是正式队列、重试系统、资源隔离或 worker 级取消；
-- Streamlit 前台仍没有自动轮询和完成后自动加载 artifact。
+- 本小节提交时 Streamlit 前台仍没有自动轮询和完成后自动加载 artifact；下一小节已补按需明细区域的轮询和完成后加载。
 
 验证：
 - 新增 `tests/test_pilot_worker.py` 覆盖 `max_jobs` 和 `idle_exit_after`；
 - 新增 `tests/test_cli.py` parser 覆盖 `pilot-admin run-worker-loop`。
+
+### 2026-06-16 按需明细后台任务前台轮询与自动加载
+
+本轮把“提交后台补算”和“worker loop 执行”之间的最后一段用户体验补上：用户在推荐、图表或导出页面缺少某个方案逐小时明细时，提交后台任务后不必再去欢迎页反复查看，也不必手动猜测何时刷新。当前按需明细区域会轮询任务状态，worker 成功后自动刷新结果索引并加载 hourly artifact。
+
+实现：
+- `_refresh_pilot_hourly_detail_artifact_ref_from_record()` 会从当前 `StudyResultRecord.hourly_detail_artifact_ids` 刷新 `StudyResult.result_store_refs`；
+- `_pilot_hourly_detail_job_for_scenario()` 通过固定 `progress_message = "hourly detail queued: <scenario_id>"` 查找同一研究/方案的最新后台任务；
+- `_load_completed_pilot_hourly_detail_job_if_available()` 在任务成功后刷新 artifact ref，并复用 `_load_pilot_hourly_detail_artifact_if_available()` 读取 CSV、写回 `batch_result.hourly_details` 和 `study_result.technical_result.batch_result`；
+- `_render_pilot_hourly_detail_job_status()` 对 queued/running 任务用 `st.fragment(run_every="5s")` 轮询，显示排队、进度、失败、取消和成功加载状态；
+- `_render_on_demand_hourly_detail_action()` 先尝试加载已完成后台任务，再渲染任务状态、后台提交按钮和同步补算 fallback。
+
+边界：
+- 该轮询只存在于当前按需逐小时明细入口，不是全站 toast、统一任务中心或跨页面通知；
+- 仍没有 worker 级取消、失败重试、跨进程队列锁或正式队列；
+- 技术全量仿真、经济性、推荐、图表包、PNG/Excel/批量包和完整报告仍未改为 queued job 执行。
+
+验证：
+- 新增 `tests/test_ui_import.py::test_completed_hourly_detail_job_refreshes_result_ref_and_loads_artifact` 覆盖 worker 成功后前台刷新结果索引并加载 hourly artifact。
