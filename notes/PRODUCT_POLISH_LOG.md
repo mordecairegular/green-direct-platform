@@ -4749,9 +4749,30 @@ benchmark：
 
 边界说明：
 - 这只是第一条 one-shot worker 执行路径，不是常驻 worker daemon、正式队列、重试系统、并发锁、资源隔离或 worker 级取消；
-- 当前还没有把 Streamlit 缺明细时的按钮改成提交后台 job；UI 仍会同步补算，但下一步可以把没有 hourly artifact 的场景接到 `queue_job_with_input_artifact()`；
+- 本小节提交时还没有把 Streamlit 缺明细时的按钮改成提交后台 job；下一小节已补 UI 排队入口，当前仍保留同步补算 fallback；
 - 当前只支持按需逐小时明细；技术全量仿真、经济性补年度现金流、图表包、PNG/Excel/批量包和完整报告后台化仍待实现。
 
 验证：
 - `pytest tests/test_pilot_worker.py tests/test_pilot_study_persistence.py tests/test_cli.py tests/test_pilot_access.py tests/test_job_store.py -q` 通过，53 项通过；
 - `python -m compileall -q src\green_direct\services\pilot_worker.py src\green_direct\services\pilot_study_persistence.py src\green_direct\services\__init__.py src\green_direct\cli.py` 通过。
+
+### 2026-06-16 UI 提交后台逐小时明细补算任务
+
+本轮把 one-shot worker 的第一条能力接到 Streamlit 的按需明细入口：当用户在推荐、图表或导出页面选择的方案缺少 `hourly_detail`，且当前项目结果已经保存了 `technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact 时，前台可以提交后台补算任务，而不必只能在当前 Streamlit 请求内同步补算。
+
+本轮实现：
+- `src/green_direct/ui/app.py` 新增 `_pilot_hourly_detail_job_input_artifact_ids()`、`_can_queue_pilot_hourly_detail_job()`、`_active_pilot_hourly_detail_job()` 和 `_queue_pilot_hourly_detail_job_if_enabled()`；
+- `_render_on_demand_hourly_detail_action()` 在已有 hourly artifact 不存在时，会先判断是否具备后台补算输入；具备时显示“提交后台补算”按钮；
+- 提交后台补算会调用 `queue_job_with_input_artifact()`，写入 `job_payload`，并把 `technical_summary`、`config_snapshot`、`input_curve_load`、`input_curve_pv`、`input_curve_wind` 挂入 `Job.input_artifact_ids`；
+- 后台 job 的 `progress_message` 固定为 `hourly detail queued: <scenario_id>`，用于同一研究/方案的活动任务去重提示；
+- 如果当前会话仍有 `TechnicalStudyInput`，同步补算按钮继续保留，方便本地桌面或小算例即时出图；
+- 如果当前会话没有原始输入，但项目 artifact 足够，前台可只提交后台任务，不再强迫同步补算。
+
+边界说明：
+- 当前 UI 只提交任务，不自动启动 worker；管理员或部署进程需要执行 `pilot-admin run-worker-once` 或后续常驻 worker；
+- 当前 UI 还没有自动轮询并在 worker 完成后刷新加载 artifact；用户需在任务完成后重新进入图表/导出入口或手动刷新；
+- 这条链路只覆盖按需逐小时明细，不覆盖全量技术仿真、经济性、推荐、图表包、PNG/Excel/批量包或完整报告后台化。
+
+验证：
+- `pytest tests/test_ui_import.py tests/test_pilot_worker.py tests/test_pilot_study_persistence.py -q` 通过，84 项通过；
+- `python -m compileall -q src\green_direct\ui\app.py tests\test_ui_import.py` 通过。

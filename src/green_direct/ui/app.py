@@ -47,6 +47,7 @@ from green_direct.models.pilot_backend import (
     ArtifactKind,
     Job,
     JobStatus,
+    JobType,
     Project,
     ProjectMembership,
     ProjectRole,
@@ -83,6 +84,7 @@ from green_direct.services import (
     persist_hourly_detail_artifact,
     persist_recommendation_study_result,
     persist_technical_study_result,
+    queue_job_with_input_artifact,
     recommendation_result_fingerprint,
     run_economic_study,
     run_hourly_detail_for_scenario,
@@ -4382,6 +4384,112 @@ def _append_hourly_detail_to_current_result(st, scenario_id: str, summary: pd.Da
     return f"已补算方案 {scenario_id} 的逐小时明细，可继续生成图表和导出。"
 
 
+def _pilot_hourly_detail_job_input_artifact_ids(st) -> dict[str, str] | None:
+    study_result = st.session_state.get("study_result")
+    if not isinstance(study_result, StudyResult):
+        return None
+    refs = study_result.result_store_refs
+    technical_summary_id = refs.get("technical_summary_artifact_id")
+    config_snapshot_id = refs.get("config_snapshot_artifact_id")
+    if not technical_summary_id or not config_snapshot_id:
+        return None
+    curve_ids = _pilot_input_curve_artifact_ids(st)
+    if set(curve_ids) != {"load", "pv", "wind"}:
+        return None
+    return {
+        "technical_summary": str(technical_summary_id),
+        "config_snapshot": str(config_snapshot_id),
+        "input_curve_load": curve_ids["load"],
+        "input_curve_pv": curve_ids["pv"],
+        "input_curve_wind": curve_ids["wind"],
+    }
+
+
+def _can_queue_pilot_hourly_detail_job(st, scenario_id: str | None) -> bool:
+    return (
+        bool(scenario_id)
+        and _pilot_auth_enabled()
+        and _current_pilot_project_can_submit_jobs(st)
+        and _current_pilot_user_id(st) is not None
+        and _current_pilot_project_id(st) is not None
+        and _pilot_hourly_detail_job_input_artifact_ids(st) is not None
+    )
+
+
+def _active_pilot_hourly_detail_job(st, scenario_id: str) -> Job | None:
+    actor_user_id = _current_pilot_user_id(st)
+    project_id = _current_pilot_project_id(st)
+    study_result = st.session_state.get("study_result")
+    if not actor_user_id or not project_id or not isinstance(study_result, StudyResult):
+        return None
+    progress_message = f"hourly detail queued: {scenario_id}"
+    try:
+        jobs = _pilot_access_service().list_project_jobs(
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            statuses=ACTIVE_PILOT_JOB_STATUSES,
+        )
+    except Exception as exc:  # noqa: BLE001 - duplicate check is best-effort
+        if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
+            return None
+        raise
+    for job in jobs:
+        if (
+            job.study_id == study_result.study_id
+            and job.job_type == JobType.TECHNICAL_STUDY
+            and job.progress_message == progress_message
+        ):
+            return job
+    return None
+
+
+def _queue_pilot_hourly_detail_job_if_enabled(st, scenario_id: str) -> Job | None:
+    if not _can_queue_pilot_hourly_detail_job(st, scenario_id):
+        return None
+    existing = _active_pilot_hourly_detail_job(st, scenario_id)
+    if existing is not None:
+        st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
+            f"方案 {scenario_id} 的后台逐小时明细补算任务已在队列中：{existing.job_id}"
+        )
+        return existing
+
+    actor_user_id = _current_pilot_user_id(st)
+    project_id = _current_pilot_project_id(st)
+    study_result = st.session_state.get("study_result")
+    input_artifact_ids = _pilot_hourly_detail_job_input_artifact_ids(st)
+    if not actor_user_id or not project_id or not isinstance(study_result, StudyResult) or input_artifact_ids is None:
+        return None
+    refs = study_result.result_store_refs
+    try:
+        queued = queue_job_with_input_artifact(
+            access_service=_pilot_access_service(),
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_result.study_id,
+            job_type=JobType.TECHNICAL_STUDY,
+            payload={
+                "task": "hourly_detail",
+                "scenario_id": str(scenario_id),
+                "technical_result_id": str(refs.get("technical_result_id") or "technical_result"),
+                "retention_days": 30,
+            },
+            input_artifact_ids=input_artifact_ids,
+            progress_total=1,
+            progress_message=f"hourly detail queued: {scenario_id}",
+        )
+    except Exception as exc:  # noqa: BLE001 - UI should keep sync fallback available
+        if isinstance(exc, (PilotAccessError, FileExistsError, FileNotFoundError, ValueError, OSError)):
+            st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = f"后台逐小时明细任务提交失败：{exc}"
+            return None
+        raise
+
+    st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
+        f"已提交方案 {scenario_id} 的后台逐小时明细补算任务：{queued.job.job_id}。"
+        "请在欢迎页项目任务面板查看进度，worker 完成后再重新进入图表或导出页面加载明细。"
+    )
+    return queued.job
+
+
 def _render_on_demand_hourly_detail_action(st, scenario_id: str | None, summary: pd.DataFrame, *, key: str) -> bool:
     if not scenario_id:
         return False
@@ -4391,10 +4499,26 @@ def _render_on_demand_hourly_detail_action(st, scenario_id: str | None, summary:
         return True
     if _load_pilot_hourly_detail_artifact_if_available(st, str(scenario_id)):
         return True
+    can_queue_background = _can_queue_pilot_hourly_detail_job(st, str(scenario_id))
     if not _has_technical_study_input(st):
         _restore_technical_study_input_from_pilot_artifacts(st)
-    if not _has_technical_study_input(st):
+    if not _has_technical_study_input(st) and not can_queue_background:
         st.info("当前会话没有原始技术输入快照，无法按需补算逐小时明细；请重新运行技术仿真或加载含逐小时明细的结果。")
+        return False
+    if can_queue_background:
+        queue_left, queue_right = st.columns([1.2, 3.8])
+        if queue_left.button("提交后台补算", key=f"{key}_queue", type="secondary"):
+            job = _queue_pilot_hourly_detail_job_if_enabled(st, str(scenario_id))
+            if job is not None:
+                st.success(f"后台任务已提交：{job.job_id}")
+                st.rerun()
+            else:
+                notice = st.session_state.get(PILOT_RESULT_STORE_NOTICE_KEY) or "后台任务提交失败，请尝试同步补算。"
+                st.warning(notice)
+        queue_right.caption(
+            "后台补算会写入项目任务队列，不阻塞当前页面；worker 完成后可回到图表或导出页面加载明细。"
+        )
+    if not _has_technical_study_input(st):
         return False
     left, right = st.columns([1.1, 3.9])
     if left.button("补算逐小时明细", key=key, type="secondary"):

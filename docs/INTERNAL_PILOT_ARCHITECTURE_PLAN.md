@@ -172,6 +172,7 @@ PNG 图表包后台任务也按会话隔离：
 - `Job.input_artifact_ids` 会随 job JSON 持久化；`pilot-admin list-jobs` 已显示输入 artifact 数量，便于运维判断某个 queued/running job 是否带了受控输入引用；
 - 任务请求 payload 可通过 `queue_job_with_input_artifact()` 保存为 `job_input_<job_id>.json`，并以默认 `job_payload` key 挂入 `Job.input_artifact_ids`；外部输入如 `technical_summary`、`config_snapshot`、`input_curve_*` 也会在同一映射中保留；
 - `src/green_direct/services/pilot_worker.py` 已提供第一条 one-shot worker 执行路径：`execute_next_worker_job()` 先认领 queued job，再根据 `Job.input_artifact_ids` 读取输入 artifact 并执行；当前仅支持 `technical_study` + `job_payload.task="hourly_detail"`；
+- Streamlit 推荐页、图表概览页和导出/报告页在缺少所选方案逐小时明细时，若当前项目结果已有 `technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，已可提交 `technical_study/hourly_detail` queued job；当前 UI 只排队，不自动启动 worker，也不轮询完成后自动加载结果；
 - 支持 `list_stale_running_jobs()` 和 `fail_stale_running_jobs()`，可把超过阈值未 heartbeat 的 running 任务标记为 failed；`pilot-admin fail-stale-jobs` 会复用该能力并写 `COMPLETE_JOB` 审计；
 - 路径片段使用白名单校验，防止 `project_id`、`study_id`、`job_id` 被拼接成越权路径；
 - 当前实现只持久化任务状态、本地认领原语和一条最小 one-shot 执行路径；JSON 写入已使用原子替换，但仍不包含常驻 worker daemon、正式调度器、重试策略、跨进程并发锁或管理员 UI；后续任务队列或数据库实现应沿用同一 `Job` 契约。
@@ -220,7 +221,7 @@ PNG 图表包后台任务也按会话隔离：
 - `TechnicalStudyInput(retain_hourly_details=False, hourly_detail_scenario_ids=(...))` 已把该能力接入服务层，并写入 `config_snapshot["detail_retention"]`；
 - `run_hourly_detail_for_scenario(inputs, scenario_id=..., summary=...)` 已提供当前会话内的单方案逐小时明细补算入口：从技术 summary 行重建 `Scenario`，复用同一次技术输入的原始曲线、BESS 参数、政策参数和 `dt_hours`，只补算选中方案；
 - 02 页“高级：枚举性能提醒”已新增“大批量保留明细数”：当方案数超过提醒阈值时，UI 自动进入汇总优先模式，技术仿真只常驻方案汇总和前 N 个方案逐小时明细；
-- 推荐页、图表概览页和导出/报告页已接入第一版“补算逐小时明细”按钮；缺少明细时会先尝试按网页查看权限加载已有 `ArtifactKind.HOURLY_DETAIL`，没有可用 hourly artifact 时再使用当前会话的原始技术输入补算；历史 summary-only 恢复若带有三条 `ArtifactKind.INPUT_CURVE` 和 `curve_columns` 快照，会先恢复 `TechnicalStudyInput`，再复用同一补算入口；补算后写回当前 `batch_result.hourly_details` 和 `study_result.technical_result.batch_result`，并清空旧下载/图表缓存；在启用内部登录且当前技术结果已有项目索引时，会把补算出的单方案明细写为 `ArtifactKind.HOURLY_DETAIL` CSV，并挂回 `StudyResultRecord.hourly_detail_artifact_ids`；
+- 推荐页、图表概览页和导出/报告页已接入第一版“补算逐小时明细”按钮；缺少明细时会先尝试按网页查看权限加载已有 `ArtifactKind.HOURLY_DETAIL`，没有可用 hourly artifact 时，若项目结果已有 `technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，可提交 `technical_study/hourly_detail` queued job；若当前会话有原始 `TechnicalStudyInput`，仍可同步补算。同步补算后写回当前 `batch_result.hourly_details` 和 `study_result.technical_result.batch_result`，并清空旧下载/图表缓存；在启用内部登录且当前技术结果已有项目索引时，会把补算出的单方案明细写为 `ArtifactKind.HOURLY_DETAIL` CSV，并挂回 `StudyResultRecord.hourly_detail_artifact_ids`；
 - 大批量汇总优先模式会清除当前项目级下网电价曲线，避免价格曲线经济性在缺少全量逐小时明细时误用部分数据；
 - `run_economic_study(..., retain_annual_cashflows=False, annual_cashflow_scenario_ids=[...])` 可保留经济性 summary 指标，同时不常驻全部年度现金流表，或只保留报告方案/推荐组合现金流；当前已推进为未保留方案不构造完整年度现金流 `DataFrame`，只用现金流数组计算 FNPV、FIRR 和回收期；
 - 经济性批量评价已去除 `iterrows()` 行遍历，年度折现因子按年限和折现率缓存，NPV 使用等价 Horner 形式计算，同一主体批量评价只做一次公共参数校验；常规单符号变化现金流的 IRR 使用二分快路径，多符号变化仍保留原候选率扫描和多根判断；未保留年度现金流表的 summary-only 小样本从约 3.1503s 降至约 0.8120s（220 个方案、168 小时技术 summary-first 后经济性 summary-only，本机样本）；
@@ -279,13 +280,13 @@ PNG 图表包后台任务也按会话隔离：
 - `LocalResultStore` 和 `PilotAccessService` 已支持按项目/研究列出结果索引；Streamlit 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引，并可加载下载已落盘的 summary / portfolio artifact；技术 summary 可 summary-only 恢复到当前会话，恢复时会带上已有 hourly artifact 和 input artifact 索引；同一 `study_id` 的技术汇总已恢复后，经济 summary 可恢复到当前会话，并同步恢复已保存的年度现金流和推荐席位输入，推荐 portfolio 也可 portfolio-only 恢复到当前会话。当前会话刚跑出的 summary-first 结果可按需补算单个方案明细，并把补算明细保存为默认 30 天过期的 hourly artifact；历史 summary-only 恢复如果已有 hourly artifact，可在图表/报告入口按网页查看权限加载；如果只有 input artifact、没有 hourly artifact，可在三条输入曲线未过期且 `config_snapshot` 带有 `curve_columns` 时重建 `TechnicalStudyInput` 并跨会话补算单方案明细。
 
 仍未落地：
-- 后台 worker / 队列 / 取消闭环；
-- 技术仿真历史 summary-only 结果基于受控 input artifact 的后台 Job 化补算动作；
+- 常驻后台 worker / 正式队列 / worker 级取消重试闭环；
+- 技术仿真历史 summary-only 结果基于受控 input artifact 的后台补算已能排队并由 one-shot worker 执行，但仍缺自动轮询、完成提示和常驻执行器；
 - 推荐视角选择/重新排序状态、PNG/Excel/批量导出包、完整报告产物写入 `ResultStore`；
 - 完整项目级任务状态页仍需继续扩展为真正 worker 轮询/重试/取消页面；当前已有项目内任务状态明细。推荐结果重新排序工作台恢复和跨项目搜索仍未落地；结果索引标记/置顶和软删除已有第一版，但仍不是完整历史结果管理页；
 - SQLite/Postgres 或对象存储适配、跨进程并发锁、备份和部署 runbook；本地 JSON 写入已有原子替换，但仍不是数据库事务。
 
 下一阶段建议：
 1. 先把当前任务状态明细升级为真正 worker 轮询/重试/取消页面，并完善结果历史恢复/下载页，让用户可以在项目内找回已完成测算；
-2. 再把基于 input artifact 的逐小时明细补算升级为后台 Job，并把 summary-only 经济运行的按需年度现金流生成纳入 Job 链路；
+2. 再把按需逐小时明细的后台排队入口补成完整体验：常驻 worker 自动认领、前台轮询、完成后自动加载 hourly artifact，并把 summary-only 经济运行的按需年度现金流生成纳入 Job 链路；
 3. 最后把剩余图表包和报告导出统一变成项目级 artifacts，并接入后台 worker。

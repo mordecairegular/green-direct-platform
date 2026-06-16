@@ -76,12 +76,13 @@
 - 技术仿真完成后已能在启用内部试用登录和当前项目时登记项目级同步 `Job`，并把 `technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord` 写入 `LocalResultStore`；经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio、按需补算的单方案逐小时明细、HTML 图表包和 Markdown 报告也已接入第一阶段项目级写入；PNG/Excel/批量包、完整报告和导出后台任务化仍待迁移。
 - Streamlit 欢迎页已新增“项目任务与结果”面板，可查看当前项目任务数、已保存结果数、最近任务和最近结果索引；已落盘的技术 summary、经济 summary、年度现金流、推荐席位输入、推荐 portfolio/detail 等 artifact 可加载下载；技术 summary 已支持 summary-only 恢复到当前会话，并保留已有 hourly artifact 和 input artifact 索引用于后续图表/报告入口加载或补算；同一 `study_id` 的技术 summary 已恢复后，经济结果可恢复 summary、已保存年度现金流和推荐席位输入，推荐 portfolio 可 portfolio-only 恢复到当前会话；项目 admin 可标记/置顶历史结果索引，也可软删除/隐藏历史结果索引并写审计，但不物理删除 artifact。当前仍不恢复推荐视角选择或重新排序工作台状态，完整历史结果恢复和后台任务状态页仍待实现。
 - Streamlit 欢迎页“项目任务与结果”面板已新增第一版“排队/运行中任务”区和“任务状态明细”区，可筛出当前项目活动任务，展示 worker/heartbeat/stale 元数据，并按项目角色允许 analyst 取消自己任务、admin 取消项目任务；取消动作仍通过 `PilotAccessService.cancel_job()` 做后端权限校验和审计。该入口只是任务状态控制面板第一步，还不是真正 worker 级资源中断、重试或排队系统。
+- 推荐页、图表概览页和导出/报告页缺少单方案逐小时明细时，已可在当前项目结果保存 `technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact 的前提下提交 `technical_study/hourly_detail` 后台 queued job；当前 UI 只排队，不自动启动 worker，不轮询完成状态，当前会话仍有 `TechnicalStudyInput` 时保留同步补算按钮。
 
 后续方向：
 
 - 大批量模式继续补 worker 级后台进度/取消闭环和性能基准记录；当前前台预计耗时、大任务确认、项目任务状态明细和 job 输入 artifact 引用契约已是第一版粗略护栏，后续可用服务器实测数据校准。
-- 把当前 Streamlit 同步单方案逐小时明细补算入口升级为项目级后台任务；历史 summary-only 恢复后的 input artifact 补算已有 one-shot worker 执行器，但 UI 还没有在缺少 hourly artifact 时提交后台 job，也没有轮询结果。
-- 用户选择代表方案、图表方案或导出方案后，已有项目级 hourly artifact 已可优先加载；下一步是没有 artifact 时调用 `queue_job_with_input_artifact()` 提交后台按需补算任务，再由 `execute_next_worker_job()` / 常驻 worker 读取 `Job.input_artifact_ids` 执行并写回 hourly artifact。
+- 继续补按需逐小时明细后台闭环：当前 UI 已能提交 `queue_job_with_input_artifact()` 后台按需补算任务，`execute_next_worker_job()` / `pilot-admin run-worker-once` 已能读取 `Job.input_artifact_ids` 执行并写回 hourly artifact；下一步是常驻 worker、前台轮询/完成后自动加载、worker 级取消和失败重试。
+- 用户选择代表方案、图表方案或导出方案后，已有项目级 hourly artifact 已可优先加载；没有 artifact 时可先排队补算，但正式内测仍需要把任务完成提示、刷新策略和历史结果恢复体验打磨成闭环。
 - 下一阶段把完整历史结果恢复、推荐视角选择与重新排序工作台状态、PNG/Excel/批量包、完整报告导出也提交为项目级后台 `Job`，并把对应 hourly/chart/report/export artifacts 写入 `ResultStore`；summary-only 经济运行如需后补年度现金流，应作为按需 Job 生成。
 - 技术仿真已完成当前进程内 `ProcessPoolExecutor` 按方案块并行；下一步评估后台任务队列时继续沿用块级调度，保持 `scenario_id`、warning、error 和顺序稳定。
 - 经济性测算继续做 DataFrame/NumPy 批量化和后台 Job 化；完整年度现金流已可先只对报告方案、推荐组合或用户指定方案生成。

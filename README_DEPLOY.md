@@ -292,7 +292,7 @@ http://127.0.0.1:8503/_stcore/health
 
 当前 Docker 部署包解决的是“可标准化启动和持久化本地 store”。尚未完成：
 
-- 常驻后台 worker / 正式队列 / worker 级取消 / 重试；当前仅有按需 hourly detail 的 one-shot worker；
+- 常驻后台 worker / 正式队列 / worker 级取消 / 重试；当前仅有按需 hourly detail 的 queued job 提交入口和 one-shot worker；
 - SQLite/Postgres 或对象存储适配；
 - 原始上传文件、逐小时明细、图表包和报告导出的完整 artifact 留存；
 - 集中日志、监控告警、CI/CD 和自动化恢复演练；

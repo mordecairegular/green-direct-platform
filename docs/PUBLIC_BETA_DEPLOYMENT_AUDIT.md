@@ -18,7 +18,7 @@
 - 导出页已可将所选方案 HTML 图表包和简版 Markdown 报告显式保存为项目级 `chart_package` / `report` artifact，登记 `chart_export` / `report_export` Job，并写入 `STORE_ARTIFACT` 审计；
 - 当前 06 导出页的临时下载按钮已接入 `PilotAccessService.record_transient_export_download()`，点击 CSV/Excel/ZIP/Markdown 下载会复用项目导出权限并写 `DOWNLOAD_ARTIFACT` 审计；
 - 上传文件类型/大小校验和 hash 元数据；
-- 大方案池 summary-first、计算前粗略耗时提示、大批量确认、单次方案数硬上限、可选并行和并行方案块提交、当前会话单方案逐小时明细补算、hourly artifact 留存、已有 hourly artifact 跨会话加载，以及基于三条 input artifact 的跨会话单方案明细补算第一版；
+- 大方案池 summary-first、计算前粗略耗时提示、大批量确认、单次方案数硬上限、可选并行和并行方案块提交、当前会话单方案逐小时明细补算、hourly artifact 留存、已有 hourly artifact 跨会话加载，以及基于三条 input artifact 的跨会话单方案明细同步补算 / 后台排队补算第一版；
 - 欢迎页项目任务与结果面板、项目 admin 结果索引标记/隐藏入口，以及排队/运行中任务的最小查看和取消入口；
 - `.env.example`、内部部署 runbook、pilot store 备份/恢复脚本。
 - Dockerfile、docker-compose.yml、README_DEPLOY.md、SECURITY.md 第一版。
@@ -29,8 +29,8 @@
 - Docker 部署包仍是本地文件 store 版，缺少正式系统服务托管、日志轮转、监控告警和安全扫描；
 - HTTPS/反向代理已有文档样例，但仍未经过目标服务器实机演练；
 - 技术仿真三条输入曲线已能随技术结果保存为 input artifact，历史 summary-only 结果可在 input artifact 未过期且 `config_snapshot` 带有 `curve_columns` 时恢复 `TechnicalStudyInput` 并补算单方案逐小时明细；HTML 图表包和 Markdown 报告已有显式保存第一版，但 PNG/Excel/批量包、价格曲线、完整报告和未来 API/反向代理下载尚未完整进入项目/Run 级 artifact 留存闭环；
-- input artifact 补算仍是 Streamlit 进程内同步动作，不是后台 Job；旧结果若缺少 `curve_columns` 或 input artifact 已清理，只能查看 summary 或已有 hourly artifact；
-- 计算仍主要在 Streamlit 进程内同步执行；已有活动任务查看/取消入口、worker 认领原语和第一条按需 hourly detail one-shot worker，但没有常驻后台 worker、跨进程队列锁、worker 级取消和重试闭环；
+- input artifact 补算已有 Streamlit 同步 fallback 和后台 queued job 提交入口，one-shot worker 也能执行该类任务；但没有常驻 worker、自动轮询、完成后自动加载或 worker 级取消重试闭环；旧结果若缺少 `curve_columns` 或 input artifact 已清理，只能查看 summary 或已有 hourly artifact；
+- 计算仍主要在 Streamlit 进程内同步执行；已有活动任务查看/取消入口、worker 认领原语、按需 hourly detail queued job 入口和第一条 one-shot worker，但没有常驻后台 worker、跨进程队列锁、worker 级取消和重试闭环；
 - 本地 JSON 文件 store 已通过临时文件原子替换降低半写损坏风险，但仍没有数据库事务、跨进程锁和并发冲突处理。
 
 ## 2. P0 审计矩阵
@@ -42,9 +42,9 @@
 | 用户只能访问授权项目 | 第一版满足 | `PilotAccessService.list_accessible_projects()` 和项目工作区门禁 | 未来 API/下载入口必须复用同一门面 | 禁止 UI 直接绕过 `PilotAccessService` |
 | 不可导出用户不能导出 | 第一版满足 | `ProjectMembership.can_export_artifacts`、`read_artifact_payload()` 下载审计；当前 06 页临时下载走 `record_transient_export_download()`；网页查看走 `read_artifact_payload_for_view()` | 仍需保证未来 API、反向代理下载和对象存储签名 URL 不绕过服务门面 | 所有下载/导出统一走后端授权服务 |
 | 上传文件类型/大小限制 | 第一版满足 | `UploadPolicy`，默认 20MB，CSV/XLSX/XLSM 白名单；技术三曲线随技术结果写入 `ArtifactKind.INPUT_CURVE` | 价格曲线、schema 报告和原始输入清理调度仍未闭环 | 增加 schema 报告、定时清理和关键 Run 保留 |
-| 单次方案数限流 | 第一版满足 | `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN`、`PerformanceParams.max_scenarios_per_run`、02 页超限提示、大批量确认和 `run_batch()` 后端拒绝 | 粗略耗时模型仍需目标服务器实测校准；已有项目任务状态明细、活动任务取消入口、worker 认领/heartbeat/终态原语、按需 hourly detail one-shot worker、`pilot-admin run-worker-once`、`claim-next-job`、`heartbeat-job`、`complete-worker-job`、`fail-worker-job`、`list-jobs` 和 stale running 置失败命令，但仍缺常驻 worker、worker 级取消和排队锁 | 继续补后台进度、worker 取消和任务队列 |
+| 单次方案数限流 | 第一版满足 | `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN`、`PerformanceParams.max_scenarios_per_run`、02 页超限提示、大批量确认和 `run_batch()` 后端拒绝 | 粗略耗时模型仍需目标服务器实测校准；已有项目任务状态明细、活动任务取消入口、worker 认领/heartbeat/终态原语、按需 hourly detail queued job 入口、one-shot worker、`pilot-admin run-worker-once`、`claim-next-job`、`heartbeat-job`、`complete-worker-job`、`fail-worker-job`、`list-jobs` 和 stale running 置失败命令，但仍缺常驻 worker、worker 级取消和排队锁 | 继续补后台进度、worker 取消和任务队列 |
 | 项目/Run/参数/结果摘要留存 | 部分满足 | 技术/经济/推荐 summary、推荐席位输入、已保留的经济年度现金流与按需 hourly artifact 已写 `ResultStore`；HTML 图表包和 Markdown 报告可显式保存为 `chart_package` / `report` artifact；技术 summary、经济 summary、年度现金流、推荐席位输入和推荐 portfolio 可恢复到当前会话；项目 admin 可标记/置顶、软删除/隐藏结果索引并写审计 | 推荐视角选择/重新排序工作台状态、PNG/Excel/批量导出包和完整报告未完整持久化；summary-only 经济运行不会凭空恢复未保留现金流 | 按 `StudyResultRecord` 串联完整结果索引并补剩余 chart/report/export artifacts |
-| 原始文件、逐小时明细、导出文件留存和清理 | 部分满足 | 当前有 artifact payload 过期清理；技术三曲线 input artifact 与按需 hourly artifact 默认 30 天过期；HTML 图表包和 Markdown 报告默认 7 天过期；已有 hourly artifact 可跨会话加载，缺明细的历史 summary-only 可在 input artifact 可用时恢复输入并补算单方案明细 | 补算与导出保存仍是同步动作；价格曲线、PNG/Excel/批量包未完整 artifact 化；旧结果缺 `curve_columns` 时不能恢复输入 | 把按需补算升级为 Job，并补剩余 cashflow/chart/report/export artifacts |
+| 原始文件、逐小时明细、导出文件留存和清理 | 部分满足 | 当前有 artifact payload 过期清理；技术三曲线 input artifact 与按需 hourly artifact 默认 30 天过期；HTML 图表包和 Markdown 报告默认 7 天过期；已有 hourly artifact 可跨会话加载，缺明细的历史 summary-only 可在 input artifact 可用时恢复输入并同步补算或提交后台 queued job | 按需补算仍缺常驻 worker、自动轮询和完成后自动加载；价格曲线、PNG/Excel/批量包未完整 artifact 化；旧结果缺 `curve_columns` 时不能恢复输入 | 把按需补算补成完整 worker 闭环，并补剩余 cashflow/chart/report/export artifacts |
 | 关键操作审计日志 | 部分满足 | 登录、项目、成员、任务、stale running 任务置失败、artifact 写入/网页查看/下载/清理、结果索引标记和软删除、当前 06 页临时导出下载已审计；`pilot-admin list-audit-events` 可抽查全局或指定项目审计 | 仍缺正式审计后台、跨项目聚合搜索、原始文件查看审计、未来 API/反向代理下载审计兜底 | 扩充 `AuditAction` 覆盖面，并在正式后台中提供审计查询 |
 | Docker 可部署 | 第一版满足 | `Dockerfile`、`docker-compose.yml`、`README_DEPLOY.md`、`render.yaml`、`docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md` | 尚未在目标托管平台完成构建/启动/恢复演练；持久盘、套餐、区域和备份能力需在平台控制台确认 | 实机运行 `docker compose build/up` 或 Render Blueprint 部署，并完成数据卷恢复演练 |
 | HTTPS/反向代理/备份/恢复/回滚说明 | 部分满足 | 内部 runbook、PowerShell 备份/恢复脚本、`README_DEPLOY.md` | 缺少系统服务托管、集中日志、监控告警和自动恢复演练 | 在目标服务器补 Caddy/Nginx 配置、日志和监控 |

@@ -60,19 +60,19 @@ $env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
 ### P0：公网生产阻塞
 
 1. Streamlit 主 UI 已有可选登录门禁、最小项目工作区门禁和平台账号/项目成员管理页，但还不是正式权限系统。
-   设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，未登录用户不能进入六步工作流；登录用户必须先创建或选择有效项目；切换项目会清理当前测算结果和下载缓存；平台管理员可在“平台管理”中创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并维护项目成员角色。技术仿真 summary/config snapshot/input curves、经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio、HTML 图表包和 Markdown 报告已能写入项目级 `ResultStore`，欢迎页也能展示项目最近任务/结果索引、任务状态明细、加载下载已落盘 artifact，并把技术 summary-only 恢复为当前会话结果；同一 `study_id` 的技术 summary 已恢复后，也可把经济 summary、已保留年度现金流和推荐席位输入恢复为当前会话内的经济结果，把推荐 portfolio 恢复为当前会话内的推荐结果；图表/报告入口可加载已有 hourly artifact，或在 input artifact 未过期且快照包含 `curve_columns` 时重建 `TechnicalStudyInput` 并补算单方案明细。但正式上线前仍必须接入更正式的会话/数据库适配、CSRF/反向代理安全边界，并继续迁移完整历史结果恢复、推荐视角选择/重新排序工作台状态、PNG/Excel/批量包、完整报告和后台导出任务持久化。
+   设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，未登录用户不能进入六步工作流；登录用户必须先创建或选择有效项目；切换项目会清理当前测算结果和下载缓存；平台管理员可在“平台管理”中创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并维护项目成员角色。技术仿真 summary/config snapshot/input curves、经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio、HTML 图表包和 Markdown 报告已能写入项目级 `ResultStore`，欢迎页也能展示项目最近任务/结果索引、任务状态明细、加载下载已落盘 artifact，并把技术 summary-only 恢复为当前会话结果；同一 `study_id` 的技术 summary 已恢复后，也可把经济 summary、已保留年度现金流和推荐席位输入恢复为当前会话内的经济结果，把推荐 portfolio 恢复为当前会话内的推荐结果；图表/报告入口可加载已有 hourly artifact，或在 input artifact 未过期且快照包含 `curve_columns` 时提交后台 queued job / 同步补算单方案明细。但正式上线前仍必须接入更正式的会话/数据库适配、CSRF/反向代理安全边界，并继续迁移完整历史结果恢复、推荐视角选择/重新排序工作台状态、PNG/Excel/批量包、完整报告和后台导出任务持久化。
 
 2. 可导出/不可导出用户权限已有第一版 membership 授权位，但仍不是正式下载服务。
    `ProjectMembership.can_export_artifacts` 已能独立于项目角色控制 artifact payload 读取，最小平台管理页也可维护该字段；欢迎页历史产物下载和 06 导出页会在禁止导出时拦截，`PilotAccessService.read_artifact_payload()` 会对已落盘 artifact 的成功和拒绝下载尝试写入审计；06 页尚未落盘的 CSV/Excel/ZIP/Markdown 临时下载按钮已接入 `record_transient_export_download()`，复用项目导出权限并写 `DOWNLOAD_ARTIFACT` 审计；HTML 图表包和 Markdown 报告保存动作还要求项目提交 Job 权限。受控公网内测前仍需把未来 API、数据库适配、反向代理下载入口和对象存储签名 URL 全部接到同一授权策略。
 
 3. 没有正式后台任务队列和常驻 worker。
-   当前重计算仍主要发生在 Streamlit 进程内，PNG ZIP 使用进程内后台线程，技术/经济/推荐 Job 也是计算完成后的同步状态登记。`LocalJobStore` 已有任务状态契约、`input_artifact_ids` 输入引用、worker/heartbeat 字段、stale running 恢复和 queued job 认领原语；`queue_job_with_input_artifact()` 已可把一次后台任务请求 payload 保存为 `ArtifactKind.JOB_INPUT` 后再提交 queued job；`execute_next_worker_job()` / `pilot-admin run-worker-once` 已能执行第一条 `technical_study` + `hourly_detail` one-shot worker 链路，读取 `job_payload`、summary/config/input curves，补算单方案逐小时明细并写回 `ArtifactKind.HOURLY_DETAIL`。但这仍不是常驻 worker daemon 或正式队列。多人同时大算例时仍缺少跨进程队列锁、worker 级取消、限流、重试、资源回收，以及技术全量仿真/经济性/推荐/导出的后台化。
+   当前重计算仍主要发生在 Streamlit 进程内，PNG ZIP 使用进程内后台线程，技术/经济/推荐 Job 也是计算完成后的同步状态登记。`LocalJobStore` 已有任务状态契约、`input_artifact_ids` 输入引用、worker/heartbeat 字段、stale running 恢复和 queued job 认领原语；`queue_job_with_input_artifact()` 已可把一次后台任务请求 payload 保存为 `ArtifactKind.JOB_INPUT` 后再提交 queued job；Streamlit 缺少单方案明细时已可提交 `technical_study/hourly_detail` queued job；`execute_next_worker_job()` / `pilot-admin run-worker-once` 已能执行第一条 one-shot worker 链路，读取 `job_payload`、summary/config/input curves，补算单方案逐小时明细并写回 `ArtifactKind.HOURLY_DETAIL`。但这仍不是常驻 worker daemon 或正式队列，前台也不会自动轮询完成状态。多人同时大算例时仍缺少跨进程队列锁、worker 级取消、限流、重试、资源回收，以及技术全量仿真/经济性/推荐/导出的后台化。
 
 4. 本地 JSON 文件 store 没有事务、锁和备份策略。
    账号、会话、任务和结果服务适合作为 pilot 语义骨架，但不是正式数据库。并发写入、磁盘损坏、机器迁移和权限隔离都需要 SQLite/Postgres 或对象存储适配器解决。
 
 5. 上传文件已有第一层类型/大小门禁，技术三曲线 input artifact 与 artifact payload 过期清理已有第一版，但数据留存仍未达到公网内测级闭环。
-   Streamlit 上传入口已限制允许后缀和默认 20MB 单文件大小，技术仿真配置快照会记录上传文件名、大小和 SHA256；技术三曲线会在项目结果保存时写入默认 30 天过期的 `ArtifactKind.INPUT_CURVE`，并支持历史 summary-only 恢复后的单方案明细补算；已保留年度现金流会写入 `ArtifactKind.ANNUAL_CASHFLOW` ZIP；HTML 图表包和 Markdown 报告可显式保存为默认 7 天过期的导出 artifact；`JobArtifact` 已能记录 `retention_policy`、`expires_at`、`purged_at`，`pilot-admin purge-expired-artifacts` 可由平台管理员清理到期 payload 并写入 `DELETE_ARTIFACT` 审计。但仍需要覆盖价格曲线、PNG/Excel/批量包和完整报告文件，避免普通日志记录原始曲线或服务器内部路径，并实现关键 Run 保留机制和定时调度。
+   Streamlit 上传入口已限制允许后缀和默认 20MB 单文件大小，技术仿真配置快照会记录上传文件名、大小和 SHA256；技术三曲线会在项目结果保存时写入默认 30 天过期的 `ArtifactKind.INPUT_CURVE`，并支持历史 summary-only 恢复后的单方案明细同步补算或后台排队补算；已保留年度现金流会写入 `ArtifactKind.ANNUAL_CASHFLOW` ZIP；HTML 图表包和 Markdown 报告可显式保存为默认 7 天过期的导出 artifact；`JobArtifact` 已能记录 `retention_policy`、`expires_at`、`purged_at`，`pilot-admin purge-expired-artifacts` 可由平台管理员清理到期 payload 并写入 `DELETE_ARTIFACT` 审计。但仍需要覆盖价格曲线、PNG/Excel/批量包和完整报告文件，避免普通日志记录原始曲线或服务器内部路径，并实现关键 Run 保留机制和定时调度。
 
 6. 部署策略已补内部试用 runbook，但仍不是完整生产部署。
    当前已有 `.env.example`、`docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md`、`scripts/backup_pilot_store.ps1` 和 `scripts/restore_pilot_store.ps1`，可覆盖环境变量、首个管理员、启动、备份、恢复、清理、冒烟和回滚边界；但仍缺系统服务守护、集中日志、监控告警、HTTPS/反向代理样例、CI/CD、健康检查和自动化恢复演练。

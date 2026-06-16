@@ -1994,7 +1994,11 @@ def test_append_hourly_detail_persists_pilot_artifact(tmp_path, monkeypatch):
             }
 
     dummy = DummyStreamlit()
-    persisted_technical = app._persist_pilot_technical_result_if_enabled(dummy, technical_result)
+    persisted_technical = app._persist_pilot_technical_result_if_enabled(
+        dummy,
+        technical_result,
+        technical_input=technical_input,
+    )
     dummy.session_state["study_result"] = app._study_result_with_pilot_refs(
         StudyResult.from_technical(technical_result),
         persisted_technical,
@@ -2028,6 +2032,110 @@ def test_append_hourly_detail_persists_pilot_artifact(tmp_path, monkeypatch):
         "hourly_detail_S0002"
     )
     assert app.PILOT_RESULT_STORE_NOTICE_KEY in dummy.session_state
+
+
+def test_queue_hourly_detail_job_uses_saved_project_artifacts(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.batch.batch_runner import BatchResult
+    from green_direct.models.diagnostics import InputDiagnostics
+    from green_direct.models.pilot_backend import ArtifactKind, JobStatus, Project, User
+    from green_direct.services import StudyResult, TechnicalStudyInput, TechnicalStudyResult
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+
+    access = app._pilot_access_service()
+    access.registry.save_user(User("admin", "admin@example.local", "Admin"))
+    project = access.create_project(
+        actor_user_id="admin",
+        project=Project("project_1", "Internal pilot project"),
+    )
+    summary = pd.DataFrame(
+        {
+            "scenario_id": ["S0002"],
+            "pv_capacity": [1.0],
+            "wind_capacity": [0.0],
+            "bess_power": [0.0],
+            "bess_energy": [0.0],
+        }
+    )
+    batch_result = BatchResult(
+        summary=summary,
+        hourly_details={},
+        errors=pd.DataFrame(),
+        warnings=[],
+        scenario_count=1,
+    )
+    technical_result = TechnicalStudyResult(
+        study_id="study-ui-worker",
+        batch_result=batch_result,
+        input_diagnostics=InputDiagnostics(),
+        config_snapshot={
+            "study_id": "study-ui-worker",
+            "curve_columns": {
+                "load": {"time_col": "time", "value_col": "load"},
+                "pv": {"time_col": "time", "value_col": "pv"},
+                "wind": {"time_col": "time", "value_col": "wind"},
+            },
+        },
+    )
+    technical_input = TechnicalStudyInput(
+        load_source=b"time,load\n2026-01-01 00:00:00,1\n",
+        pv_source=b"time,pv\n2026-01-01 00:00:00,0\n",
+        wind_source=b"time,wind\n2026-01-01 00:00:00,0\n",
+        load_time_col="time",
+        load_value_col="load",
+        pv_time_col="time",
+        pv_value_col="pv",
+        wind_time_col="time",
+        wind_value_col="wind",
+        scenario_grid={},
+    )
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.PILOT_USER_ID_KEY: "admin",
+                app.PILOT_ACTIVE_PROJECT_ID_KEY: project.project_id,
+                app.PILOT_ACTIVE_PROJECT_ROLE_KEY: "admin",
+                app.TECHNICAL_STUDY_INPUT_KEY: technical_input,
+                "batch_result": batch_result,
+            }
+
+    dummy = DummyStreamlit()
+    persisted_technical = app._persist_pilot_technical_result_if_enabled(
+        dummy,
+        technical_result,
+        technical_input=technical_input,
+    )
+    dummy.session_state["study_result"] = app._study_result_with_pilot_refs(
+        StudyResult.from_technical(technical_result),
+        persisted_technical,
+    )
+
+    job = app._queue_pilot_hourly_detail_job_if_enabled(dummy, "S0002")
+
+    assert job is not None
+    assert job.status == JobStatus.QUEUED
+    assert job.job_type.value == "technical_study"
+    assert job.progress_message == "hourly detail queued: S0002"
+    assert job.input_artifact_ids["technical_summary"] == "technical_summary"
+    assert job.input_artifact_ids["config_snapshot"] == "config_snapshot"
+    assert job.input_artifact_ids["input_curve_load"] == "input_curve_load"
+    payload_artifact = access.result_store.load_artifact(
+        project.project_id,
+        "study-ui-worker",
+        job.input_artifact_ids["job_payload"],
+    )
+    payload = json.loads(access.result_store.read_artifact_payload(payload_artifact).decode("utf-8"))
+    assert payload_artifact.kind == ArtifactKind.JOB_INPUT
+    assert payload == {
+        "task": "hourly_detail",
+        "scenario_id": "S0002",
+        "technical_result_id": "technical_result",
+        "retention_days": 30,
+    }
+    assert "后台逐小时明细补算任务" in dummy.session_state[app.PILOT_RESULT_STORE_NOTICE_KEY]
 
 
 def test_partial_hourly_retention_clears_price_curve():
