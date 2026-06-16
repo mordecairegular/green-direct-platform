@@ -5029,3 +5029,17 @@ benchmark：
 边界：
 - 本轮只改协作提示词和交接文档，不改正式 UI 代码；
 - 后续真正 UI 代码改动仍应基于浏览器截图/复现路径，并运行 `python -m pytest -q` 和六页浏览器检查。
+
+### 2026-06-16 公网试用部署前本地闸门复核
+
+本轮继续围绕“同事用移动网络访问试用”的真实上线链路做本地复核。此前已经形成 Render/Cloudflare 路线、移动网络试用清单、本地 preflight、Streamlit smoke 和 GitHub Actions 质量门；本轮重点确认当前 checkpoint 是否已经满足“可以推到 GitHub 后触发托管部署”的本地前置条件。
+
+结果：
+- `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 通过，`failed_count=0`，包含部署文件、Docker/compose/Render 环境、安全默认值、持久盘、`.dockerignore` 和 `smoke:streamlit` 检查；
+- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 按预期失败，唯一失败项是 `git:sync`：当前 `codex/UI` 相对 `origin/codex/UI` ahead 88、behind 0；
+- 这说明本地部署入口与健康检查可用，但 GitHub/Render 尚拿不到这 88 个本地提交。
+
+下一步：
+- 经用户确认后推送 `codex/UI` 到私有 GitHub；
+- 等 GitHub Actions `Internal Pilot Quality Gate` 通过，首次部署或重要回滚前手动触发并勾选 `run_smoke`；
+- 再按 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 执行 Render Blueprint、平台管理员初始化、Cloudflare Access 和手机移动网络访问验收。
