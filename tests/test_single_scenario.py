@@ -190,6 +190,44 @@ def test_summary_only_mode_matches_full_hourly_summary_without_ledger_retention(
             assert actual == expected, key
 
 
+def test_no_bess_summary_only_fast_path_matches_full_hourly_summary(monkeypatch):
+    curves = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2020-01-01", periods=5, freq="h"),
+            "load_power": [10, 0, 20, 5, 8],
+            "pv_pu": [2.0, 3.0, 0.0, -0.2, 0.5],
+            "wind_pu": [0.0, 1.0, 0.0, 0.4, -0.1],
+        }
+    )
+    scenario = Scenario("S_NO_BESS", pv_capacity=10, wind_capacity=5, bess_power=0, bess_energy=0)
+    policy_params = PolicyParams(allow_export=True, export_rate_max=0.25, grid_exchange_power_limit=15)
+
+    full = run_single_scenario(curves, scenario, policy_params=policy_params)
+
+    def fail_dispatch(*args, **kwargs):
+        raise AssertionError("No-BESS summary-only path should not call per-hour dispatch")
+
+    monkeypatch.setattr(
+        "green_direct.core.single_scenario_simulator.dispatch_hour_values_with_limits",
+        fail_dispatch,
+    )
+    summary_only = run_single_scenario(
+        curves,
+        scenario,
+        policy_params=policy_params,
+        retain_hourly_detail=False,
+    )
+
+    assert summary_only.hourly_detail.empty
+    assert summary_only.summary.keys() == full.summary.keys()
+    for key, expected in full.summary.items():
+        actual = summary_only.summary[key]
+        if isinstance(expected, float):
+            assert actual == pytest.approx(expected), key
+        else:
+            assert actual == expected, key
+
+
 def test_case_11_load_side_self_use_consistency():
     result = _run(
         [10, 20, 10],

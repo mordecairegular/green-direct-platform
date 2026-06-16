@@ -5431,3 +5431,31 @@ profile / benchmark：
 - `python -m compileall -q scripts\preflight_internal_pilot_deploy.py tests\test_deployment_artifacts.py` 通过；
 - `python -m pytest -q` 通过，379 项通过；
 - `git diff --check` 通过，仅有 Windows 换行转换提示。
+
+### 2026-06-17 无储能 summary-only 技术仿真快路径
+
+本轮继续处理用户反复提到的“大方案池逐个计算等待很久”问题。前序已完成方案数轴计数、summary-first、并行分块和单方案 dispatch 热路径优化；本轮针对一个很常见且安全的子集继续提速：无储能方案没有 SOC 滚动状态，在 `retain_hourly_detail=False` 时不需要逐小时调用 dispatch 函数，也不需要构造 hourly ledger。
+
+实现：
+- `run_single_scenario()` 在 `bess_power=0` 或 `bess_energy=0` 且不保留逐小时明细时，进入 `_run_no_bess_summary_only()`；
+- 快路径用 NumPy 数组一次性计算正负光伏/风电、站用电、直供、下网、上网、弃电、年上网比例 cap、交换功率限额和缺口汇总；
+- 结果仍复用 `calculate_summary_from_values()` 生成 summary，保持政策判断、比例、弃电、年等效循环等字段口径一致；
+- 新增测试用年上网比例 cap、负光伏站用电、风电抵消站用电和电网交换限额组合场景，对比完整 hourly 模式与 summary-only 快路径，并 monkeypatch 逐小时 dispatch 证明快路径确实不再调用 per-hour dispatch。
+
+边界：
+- 仅覆盖无储能 summary-only 分支；有储能方案仍按小时滚动 SOC，完整逐小时明细仍走原 ledger 构造路径；
+- 不改变 V0.1 技术调度口径、经济性 V1、推荐排序或 UI 工作流；
+- 混合方案池收益取决于无储能方案占比和明细保留数量；大批量 summary-first 且保留明细少时收益更明显。
+
+小基准：
+- 混合样本：`python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 6 --wind-count 6 --bess-power-count 3 --durations 0,2 --skip-full-retention --json`，技术 summary-first 从本轮前约 1.7635s 到约 1.6219s；
+- 无储能、保留 20 个明细样本：`--bess-power-count 1 --durations 0 --skip-full-retention --json`，技术 summary-first 约 0.3967s；
+- 无储能、不保留明细样本：`--bess-power-count 1 --durations 0 --retain-detail-count 0 --skip-full-retention --json`，技术 summary-first 约 0.0586s。
+
+验证：
+- `python -m pytest tests\test_single_scenario.py -q` 通过，34 项通过；
+- `python -m pytest tests\test_batch_runner.py tests\test_study_runner.py -q` 通过，28 项通过；
+- `python -m compileall -q src\green_direct\core\single_scenario_simulator.py tests\test_single_scenario.py` 通过；
+- `python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 4 --wind-count 4 --bess-power-count 2 --durations 0,2 --skip-full-retention --json` 通过，30 个方案技术 summary-first 约 0.5641s，经济性 summary-only 约 0.0938s；
+- `python -m pytest -q` 通过，380 项通过；
+- `git diff --check` 通过，仅有 Windows 换行转换提示。
