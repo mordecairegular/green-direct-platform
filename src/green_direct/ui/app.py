@@ -2045,6 +2045,12 @@ def _study_result_with_pilot_economy_refs(study_result: StudyResult, persisted) 
         "recommendation_input_artifact_id": persisted.recommendation_input_artifact.artifact_id,
         "economy_input_fingerprint": persisted.input_fingerprint,
     }
+    if persisted.power_annual_cashflow_artifact is not None:
+        refs["power_annual_cashflow_artifact_id"] = persisted.power_annual_cashflow_artifact.artifact_id
+    if persisted.single_entity_annual_cashflow_artifact is not None:
+        refs["single_entity_annual_cashflow_artifact_id"] = (
+            persisted.single_entity_annual_cashflow_artifact.artifact_id
+        )
     return replace(study_result, result_store_refs=refs)
 
 
@@ -2340,6 +2346,8 @@ def _pilot_result_record_kind(record: StudyResultRecord) -> str:
         return "technical"
     if record.report_artifact_ids:
         return "report"
+    if record.annual_cashflow_artifact_ids:
+        return "annual_cashflow"
     if record.hourly_detail_artifact_ids:
         return "hourly_detail"
     return "result"
@@ -2354,7 +2362,12 @@ def _pilot_result_artifact_count(record: StudyResultRecord) -> int:
         record.recommendation_artifact_id,
     ]
     direct_artifact_count = sum(1 for artifact_id in artifact_ids if artifact_id)
-    return direct_artifact_count + len(record.hourly_detail_artifact_ids) + len(record.report_artifact_ids)
+    return (
+        direct_artifact_count
+        + len(record.annual_cashflow_artifact_ids)
+        + len(record.hourly_detail_artifact_ids)
+        + len(record.report_artifact_ids)
+    )
 
 
 def _pilot_result_artifact_refs(record: StudyResultRecord) -> list[tuple[str, str]]:
@@ -2367,6 +2380,14 @@ def _pilot_result_artifact_refs(record: StudyResultRecord) -> list[tuple[str, st
         ("推荐组合", record.recommendation_artifact_id),
     ]
     refs.extend((label, artifact_id) for label, artifact_id in direct_refs if artifact_id)
+    cashflow_labels = {
+        "power": "电源侧年度现金流",
+        "single_entity": "同一主体年度现金流",
+    }
+    refs.extend(
+        (cashflow_labels.get(name, f"年度现金流 {name}"), artifact_id)
+        for name, artifact_id in sorted(record.annual_cashflow_artifact_ids.items())
+    )
     refs.extend(
         (f"逐小时明细 {scenario_id}", artifact_id)
         for scenario_id, artifact_id in sorted(record.hourly_detail_artifact_ids.items())
@@ -2482,6 +2503,22 @@ def _recommendation_input_snapshot_from_payload(payload: bytes) -> Recommendatio
         environmental_value_per_kwh=float(data.get("environmental_value_per_kwh", 0.0)),
         min_power_side_acceptable_firr=None if min_firr_value is None else float(min_firr_value),
     )
+
+
+def _annual_cashflows_from_zip_payload(payload: bytes) -> dict[str, pd.DataFrame]:
+    cashflows: dict[str, pd.DataFrame] = {}
+    with ZipFile(BytesIO(payload)) as archive:
+        for member in sorted(archive.namelist()):
+            if not member.endswith(".csv"):
+                continue
+            if "/" in member or "\\" in member or member.startswith("."):
+                raise ValueError("年度现金流 artifact 包含不安全的文件名。")
+            scenario_id = member[:-4]
+            if not scenario_id:
+                raise ValueError("年度现金流 artifact 缺少方案编号。")
+            with archive.open(member) as handle:
+                cashflows[scenario_id] = pd.read_csv(handle)
+    return cashflows
 
 
 def _pilot_restore_technical_summary_result(
@@ -2600,6 +2637,8 @@ def _pilot_restore_economy_summary_result(
 
     power_summary = pd.DataFrame()
     single_entity_summary = pd.DataFrame()
+    power_annual_cashflows: dict[str, pd.DataFrame] = {}
+    single_entity_annual_cashflows: dict[str, pd.DataFrame] = {}
     if record.economy_summary_artifact_id:
         power_download = _pilot_load_artifact_view(
             access,
@@ -2635,9 +2674,26 @@ def _pilot_restore_economy_summary_result(
             recommendation_input_download["payload"]
         )
 
+    for cashflow_key, artifact_id in sorted(record.annual_cashflow_artifact_ids.items()):
+        cashflow_download = _pilot_load_artifact_view(
+            access,
+            actor_user_id=actor_user_id,
+            record=record,
+            artifact_id=artifact_id,
+        )
+        if cashflow_download["kind"] != ArtifactKind.ANNUAL_CASHFLOW:
+            raise ValueError(f"Artifact {artifact_id} 不是年度现金流。")
+        restored_cashflows = _annual_cashflows_from_zip_payload(cashflow_download["payload"])
+        if cashflow_key == "power":
+            power_annual_cashflows = restored_cashflows
+        elif cashflow_key == "single_entity":
+            single_entity_annual_cashflows = restored_cashflows
+
     return {
         "power_summary": power_summary,
         "single_entity_summary": single_entity_summary,
+        "power_annual_cashflows": power_annual_cashflows,
+        "single_entity_annual_cashflows": single_entity_annual_cashflows,
         "recommendation_inputs": recommendation_inputs,
         "row_count": max(len(power_summary), len(single_entity_summary)),
     }
@@ -2664,9 +2720,11 @@ def _pilot_restore_economy_summary_to_session(
     )
     power_summary = restored["power_summary"]
     single_entity_summary = restored["single_entity_summary"]
+    power_annual_cashflows = restored.get("power_annual_cashflows") or {}
+    single_entity_annual_cashflows = restored.get("single_entity_annual_cashflows") or {}
     st.session_state["economy_v1_result"] = {
         "summary": power_summary,
-        "annual_cashflows": {},
+        "annual_cashflows": power_annual_cashflows,
         "price_mode": "restored_summary",
         "price_curve_summary": pd.DataFrame(),
         "price_curve_diagnostics": InputDiagnostics(),
@@ -2676,17 +2734,19 @@ def _pilot_restore_economy_summary_to_session(
             "study_id": record.study_id,
             "result_id": record.result_id,
             "summary_only": True,
+            "annual_cashflows_restored": bool(power_annual_cashflows),
         },
     }
     if isinstance(single_entity_summary, pd.DataFrame) and not single_entity_summary.empty:
         st.session_state["single_entity_economy_result"] = {
             "summary": single_entity_summary,
-            "annual_cashflows": {},
+            "annual_cashflows": single_entity_annual_cashflows,
             "restored_from_result_store": {
                 "project_id": record.project_id,
                 "study_id": record.study_id,
                 "result_id": record.result_id,
                 "summary_only": True,
+                "annual_cashflows_restored": bool(single_entity_annual_cashflows),
             },
         }
     else:
@@ -2711,12 +2771,23 @@ def _pilot_restore_economy_summary_to_session(
             refs["single_entity_summary_artifact_id"] = record.single_entity_summary_artifact_id
         if record.recommendation_input_artifact_id:
             refs["recommendation_input_artifact_id"] = record.recommendation_input_artifact_id
+        for name, artifact_id in sorted(record.annual_cashflow_artifact_ids.items()):
+            refs[f"{name}_annual_cashflow_artifact_id"] = artifact_id
         st.session_state["study_result"] = replace(study_result, result_store_refs=refs)
 
+    cashflow_restored = bool(power_annual_cashflows or single_entity_annual_cashflows)
     if isinstance(recommendation_inputs, RecommendationInputSnapshot):
-        restore_note = "这是 summary-only 恢复，不包含年度现金流；推荐席位输入已恢复，可进入推荐页重新生成/排序。"
+        restore_note = (
+            "年度现金流和推荐席位输入已恢复，可继续复核现金流或进入推荐页重新生成/排序。"
+            if cashflow_restored
+            else "这是 summary-only 恢复，不包含年度现金流；推荐席位输入已恢复，可进入推荐页重新生成/排序。"
+        )
     else:
-        restore_note = "这是 summary-only 恢复，不包含年度现金流和推荐排序输入；如需推荐页，请重新运行经济性测算。"
+        restore_note = (
+            "年度现金流已恢复；但该历史结果不包含推荐排序输入，如需推荐页，请重新运行经济性测算。"
+            if cashflow_restored
+            else "这是 summary-only 恢复，不包含年度现金流和推荐排序输入；如需推荐页，请重新运行经济性测算。"
+        )
     st.session_state["_economy_notice"] = f"已从项目历史恢复经济性汇总：{record.result_id}。{restore_note}"
     return restored
 
@@ -2895,7 +2966,7 @@ def _render_pilot_result_artifact_downloads(
                             raise
                     else:
                         st.rerun()
-                st.caption("恢复仅写入经济性 summary；年度现金流不会随之恢复，推荐席位输入若已保存会同步恢复。")
+                st.caption("恢复经济性 summary；年度现金流和推荐席位输入若已保存会同步恢复。")
             if record.recommendation_artifact_id:
                 restore_recommendation_key = (
                     f"pilot_history_restore_recommendation_{record.project_id}:{record.study_id}:{record.result_id}"

@@ -1,4 +1,6 @@
 import json
+from io import BytesIO
+from zipfile import ZipFile
 
 import pandas as pd
 import pytest
@@ -107,7 +109,15 @@ def _economic_result() -> EconomicStudyResult:
                 "fnpv": [12.5],
             }
         ),
-        power_annual_cashflows={},
+        power_annual_cashflows={
+            "S0001": pd.DataFrame(
+                {
+                    "scenario_id": ["S0001", "S0001"],
+                    "year": [0, 1],
+                    "net_cash_flow": [-100.0, 18.0],
+                }
+            )
+        },
         single_entity_summary=pd.DataFrame(
             {
                 "scenario_id": ["S0001"],
@@ -115,7 +125,15 @@ def _economic_result() -> EconomicStudyResult:
                 "annual_self_use_saving": [18.0],
             }
         ),
-        single_entity_annual_cashflows={},
+        single_entity_annual_cashflows={
+            "S0001": pd.DataFrame(
+                {
+                    "scenario_id": ["S0001", "S0001"],
+                    "year": [0, 1],
+                    "net_cash_flow": [-100.0, 22.0],
+                }
+            )
+        },
         recommendation_inputs=RecommendationInputSnapshot(
             economic_params=EconomicParams(),
             load_side_avoided_charge_price=0.50,
@@ -336,14 +354,25 @@ def test_persist_economic_study_result_writes_versioned_artifacts_and_record(tmp
     assert first.result_record.single_entity_summary_artifact_id == first.single_entity_summary_artifact.artifact_id
     assert first.result_record.recommendation_input_artifact_id == first.recommendation_input_artifact.artifact_id
     assert first.recommendation_input_artifact.kind == ArtifactKind.RECOMMENDATION_INPUT
+    assert first.power_annual_cashflow_artifact is not None
+    assert first.single_entity_annual_cashflow_artifact is not None
+    assert first.power_annual_cashflow_artifact.kind == ArtifactKind.ANNUAL_CASHFLOW
+    assert first.result_record.annual_cashflow_artifact_ids == {
+        "power": first.power_annual_cashflow_artifact.artifact_id,
+        "single_entity": first.single_entity_annual_cashflow_artifact.artifact_id,
+    }
     assert first.result_record.result_id != second.result_record.result_id
     loaded_record = service.result_store.load_result_record(project.project_id, "study_1", first.result_record.result_id)
     assert loaded_record.recommendation_input_artifact_id == first.recommendation_input_artifact.artifact_id
+    assert loaded_record.annual_cashflow_artifact_ids == first.result_record.annual_cashflow_artifact_ids
     power_payload = service.result_store.read_artifact_payload(first.power_summary_artifact).decode("utf-8")
     single_entity_payload = service.result_store.read_artifact_payload(first.single_entity_summary_artifact).decode("utf-8")
     recommendation_input_payload = json.loads(
         service.result_store.read_artifact_payload(first.recommendation_input_artifact).decode("utf-8")
     )
+    with ZipFile(BytesIO(service.result_store.read_artifact_payload(first.power_annual_cashflow_artifact))) as archive:
+        assert archive.namelist() == ["S0001.csv"]
+        assert "net_cash_flow" in archive.read("S0001.csv").decode("utf-8")
     assert "firr" in power_payload
     assert "single_entity_firr_pre_tax" in single_entity_payload
     assert recommendation_input_payload["load_side_avoided_charge_price"] == 0.5

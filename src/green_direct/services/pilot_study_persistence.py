@@ -5,9 +5,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 import hashlib
+from io import BytesIO
 import json
 from pathlib import Path
 from uuid import uuid4
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from green_direct.models.pilot_backend import (
     AuditAction,
@@ -19,7 +21,7 @@ from green_direct.models.pilot_backend import (
     JobType,
     StudyResultRecord,
 )
-from green_direct.services.local_store_utils import json_value
+from green_direct.services.local_store_utils import json_value, validate_path_segment
 from green_direct.services.pilot_access import PilotAccessService
 from green_direct.services.study_runner import (
     EconomicStudyResult,
@@ -49,6 +51,8 @@ class PersistedEconomicStudy:
     power_summary_artifact: JobArtifact
     single_entity_summary_artifact: JobArtifact
     recommendation_input_artifact: JobArtifact
+    power_annual_cashflow_artifact: JobArtifact | None
+    single_entity_annual_cashflow_artifact: JobArtifact | None
     result_record: StudyResultRecord
     input_fingerprint: str
 
@@ -166,6 +170,15 @@ def _recommendation_inputs_json(economic_result: EconomicStudyResult) -> str:
         indent=2,
         sort_keys=True,
     )
+
+
+def _annual_cashflows_zip(cashflows: dict[str, object]) -> bytes:
+    buffer = BytesIO()
+    with ZipFile(buffer, "w", ZIP_DEFLATED) as archive:
+        for scenario_id, frame in sorted(cashflows.items()):
+            scenario_key = validate_path_segment(str(scenario_id), "scenario_id")
+            archive.writestr(f"{scenario_key}.csv", _frame_csv(frame))
+    return buffer.getvalue()
 
 
 def _hourly_detail_expiry(retention_days: int) -> tuple[ArtifactRetentionPolicy, datetime | None]:
@@ -462,6 +475,10 @@ def persist_economic_study_result(
     """Persist one economy study summary under a project-scoped Job."""
 
     input_fingerprint = economic_input_fingerprint(economic_result)
+    cashflow_artifact_count = int(bool(economic_result.power_annual_cashflows)) + int(
+        bool(economic_result.single_entity_annual_cashflows)
+    )
+    progress_total = 3 + cashflow_artifact_count
     job = Job(
         job_id=f"job_{uuid4().hex[:16]}",
         project_id=project_id,
@@ -470,7 +487,7 @@ def persist_economic_study_result(
         job_type=JobType.ECONOMIC_STUDY,
         input_fingerprint=input_fingerprint,
         progress_current=0,
-        progress_total=3,
+        progress_total=progress_total,
         progress_message="economic study queued",
     )
     submitted = access_service.submit_job(actor_user_id=actor_user_id, job=job)
@@ -483,7 +500,12 @@ def persist_economic_study_result(
     power_artifact_id = f"economy_summary_{running.job_id}"
     single_entity_artifact_id = f"single_entity_summary_{running.job_id}"
     recommendation_input_artifact_id = f"recommendation_inputs_{running.job_id}"
+    power_cashflow_artifact_id = f"power_annual_cashflows_{running.job_id}"
+    single_entity_cashflow_artifact_id = f"single_entity_annual_cashflows_{running.job_id}"
     result_id = f"economy_result_{running.job_id}"
+    power_cashflow_artifact = None
+    single_entity_cashflow_artifact = None
+    annual_cashflow_artifact_ids: dict[str, str] = {}
     try:
         recommendation_input_artifact = access_service.result_store.store_artifact(
             artifact_id=recommendation_input_artifact_id,
@@ -501,7 +523,7 @@ def persist_economic_study_result(
             study_id=study_id,
             job_id=running.job_id,
             current=1,
-            total=3,
+            total=progress_total,
             message="recommendation input snapshot ready",
         )
         power_artifact = access_service.result_store.store_artifact(
@@ -520,7 +542,7 @@ def persist_economic_study_result(
             study_id=study_id,
             job_id=running.job_id,
             current=2,
-            total=3,
+            total=progress_total,
             message="power-side economy summary ready",
         )
         single_entity_artifact = access_service.result_store.store_artifact(
@@ -539,9 +561,64 @@ def persist_economic_study_result(
             study_id=study_id,
             job_id=running.job_id,
             current=3,
-            total=3,
-            message="economic study result ready",
+            total=progress_total,
+            message="economy summaries ready",
         )
+        progress_current = 3
+        if economic_result.power_annual_cashflows:
+            power_cashflow_artifact = access_service.result_store.store_artifact(
+                artifact_id=power_cashflow_artifact_id,
+                project_id=project_id,
+                study_id=study_id,
+                job_id=running.job_id,
+                kind=ArtifactKind.ANNUAL_CASHFLOW,
+                payload=_annual_cashflows_zip(economic_result.power_annual_cashflows),
+                filename="power_annual_cashflows.zip",
+                content_type="application/zip",
+            )
+            annual_cashflow_artifact_ids["power"] = power_cashflow_artifact.artifact_id
+            progress_current += 1
+            access_service.update_job_progress(
+                actor_user_id=actor_user_id,
+                project_id=project_id,
+                study_id=study_id,
+                job_id=running.job_id,
+                current=progress_current,
+                total=progress_total,
+                message="power-side annual cashflows ready",
+            )
+        if economic_result.single_entity_annual_cashflows:
+            single_entity_cashflow_artifact = access_service.result_store.store_artifact(
+                artifact_id=single_entity_cashflow_artifact_id,
+                project_id=project_id,
+                study_id=study_id,
+                job_id=running.job_id,
+                kind=ArtifactKind.ANNUAL_CASHFLOW,
+                payload=_annual_cashflows_zip(economic_result.single_entity_annual_cashflows),
+                filename="single_entity_annual_cashflows.zip",
+                content_type="application/zip",
+            )
+            annual_cashflow_artifact_ids["single_entity"] = single_entity_cashflow_artifact.artifact_id
+            progress_current += 1
+            access_service.update_job_progress(
+                actor_user_id=actor_user_id,
+                project_id=project_id,
+                study_id=study_id,
+                job_id=running.job_id,
+                current=progress_current,
+                total=progress_total,
+                message="single-entity annual cashflows ready",
+            )
+        if progress_current == 3:
+            access_service.update_job_progress(
+                actor_user_id=actor_user_id,
+                project_id=project_id,
+                study_id=study_id,
+                job_id=running.job_id,
+                current=progress_current,
+                total=progress_total,
+                message="economic study result ready",
+            )
         record = access_service.result_store.save_result_record(
             StudyResultRecord(
                 result_id=result_id,
@@ -551,6 +628,7 @@ def persist_economic_study_result(
                 economy_summary_artifact_id=power_artifact.artifact_id,
                 single_entity_summary_artifact_id=single_entity_artifact.artifact_id,
                 recommendation_input_artifact_id=recommendation_input_artifact.artifact_id,
+                annual_cashflow_artifact_ids=annual_cashflow_artifact_ids,
             )
         )
         succeeded = access_service.succeed_job(
@@ -577,6 +655,8 @@ def persist_economic_study_result(
         power_summary_artifact=power_artifact,
         single_entity_summary_artifact=single_entity_artifact,
         recommendation_input_artifact=recommendation_input_artifact,
+        power_annual_cashflow_artifact=power_cashflow_artifact,
+        single_entity_annual_cashflow_artifact=single_entity_cashflow_artifact,
         result_record=record,
         input_fingerprint=input_fingerprint,
     )

@@ -4062,3 +4062,32 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest tests/test_pilot_access.py tests/test_pilot_study_persistence.py tests/test_result_store.py tests/test_pilot_backend_models.py tests/test_ui_import.py::test_pilot_history_artifact_refs_and_download_use_access_service tests/test_ui_import.py::test_pilot_project_activity_frames_summarize_jobs_and_results tests/test_ui_import.py::test_pilot_restore_economy_summary_uses_view_permission_without_export tests/test_ui_import.py::test_pilot_restore_recommendation_uses_view_permission_without_export -q` 通过，41 项通过；
 - `python -m compileall -q src scripts tests` 通过；
 - `python -m pytest -q` 通过，293 项通过。
+
+### 2026-06-16 经济性年度现金流 artifact 留存与恢复
+
+本轮继续补受控内测的结果可复核性。经济 summary 和推荐输入已能恢复，但经济性 V1 的正式可审计输出之一是年度现金流明细；如果历史结果只能恢复 summary，用户仍需要依赖当前浏览器会话或重新计算才能下载现金流。对 10-20 人内部试用和后续 Route A 来说，已生成的年度现金流应进入项目级 `ResultStore`。
+
+本轮判断：
+- 不强行为 summary-only 运行生成不存在的现金流；只把当前经济性运行实际保留的年度现金流写成 artifact；
+- 年度现金流按视角打 ZIP，每个方案一个 CSV，避免为大量方案创建过多 artifact；
+- 网页内恢复继续走 `read_artifact_payload_for_view()`，不可导出用户可在网页内复核现金流，但不能下载文件；
+- 该能力仍是 Streamlit 同步写入，不是后台 worker 或完整历史 `StudyResult` 恢复。
+
+本轮实现：
+- `StudyResultRecord` 新增 `annual_cashflow_artifact_ids`；
+- `persist_economic_study_result()` 会在存在 `power_annual_cashflows` 或 `single_entity_annual_cashflows` 时写入 `ArtifactKind.ANNUAL_CASHFLOW` ZIP；
+- 欢迎页历史产物列表会显示“电源侧年度现金流”和“同一主体年度现金流”；
+- 恢复经济结果时会校验 artifact 类型、解压 ZIP，并回填 `economy_v1_result["annual_cashflows"]` 和 `single_entity_economy_result["annual_cashflows"]`；
+- 文档更新为“已保留年度现金流可恢复；summary-only 运行不会凭空恢复未保留现金流”。
+
+边界说明：
+- 当前不补算未保留的年度现金流；后续可把“按需生成年度现金流”做成 Job；
+- 当前仍不恢复推荐视角选择、手工重新排序状态、图表包、报告包或完整历史结果页；
+- 不改变经济性 V1 现金流计算口径、推荐 V1 排序口径或 V0.1 技术调度口径。
+
+验证：
+- `python -m pytest tests/test_pilot_study_persistence.py::test_persist_economic_study_result_writes_versioned_artifacts_and_record tests/test_ui_import.py::test_pilot_restore_economy_summary_uses_view_permission_without_export tests/test_result_store.py::test_result_store_round_trips_result_record tests/test_pilot_backend_models.py::test_project_study_artifact_and_result_record_preserve_project_boundary -q` 通过，4 项通过；
+- `python -m pytest tests/test_pilot_study_persistence.py tests/test_ui_import.py::test_pilot_restore_economy_summary_uses_view_permission_without_export tests/test_ui_import.py::test_pilot_economy_and_recommendation_helpers_persist_refs_and_dedupe tests/test_result_store.py tests/test_pilot_backend_models.py -q` 通过，26 项通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `python -m pytest -q` 通过，293 项通过；
+- `$env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help` 通过。

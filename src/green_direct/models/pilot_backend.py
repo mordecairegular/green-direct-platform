@@ -368,6 +368,7 @@ class StudyResultRecord:
     single_entity_summary_artifact_id: str | None = None
     recommendation_input_artifact_id: str | None = None
     recommendation_artifact_id: str | None = None
+    annual_cashflow_artifact_ids: Mapping[str, str] = field(default_factory=dict)
     hourly_detail_artifact_ids: Mapping[str, str] = field(default_factory=dict)
     report_artifact_ids: Mapping[str, str] = field(default_factory=dict)
     created_at: datetime = field(default_factory=_utcnow)
@@ -378,6 +379,7 @@ class StudyResultRecord:
         _require_text(self.study_id, "study_id")
         _require_text(self.created_by_job_id, "created_by_job_id")
         _ensure_aware(self.created_at, "created_at")
+        object.__setattr__(self, "annual_cashflow_artifact_ids", dict(self.annual_cashflow_artifact_ids))
         object.__setattr__(self, "hourly_detail_artifact_ids", dict(self.hourly_detail_artifact_ids))
         object.__setattr__(self, "report_artifact_ids", dict(self.report_artifact_ids))
 

@@ -137,6 +137,7 @@ def test_result_store_round_trips_result_record(tmp_path):
         created_by_job_id="job_1",
         technical_summary_artifact_id="technical_summary",
         recommendation_artifact_id="recommendation",
+        annual_cashflow_artifact_ids={"power": "power_cashflows"},
         hourly_detail_artifact_ids={"S0001": "hourly_s0001"},
         report_artifact_ids={"markdown": "brief_report"},
         created_at=_dt(1),

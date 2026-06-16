@@ -203,6 +203,7 @@ class LocalResultStore:
             single_entity_summary_artifact_id=data.get("single_entity_summary_artifact_id"),
             recommendation_input_artifact_id=data.get("recommendation_input_artifact_id"),
             recommendation_artifact_id=data.get("recommendation_artifact_id"),
+            annual_cashflow_artifact_ids=data.get("annual_cashflow_artifact_ids") or {},
             hourly_detail_artifact_ids=data.get("hourly_detail_artifact_ids") or {},
             report_artifact_ids=data.get("report_artifact_ids") or {},
             created_at=datetime.fromisoformat(data["created_at"]),

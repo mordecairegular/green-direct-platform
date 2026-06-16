@@ -165,11 +165,13 @@ def test_project_study_artifact_and_result_record_preserve_project_boundary():
         study_id=study.study_id,
         created_by_job_id=artifact.job_id,
         technical_summary_artifact_id=artifact.artifact_id,
+        annual_cashflow_artifact_ids={"power": "artifact_cashflow"},
         hourly_detail_artifact_ids={"S0001": "artifact_hourly_s0001"},
         report_artifact_ids={"brief": "artifact_report"},
     )
 
     assert project.project_id == study.project_id == artifact.project_id == record.project_id
+    assert record.annual_cashflow_artifact_ids["power"] == "artifact_cashflow"
     assert record.hourly_detail_artifact_ids["S0001"] == "artifact_hourly_s0001"
     assert record.report_artifact_ids["brief"] == "artifact_report"
 

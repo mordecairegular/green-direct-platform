@@ -758,6 +758,32 @@ def test_pilot_restore_economy_summary_uses_view_permission_without_export(tmp_p
         filename="recommendation_inputs.json",
         content_type="application/json",
     )
+    power_cashflows = BytesIO()
+    with ZipFile(power_cashflows, "w") as archive:
+        archive.writestr("S0001.csv", "scenario_id,year,net_cash_flow\nS0001,0,-100\nS0001,1,18\n")
+    single_entity_cashflows = BytesIO()
+    with ZipFile(single_entity_cashflows, "w") as archive:
+        archive.writestr("S0001.csv", "scenario_id,year,net_cash_flow\nS0001,0,-100\nS0001,1,22\n")
+    access.result_store.store_artifact(
+        artifact_id="power_annual_cashflows_job_1",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_id="job_economy",
+        kind=ArtifactKind.ANNUAL_CASHFLOW,
+        payload=power_cashflows.getvalue(),
+        filename="power_annual_cashflows.zip",
+        content_type="application/zip",
+    )
+    access.result_store.store_artifact(
+        artifact_id="single_entity_annual_cashflows_job_1",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_id="job_economy",
+        kind=ArtifactKind.ANNUAL_CASHFLOW,
+        payload=single_entity_cashflows.getvalue(),
+        filename="single_entity_annual_cashflows.zip",
+        content_type="application/zip",
+    )
     technical_record = StudyResultRecord(
         result_id="technical_result",
         project_id=project.project_id,
@@ -773,6 +799,10 @@ def test_pilot_restore_economy_summary_uses_view_permission_without_export(tmp_p
         economy_summary_artifact_id="economy_summary_job_1",
         single_entity_summary_artifact_id="single_entity_summary_job_1",
         recommendation_input_artifact_id="recommendation_inputs_job_1",
+        annual_cashflow_artifact_ids={
+            "power": "power_annual_cashflows_job_1",
+            "single_entity": "single_entity_annual_cashflows_job_1",
+        },
     )
 
     class DummyStreamlit:
@@ -832,11 +862,17 @@ def test_pilot_restore_economy_summary_uses_view_permission_without_export(tmp_p
 
     assert restored["row_count"] == 1
     assert dummy.session_state["economy_v1_result"]["summary"]["firr"].tolist() == [0.08]
-    assert dummy.session_state["economy_v1_result"]["annual_cashflows"] == {}
+    assert dummy.session_state["economy_v1_result"]["annual_cashflows"]["S0001"]["net_cash_flow"].tolist() == [
+        -100,
+        18,
+    ]
     assert dummy.session_state["economy_v1_result"]["price_mode"] == "restored_summary"
     assert dummy.session_state["single_entity_economy_result"]["summary"]["single_entity_firr_pre_tax"].tolist() == [
         0.11
     ]
+    assert dummy.session_state["single_entity_economy_result"]["annual_cashflows"]["S0001"][
+        "net_cash_flow"
+    ].tolist() == [-100, 22]
     recommendation_inputs = dummy.session_state["recommendation_v1_inputs"]
     assert recommendation_inputs["load_side_avoided_charge_price"] == 0.51
     assert recommendation_inputs["green_power_settlement_price_with_vat"] == 0.41
@@ -852,6 +888,12 @@ def test_pilot_restore_economy_summary_uses_view_permission_without_export(tmp_p
     )
     assert dummy.session_state["study_result"].result_store_refs["recommendation_input_artifact_id"] == (
         "recommendation_inputs_job_1"
+    )
+    assert dummy.session_state["study_result"].result_store_refs["power_annual_cashflow_artifact_id"] == (
+        "power_annual_cashflows_job_1"
+    )
+    assert dummy.session_state["study_result"].result_store_refs["single_entity_annual_cashflow_artifact_id"] == (
+        "single_entity_annual_cashflows_job_1"
     )
     audit_actions = [event.action for event in access.result_store.read_audit_log(project.project_id)]
     assert AuditAction.VIEW_ARTIFACT in audit_actions
