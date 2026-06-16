@@ -55,6 +55,8 @@ git status --short --branch
 python scripts\preflight_internal_pilot_deploy.py --run-smoke
 ```
 
+该 preflight 会同时检查 Git 已跟踪文件清单，阻止私有 `.env`、本地运行目录、构建产物、pilot store、备份、pickle/database/log/压缩包和超过 95 MiB 的文件进入 GitHub 部署源。
+
 如本机已经准备了真实试用 store，也可以把 store doctor 纳入同一条检查：
 
 ```powershell
@@ -89,6 +91,7 @@ python scripts\preflight_internal_pilot_deploy.py --require-git-sync
 
 该命令必须通过后再让 Render 部署。若失败：
 
+- `git-tracked:*` 失败：Git 已跟踪文件中出现本地状态、密钥环境文件、运行 payload 或超大文件，先从 Git 清单中移除并确认 `.gitignore`；
 - `git:clean` 失败：还有未提交改动，先提交或暂存；
 - `git:branch` 失败：当前本地分支不是 `render.yaml` 配置的部署分支；
 - `git:upstream-branch` 失败：当前分支跟踪的 upstream 不是 Render 部署分支；

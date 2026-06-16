@@ -117,6 +117,10 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     assert "render:instances" in check_names
     assert "compose:volume" in check_names
     assert "dockerfile:PORT=8503" in check_names
+    assert "git-tracked:env-files" in check_names
+    assert "git-tracked:local-state" in check_names
+    assert "git-tracked:secret-payloads" in check_names
+    assert "git-tracked:size" in check_names
 
 
 def test_internal_pilot_preflight_can_run_pilot_store_doctor(tmp_path):
@@ -188,6 +192,10 @@ def test_internal_pilot_preflight_exposes_git_sync_check():
     assert "git:branch" in script
     assert "git:render-branch" in script
     assert "git:upstream-branch" in script
+    assert "git-tracked:env-files" in script
+    assert "git-tracked:local-state" in script
+    assert "git-tracked:secret-payloads" in script
+    assert "git-tracked:size" in script
 
 
 def test_public_beta_first_launch_playbook_covers_handoff_steps():

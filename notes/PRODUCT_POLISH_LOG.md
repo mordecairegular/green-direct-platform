@@ -5653,3 +5653,21 @@ profile / benchmark：
 边界：
 - 不改变 V0.1 BESS SOC 滚动、上网比例 cap、并网交换限制、hour_case、summary 字段、经济性 V1 或推荐排序；
 - 这是热路径小切片，不等于解决成千上万方案的全部等待问题；后续仍需正式后台 Job、worker 级取消/重试、数据库/对象存储化和更大的计算内核优化。
+
+### 2026-06-17 GitHub 推送源安全检查纳入 preflight
+
+本轮继续补齐“GitHub 私有仓库 -> Render Blueprint -> Cloudflare Access”首次公网内测发布链路。此前 preflight 已检查 Docker/Render/分支同步，但还没有检查 GitHub 推送源本身是否夹带本地运行状态、临时数据或超大文件。
+
+实现：
+- `preflight_internal_pilot_deploy.py` 默认新增 `git-tracked:*` 检查，扫描 `git ls-files` 的已跟踪文件；
+- 阻止私有 `.env`、`.runtime` / `.venv` / cache、`build` / `dist` / `release`、pilot store、备份目录、pickle/database/log/压缩包以及超过 95 MiB 的文件进入部署源；
+- Git 命令输出固定使用 UTF-8 解码，避免 Windows 上中文路径触发 GBK 解码错误；
+- 首次发布作战单、移动网络试用清单、托管平台部署路线、部署 README 和 handoff 已同步。
+
+验证：
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`，当前 tracked file count=330；
+- 新增检查确认当前仓库未跟踪私有 `.env`、本地运行状态、pickle/database/log/压缩包，也没有超过 95 MiB 的 tracked 文件。
+
+边界：
+- 这不是完整 secret scanning 或数据脱敏审计；它是 GitHub 推送前的快速硬闸；
+- 高度敏感样例资料是否应留在私有仓库，仍需要项目负责人做业务判断。

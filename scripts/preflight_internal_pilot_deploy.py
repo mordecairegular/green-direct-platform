@@ -70,6 +70,38 @@ RENDER_REQUIRED_ENV = {
     "PYTHONPATH": "/app/src",
 }
 RENDER_REQUIRED_BRANCH = "codex/UI"
+MAX_TRACKED_FILE_BYTES = 95 * 1024 * 1024
+GIT_ALLOWED_TRACKED_PATHS = {
+    "outputs/.gitkeep",
+}
+GIT_LOCAL_STATE_SEGMENTS = {
+    ".runtime",
+    ".venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+}
+GIT_LOCAL_STATE_PREFIXES = (
+    "build/",
+    "dist/",
+    "release/",
+    "pilot_store/",
+    "backups/",
+)
+GIT_SECRET_PAYLOAD_SUFFIXES = (
+    ".pkl",
+    ".pickle",
+    ".db",
+    ".sqlite",
+    ".sqlite3",
+    ".db-journal",
+    ".log",
+    ".zip",
+    ".7z",
+    ".tar",
+    ".tar.gz",
+)
 
 
 def _check(condition: bool, checks: list[dict[str, str]], name: str, message: str) -> None:
@@ -212,7 +244,111 @@ def _pilot_store_doctor_checks(store_dir: str, checks: list[dict[str, str]]) -> 
 
 
 def _git_output(args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True)
+    return subprocess.run(
+        ["git", *args],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+
+
+def _tracked_paths() -> tuple[list[str], str | None]:
+    result = _git_output(["ls-files", "-z"])
+    if result.returncode != 0:
+        return [], result.stderr.strip() or "git ls-files failed"
+    paths = [path for path in result.stdout.split("\0") if path]
+    return paths, None
+
+
+def _is_private_env_file(path: str) -> bool:
+    name = Path(path).name
+    return name == ".env" or (name.startswith(".env.") and name != ".env.example")
+
+
+def _is_local_state_path(path: str) -> bool:
+    if path in GIT_ALLOWED_TRACKED_PATHS:
+        return False
+    normalized = path.replace("\\", "/")
+    parts = normalized.split("/")
+    return any(part in GIT_LOCAL_STATE_SEGMENTS for part in parts) or any(
+        normalized.startswith(prefix) for prefix in GIT_LOCAL_STATE_PREFIXES
+    )
+
+
+def _is_secret_payload_path(path: str) -> bool:
+    if path in GIT_ALLOWED_TRACKED_PATHS:
+        return False
+    lower = path.lower()
+    return any(lower.endswith(suffix) for suffix in GIT_SECRET_PAYLOAD_SUFFIXES)
+
+
+def _format_path_sample(paths: list[str]) -> str:
+    sample = ", ".join(paths[:5])
+    if len(paths) > 5:
+        sample += f", ... (+{len(paths) - 5} more)"
+    return sample
+
+
+def _git_tracked_safety_checks(checks: list[dict[str, str]]) -> None:
+    paths, error = _tracked_paths()
+    if error is not None:
+        _check(False, checks, "git-tracked:list", error)
+        return
+    _check(True, checks, "git-tracked:list", f"tracked file count={len(paths)}")
+
+    private_env_files = sorted(path for path in paths if _is_private_env_file(path))
+    _record(
+        checks,
+        "git-tracked:env-files",
+        "fail" if private_env_files else "pass",
+        (
+            f"tracked private env files found: {_format_path_sample(private_env_files)}"
+            if private_env_files
+            else "no tracked private .env files"
+        ),
+    )
+
+    local_state_paths = sorted(path for path in paths if _is_local_state_path(path))
+    _record(
+        checks,
+        "git-tracked:local-state",
+        "fail" if local_state_paths else "pass",
+        (
+            f"tracked local runtime/build state found: {_format_path_sample(local_state_paths)}"
+            if local_state_paths
+            else "no tracked local runtime, build, cache, pilot store, or backup paths"
+        ),
+    )
+
+    secret_payload_paths = sorted(path for path in paths if _is_secret_payload_path(path))
+    _record(
+        checks,
+        "git-tracked:secret-payloads",
+        "fail" if secret_payload_paths else "pass",
+        (
+            f"tracked binary/runtime payloads found: {_format_path_sample(secret_payload_paths)}"
+            if secret_payload_paths
+            else "no tracked pickle, database, log, or archive payload files"
+        ),
+    )
+
+    oversize_paths: list[str] = []
+    for path in paths:
+        local_path = ROOT / path
+        if local_path.exists() and local_path.is_file() and local_path.stat().st_size > MAX_TRACKED_FILE_BYTES:
+            oversize_paths.append(path)
+    _record(
+        checks,
+        "git-tracked:size",
+        "fail" if oversize_paths else "pass",
+        (
+            f"tracked files exceed GitHub 100 MiB hard limit guardrail: {_format_path_sample(sorted(oversize_paths))}"
+            if oversize_paths
+            else "no tracked files exceed the 95 MiB GitHub push guardrail"
+        ),
+    )
 
 
 def _configured_render_branch() -> str:
@@ -322,6 +458,7 @@ def main(argv: list[str] | None = None) -> int:
     _dockerfile_checks(checks)
     _compose_checks(checks)
     _render_checks(checks)
+    _git_tracked_safety_checks(checks)
     if args.require_git_sync:
         _git_sync_checks(checks)
     if args.pilot_store_dir:

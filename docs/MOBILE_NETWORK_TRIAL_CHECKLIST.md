@@ -37,12 +37,13 @@ GitHub private repository
 ## 2. 发布前准备
 
 - GitHub 私有仓库已创建；
+- 推送前本地 `python scripts\preflight_internal_pilot_deploy.py --run-smoke` 已通过，且 `git-tracked:*` 检查没有发现私有 `.env`、本地运行状态、数据库/日志/压缩包或超大文件；
 - 当前分支已推送；
 - 推送后已运行 `python scripts\preflight_internal_pilot_deploy.py --require-git-sync`，确认当前分支、GitHub upstream 和 `render.yaml` 部署分支一致且同步；
 - GitHub Actions `Internal Pilot Quality Gate` 已通过；如本次是首次部署或重要回滚，手动触发该 workflow 并勾选 `run_smoke`；
 - 仓库包含 `Dockerfile`、`render.yaml`、`requirements-runtime.txt`；
 - `.dockerignore` 已排除 `.github/`、`.runtime/`、日志、输出目录、历史归档、测试目录、docs/notes 等运行镜像不需要的内容；
-- 本地已运行 `python scripts\preflight_internal_pilot_deploy.py --run-smoke`，确认部署配置和服务器口径健康检查都通过；
+- 本地已运行 `python scripts\preflight_internal_pilot_deploy.py --run-smoke`，确认部署配置、GitHub 推送源安全检查和服务器口径健康检查都通过；
 - Render 账户可访问该 GitHub 仓库；
 - Cloudflare 已接管或可管理试用域名；
 - 决定一个内测域名，例如 `green-direct.example.com`；

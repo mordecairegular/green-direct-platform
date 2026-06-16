@@ -103,7 +103,7 @@ python -m green_direct.cli pilot-admin doctor `
 python scripts\preflight_internal_pilot_deploy.py --run-smoke
 ```
 
-preflight 会检查部署文件、GitHub Actions 质量门、Docker/Render 安全默认值、`.dockerignore`、持久盘路径和可选 Streamlit smoke。
+preflight 会检查部署文件、GitHub Actions 质量门、Docker/Render 安全默认值、`.dockerignore`、持久盘路径、Git 已跟踪文件是否夹带私有 `.env` / 本地运行状态 / 数据库日志压缩包 / 超大文件，以及可选 Streamlit smoke。
 
 如果是在本地服务器或自有 VM 上已经准备好真实试用 store，也可以把 store doctor 纳入同一条 preflight：
 
@@ -119,7 +119,7 @@ python scripts\preflight_internal_pilot_deploy.py --pilot-store-dir $env:GREEN_D
 python scripts\preflight_internal_pilot_deploy.py --require-git-sync
 ```
 
-该检查会确认当前工作树干净、当前分支与 `render.yaml` 配置的部署分支一致、upstream 分支与部署分支一致，且当前分支与 upstream 同步，避免 Render 部署到旧提交或错误分支。
+该检查会确认当前工作树干净、当前分支与 `render.yaml` 配置的部署分支一致、upstream 分支与部署分支一致，且当前分支与 upstream 同步；同时保留 Git tracked 安全检查，避免 Render 部署到旧提交、错误分支或夹带本地数据的提交。
 
 仓库包含 `.github/workflows/internal-pilot-quality.yml`。推送或提交 PR 后，GitHub Actions 会自动运行 compile、部署 preflight、临时目录版 pilot store doctor 和全量 pytest；手动触发该 workflow 并勾选 `run_smoke` 时，还会启动 Streamlit 做 `/_stcore/health` 冒烟检查。Render 首次部署或重要回滚前，应先确认该质量门通过。
 

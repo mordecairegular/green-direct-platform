@@ -81,7 +81,7 @@ Vercel 可以作为未来正式化后的前端托管平台：例如将前端改�
 ## 3. Render 部署步骤
 
 1. 把当前分支推到 GitHub/GitLab。
-2. 推送前运行 `python scripts\preflight_internal_pilot_deploy.py --run-smoke`，确认部署配置、本地服务器口径和 `/_stcore/health` 都通过；若在自有 VM 或本地服务器已有试用 store，可加 `--pilot-store-dir <pilot_store>` 把 store doctor 合入 preflight。
+2. 推送前运行 `python scripts\preflight_internal_pilot_deploy.py --run-smoke`，确认部署配置、GitHub 推送源安全检查、本地服务器口径和 `/_stcore/health` 都通过；若在自有 VM 或本地服务器已有试用 store，可加 `--pilot-store-dir <pilot_store>` 把 store doctor 合入 preflight。
 3. 推送后运行 `python scripts\preflight_internal_pilot_deploy.py --require-git-sync`，确认当前分支与 `render.yaml` 的部署分支一致、upstream 分支也指向同一部署分支，并且本地分支与 upstream 同步。
 4. 等待 GitHub Actions `Internal Pilot Quality Gate` 通过；如需部署前冒烟，手动触发该 workflow 并勾选 `run_smoke`。
 5. 在 Render 新建 Blueprint，选择本仓库。

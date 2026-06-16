@@ -82,7 +82,7 @@
 - `docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md`：记录内部 10-20 人 pilot 后台账户、项目、Job、ResultStore、Render 单实例边界和未来 SQLite/Postgres + 对象存储/worker 演进路线；
 - `README_DEPLOY.md` 和 `SECURITY.md`：记录 Docker/compose 内测部署、安全边界、反向代理、备份恢复和已知限制；
 - `scripts/benchmark_internal_pilot_performance.py`：用于记录技术仿真和经济性测算的可重复 benchmark。
-- `scripts/preflight_internal_pilot_deploy.py`：用于推送 GitHub/Render 前检查部署文件、安全默认值、Render 持久盘配置、`.dockerignore`、可选 Streamlit smoke，可选 `--pilot-store-dir` 运行 store doctor，以及可选 `--require-git-sync` 确认当前分支、upstream 与 `render.yaml` 部署分支一致并已推到 upstream。
+- `scripts/preflight_internal_pilot_deploy.py`：用于推送 GitHub/Render 前检查部署文件、安全默认值、Render 持久盘配置、`.dockerignore`、Git tracked 推送源安全（私有 `.env`、本地运行状态、数据库/日志/压缩包、超大文件）、可选 Streamlit smoke，可选 `--pilot-store-dir` 运行 store doctor，以及可选 `--require-git-sync` 确认当前分支、upstream 与 `render.yaml` 部署分支一致并已推到 upstream。
 - `scripts/smoke_streamlit_app.py`：用于推送 GitHub/Render 前做本地服务器口径冒烟检查，默认启用 pilot auth、关闭 runtime snapshot、使用临时 pilot store 并检查 `/_stcore/health`。
 - `.github/workflows/internal-pilot-quality.yml`：GitHub 推送/PR 质量门，自动运行 compile、部署 preflight、临时目录版 pilot store doctor 和全量 pytest；手动触发并勾选 `run_smoke` 时会额外启动 Streamlit 做健康检查。
 - `render.yaml`：当前 pilot Blueprint 显式部署 `codex/UI`，设置 `numInstances=1` 和 `autoDeployTrigger: checksPass`；Render 应等 GitHub Actions 质量门通过后再自动部署，避免部署默认分支或未通过检查的提交。
@@ -91,7 +91,7 @@
 2026-06-17 当前部署前事实状态：
 - `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 已通过，`failed_count=0`，包含 `smoke:streamlit`；
 - `python scripts\preflight_internal_pilot_deploy.py --pilot-store-dir .runtime\preflight_doctor_smoke --json` 已通过，`failed_count=0`，包含 `pilot-store:*` 检查；
-- `python scripts\preflight_internal_pilot_deploy.py --json` 已通过，`failed_count=0`；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 已通过，`failed_count=0`；当前静态 preflight 包含 `git-tracked:*` 推送源安全检查，已确认 tracked file count=330，未发现私有 `.env`、本地运行状态、pickle/database/log/压缩包或超过 95 MiB 的文件；
 - `python -m pytest tests\test_deployment_artifacts.py -q` 已通过，11 项通过，覆盖首次发布作战单、Render 分支、GitHub Actions 质量门和部署 preflight；
 - `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 按预期失败，当前关键失败项是 `git:sync`：本地 `codex/UI` 跟踪 `origin/codex/UI`，仍领先 upstream；本地有未提交改动时也会额外失败 `git:clean`。该命令现在还会核对当前分支和 upstream 是否匹配 `render.yaml` 的部署分支；部署前应重新运行该命令获取实时状态；
 - 当前 `origin` 为 `https://github.com/mordecairegular/green-direct-platform.git`；
