@@ -4006,3 +4006,31 @@ exchange_import_shortfall_energy == 0
 验证：
 - `python -m pytest tests/test_ui_import.py::test_pilot_restore_technical_summary_rebuilds_summary_only_session tests/test_ui_import.py::test_pilot_restore_economy_summary_uses_view_permission_without_export tests/test_ui_import.py::test_pilot_restore_summary_can_load_hourly_artifact_for_view_without_export tests/test_ui_import.py::test_pilot_restore_summary_can_rebuild_input_from_input_artifacts_and_recompute -q` 通过，4 项通过；
 - 本轮全量回归记录同步到上线前质量审查文档。
+
+### 2026-06-16 历史推荐组合 portfolio-only 恢复入口
+
+本轮继续补项目历史结果恢复链路。技术 summary 和经济 summary 已能回到当前会话，但推荐 portfolio 仍只能下载；这会导致用户恢复历史测算后，04 推荐页、05 图表页和 06 导出页无法直接读取当时已经保存的推荐组合。对内部 pilot 来说，推荐组合是最接近“项目结论”的结果之一，应该能网页内恢复复核。
+
+本轮判断：
+- 推荐结果持久化目前只有 `recommendation_portfolio.csv` 和 `recommendation_load_side_detail.csv`，没有保存推荐席位输入、视角选择或重排状态，因此只能做 portfolio-only 恢复；
+- 恢复动作必须绑定当前项目和同一 `study_id` 的技术 summary，不能把其他项目或其他 study 的推荐组合拼进当前技术结果；
+- 恢复推荐 portfolio 时应清掉旧 `recommendation_v1_inputs`、导出缓存和图表 PNG 缓存，避免页面用旧输入重新生成或导出旧图；
+- 不可导出用户仍应能网页内恢复查看，但读取 payload 必须走 `read_artifact_payload_for_view()`，不能产生下载权限。
+
+本轮实现：
+- 新增 `_pilot_restore_recommendation_result()` 和 `_pilot_restore_recommendation_to_session()`，读取推荐 portfolio 和负荷侧明细，构造 `RecommendationStudyResult`；
+- 欢迎页“历史结果产物”区新增“恢复推荐组合到当前会话”按钮；
+- 04 推荐页在缺少 `recommendation_v1_inputs` 时可直接展示已恢复的 `recommendation_v1_result`，并提示这是历史 portfolio-only 恢复，不能在该页重新排序；
+- 05 图表概览和 06 导出页会读取已恢复的推荐组合，用于默认报告方案、多方案对比范围和推荐组合 Excel；
+- 经济性重新运行或恢复经济 summary 时会清掉旧推荐结果，避免跨结果串用。
+
+边界说明：
+- 当前不恢复推荐席位输入、同一主体/工程视角选择或可重新排序状态；
+- 当前不恢复完整 `StudyResult`，也不支持删除、标记、跨项目搜索或后台 Job 化；
+- runtime snapshot 仍不保存 `recommendation_v1_result`，多人部署不会因为本地快照恢复旧用户推荐组合。
+
+验证：
+- `python -m pytest tests/test_ui_import.py::test_pilot_restore_recommendation_uses_view_permission_without_export tests/test_ui_import.py::test_pilot_restore_economy_summary_uses_view_permission_without_export tests/test_ui_import.py::test_pilot_restore_summary_can_rebuild_input_from_input_artifacts_and_recompute -q` 通过，3 项通过；
+- `python -m pytest tests/test_pilot_access.py tests/test_pilot_study_persistence.py tests/test_ui_import.py::test_pilot_economy_and_recommendation_helpers_persist_refs_and_dedupe tests/test_ui_import.py::test_pilot_history_artifact_refs_and_download_use_access_service tests/test_ui_import.py::test_pilot_project_activity_frames_summarize_jobs_and_results tests/test_ui_import.py::test_pilot_restore_recommendation_uses_view_permission_without_export tests/test_ui_import.py::test_pilot_restore_economy_summary_uses_view_permission_without_export tests/test_ui_import.py::test_recommendation_status_display_does_not_mark_no_candidate_as_ok tests/test_ui_import.py::test_first_report_scenario_prefers_valid_recommendation_portfolio_id tests/test_ui_import.py::test_default_export_scenario_prefers_current_then_recommendation -q` 通过，27 项通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `python -m pytest -q` 通过，293 项通过。

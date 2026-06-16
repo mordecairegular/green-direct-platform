@@ -67,6 +67,7 @@ from green_direct.services import (
     PilotAdminError,
     PilotAuthError,
     RecommendationInputSnapshot,
+    RecommendationStudyResult,
     StudyResult,
     TechnicalStudyInput,
     TechnicalStudyResult,
@@ -2624,6 +2625,7 @@ def _pilot_restore_economy_summary_to_session(
     else:
         st.session_state.pop("single_entity_economy_result", None)
     st.session_state.pop("recommendation_v1_inputs", None)
+    st.session_state.pop("recommendation_v1_result", None)
     st.session_state.pop("download_payloads", None)
 
     study_result = st.session_state.get("study_result")
@@ -2641,6 +2643,98 @@ def _pilot_restore_economy_summary_to_session(
     st.session_state["_economy_notice"] = (
         f"已从项目历史恢复经济性汇总：{record.result_id}。"
         "这是 summary-only 恢复，不包含年度现金流和推荐排序输入；如需推荐页，请重新运行经济性测算。"
+    )
+    return restored
+
+
+def _pilot_restore_recommendation_result(
+    access: PilotAccessService,
+    *,
+    actor_user_id: str,
+    record: StudyResultRecord,
+) -> dict[str, object]:
+    if not record.recommendation_artifact_id:
+        raise ValueError("该结果没有推荐组合 artifact，暂不能恢复为当前推荐结果。")
+
+    portfolio_download = _pilot_load_artifact_view(
+        access,
+        actor_user_id=actor_user_id,
+        record=record,
+        artifact_id=record.recommendation_artifact_id,
+    )
+    if portfolio_download["kind"] != ArtifactKind.RECOMMENDATION_PORTFOLIO:
+        raise ValueError(f"Artifact {record.recommendation_artifact_id} 不是推荐组合。")
+    portfolio = pd.read_csv(BytesIO(portfolio_download["payload"]))
+
+    load_side_detail = pd.DataFrame()
+    detail_artifact_id = record.report_artifact_ids.get("load_side_detail")
+    if detail_artifact_id:
+        detail_download = _pilot_load_artifact_view(
+            access,
+            actor_user_id=actor_user_id,
+            record=record,
+            artifact_id=detail_artifact_id,
+        )
+        if detail_download["kind"] != ArtifactKind.RECOMMENDATION_PORTFOLIO:
+            raise ValueError(f"Artifact {detail_artifact_id} 不是推荐组合明细。")
+        load_side_detail = pd.read_csv(BytesIO(detail_download["payload"]))
+
+    return {
+        "recommendation_result": RecommendationStudyResult(
+            portfolio=portfolio,
+            load_side_detail=load_side_detail,
+        ),
+        "row_count": len(portfolio),
+        "detail_row_count": len(load_side_detail),
+        "load_side_detail_artifact_id": detail_artifact_id,
+    }
+
+
+def _pilot_restore_recommendation_to_session(
+    st,
+    *,
+    access: PilotAccessService,
+    actor_user_id: str,
+    record: StudyResultRecord,
+) -> dict[str, object]:
+    current_project_id = _current_pilot_project_id(st)
+    if current_project_id != record.project_id:
+        raise ValueError("请先切换到该结果所属项目，再恢复推荐组合。")
+    current_study_id = _current_pilot_study_id(st)
+    if current_study_id != record.study_id:
+        raise ValueError("请先恢复同一 study 的技术汇总，再恢复推荐组合。")
+
+    restored = _pilot_restore_recommendation_result(
+        access,
+        actor_user_id=actor_user_id,
+        record=record,
+    )
+    recommendation_result = restored["recommendation_result"]
+    st.session_state["recommendation_v1_result"] = recommendation_result
+    st.session_state[PILOT_RECOMMENDATION_STORE_SIGNATURE_KEY] = recommendation_result_fingerprint(
+        recommendation_result
+    )
+    st.session_state.pop("recommendation_v1_inputs", None)
+    st.session_state.pop("download_payloads", None)
+    st.session_state.pop("export_report_scenario", None)
+    _clear_chart_export_cache(st)
+
+    study_result = st.session_state.get("study_result")
+    if isinstance(study_result, StudyResult):
+        next_study_result = study_result.with_recommendation_result(recommendation_result)
+        refs = {
+            **next_study_result.result_store_refs,
+            "recommendation_result_id": record.result_id,
+            "recommendation_portfolio_artifact_id": record.recommendation_artifact_id,
+        }
+        detail_artifact_id = restored.get("load_side_detail_artifact_id")
+        if detail_artifact_id:
+            refs["recommendation_load_side_detail_artifact_id"] = str(detail_artifact_id)
+        st.session_state["study_result"] = replace(next_study_result, result_store_refs=refs)
+
+    st.session_state["_recommendation_notice"] = (
+        f"已从项目历史恢复推荐组合：{record.result_id}，共 {restored['row_count']} 条记录。"
+        "这是 portfolio-only 恢复，不包含推荐席位输入；如需重新排序，请重新运行经济性测算和推荐。"
     )
     return restored
 
@@ -2728,6 +2822,26 @@ def _render_pilot_result_artifact_downloads(
                     else:
                         st.rerun()
                 st.caption("恢复仅写入经济性 summary；年度现金流和推荐排序输入不会随之恢复。")
+            if record.recommendation_artifact_id:
+                restore_recommendation_key = (
+                    f"pilot_history_restore_recommendation_{record.project_id}:{record.study_id}:{record.result_id}"
+                )
+                if st.button("恢复推荐组合到当前会话", key=restore_recommendation_key):
+                    try:
+                        _pilot_restore_recommendation_to_session(
+                            st,
+                            access=access,
+                            actor_user_id=actor_user_id,
+                            record=record,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - restore errors should be user-visible
+                        if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
+                            st.warning(f"历史推荐组合暂不能恢复：{exc}")
+                        else:
+                            raise
+                    else:
+                        st.rerun()
+                st.caption("恢复仅写入推荐组合 portfolio；推荐席位输入不会随之恢复。")
             if not can_export_artifacts:
                 for label, artifact_id in _pilot_result_artifact_refs(record):
                     st.caption(f"{label} · {artifact_id}")
@@ -5042,6 +5156,7 @@ def _render_recommendation_v1(
         single_entity_view=single_entity_view,
         engineering_view=engineering_view,
     )
+    st.session_state["recommendation_v1_result"] = recommendation_result
     persisted_recommendation_result = _persist_pilot_recommendation_result_if_enabled(st, recommendation_result)
     study_result = st.session_state.get("study_result")
     if isinstance(study_result, StudyResult):
@@ -5553,6 +5668,7 @@ def _render_economy_v1(
                 "annual_cashflows": economic_study_result.single_entity_annual_cashflows,
             }
             st.session_state["recommendation_v1_inputs"] = economic_study_result.recommendation_inputs.to_session_dict()
+            st.session_state.pop("recommendation_v1_result", None)
             study_result = st.session_state.get("study_result")
             if isinstance(study_result, StudyResult):
                 next_study_result = study_result.with_economic_result(economic_study_result)
@@ -5734,7 +5850,7 @@ def _workflow_step_done(st, page: str) -> bool:
     economy_result = st.session_state.get("economy_v1_result")
     economy_done = bool(economy_result and not economy_result.get("summary", pd.DataFrame()).empty)
     if page in {"方案推荐", "图表概览"}:
-        return bool(batch_result) and economy_done
+        return bool(batch_result) and (economy_done or _current_recommendation_result(st) is not None)
     if page == "图表下载和报告生成":
         return bool(batch_result)
     return False
@@ -5875,6 +5991,12 @@ def _launch_next_steps(
             ("2. 计算经济性", "技术方案生成后再输入经济参数。", "等待仿真", "pending"),
             ("3. 查看推荐组合", "推荐页会读取技术和经济结果，不展示全量枚举大表。", "等待结果", "pending"),
         ]
+    if not economy_done and recommendation_ready:
+        return [
+            ("1. 查看历史推荐组合", "当前会话已有从项目历史恢复的推荐 portfolio，可先复核代表方案。", "可进入", "ok"),
+            ("2. 补算经济性", "如需重新排序或年度现金流，请重新运行经济性测算。", "推荐", "warn"),
+            ("3. 准备交付包", "导出页可读取历史推荐组合，但经济包会按真实缺失状态提示。", "待复核", "pending"),
+        ]
     if not economy_done:
         price_hint = "已上传下网电价曲线" if has_price_curve else "未上传下网电价曲线，将按固定价模式计算"
         return [
@@ -5919,7 +6041,7 @@ def _render_welcome_page(st) -> None:
     wind_metric = _format_curve_metric_value(metrics.get("风电"))
 
     recommendation_result = None
-    if economy_done and not summary.empty:
+    if recommendation_ready and not summary.empty:
         _, recommendation_result, _ = _build_recommendation_result_for_display(st, summary)
     default_report_id = _first_report_scenario_id(summary, recommendation_result)
 
@@ -6020,7 +6142,7 @@ def _render_welcome_page(st) -> None:
     c1, c2, c3 = st.columns([0.9, 0.9, 3.0])
     if c1.button("开始方案仿真", type="primary", key="welcome_start_technical"):
         _go_to_workflow_page(st, "方案仿真")
-    if c2.button("查看推荐组合", disabled=not economy_done, key="welcome_go_recommendation"):
+    if c2.button("查看推荐组合", disabled=not recommendation_ready, key="welcome_go_recommendation"):
         _go_to_workflow_page(st, "方案推荐")
     if c3.button("进入交付导出", disabled=not batch_result, key="welcome_go_exports"):
         _go_to_workflow_page(st, "图表下载和报告生成")
@@ -6625,10 +6747,20 @@ def _render_recommendation_bottom_status(st, batch_result, summary: pd.DataFrame
     st.markdown(f'<div class="gd-bottom-status">{"".join(f"<span>{item}</span>" for item in status_items)}</div>', unsafe_allow_html=True)
 
 
+def _current_recommendation_result(st) -> RecommendationStudyResult | None:
+    recommendation_result = st.session_state.get("recommendation_v1_result")
+    if isinstance(recommendation_result, RecommendationStudyResult):
+        return recommendation_result
+    return None
+
+
 def _build_recommendation_result_for_display(st, summary: pd.DataFrame):
     economy_result = st.session_state.get("economy_v1_result")
     single_entity_result = st.session_state.get("single_entity_economy_result")
     recommendation_inputs = st.session_state.get("recommendation_v1_inputs")
+    restored_recommendation = _current_recommendation_result(st)
+    if not recommendation_inputs and restored_recommendation is not None:
+        return economy_result, restored_recommendation, None
     if not economy_result or economy_result.get("summary", pd.DataFrame()).empty:
         return economy_result, None, "请先完成经济性测算，再生成推荐席位和代表方案图表。"
     if not recommendation_inputs:
@@ -6658,14 +6790,30 @@ def _render_recommendation_analysis_page(st, batch_result, summary: pd.DataFrame
         "集中展示推荐席位、容量配置、推荐理由和风险提示；图表已拆到独立模块。",
     )
 
+    recommendation_notice = st.session_state.pop("_recommendation_notice", None)
+    if recommendation_notice:
+        st.success(recommendation_notice)
+
     economy_result = st.session_state.get("economy_v1_result")
     single_entity_result = st.session_state.get("single_entity_economy_result")
     recommendation_inputs = st.session_state.get("recommendation_v1_inputs")
-    if not economy_result or economy_result.get("summary", pd.DataFrame()).empty:
+    restored_recommendation = _current_recommendation_result(st)
+    if (
+        (not economy_result or economy_result.get("summary", pd.DataFrame()).empty)
+        and restored_recommendation is None
+    ):
         _render_missing_step(st, "经济性测算", "请先完成经济性测算，再生成推荐席位和经济性图表。")
         return
     if not recommendation_inputs:
-        _render_missing_step(st, "经济性测算", "请重新运行一次经济性测算，以保存推荐席位所需的价格和门槛参数。")
+        if restored_recommendation is None:
+            _render_missing_step(st, "经济性测算", "请重新运行一次经济性测算，以保存推荐席位所需的价格和门槛参数。")
+            return
+        st.info("当前展示的是从项目历史恢复的推荐组合；不包含推荐席位输入，无法在此页重新排序。")
+        _render_recommendation_cards(st, restored_recommendation.portfolio)
+        _render_recommendation_detail_tables(st, restored_recommendation)
+        if st.button("进入图表概览", type="primary", key="recommendation_go_chart_overview_restored"):
+            _go_to_workflow_page(st, "图表概览")
+        _render_recommendation_bottom_status(st, batch_result, summary, restored_recommendation)
         return
 
     recommendation_single_entity_summary = (
@@ -7411,7 +7559,7 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
         else None
     )
     recommendation_inputs = st.session_state.get("recommendation_v1_inputs")
-    recommendation_result_for_export = None
+    recommendation_result_for_export = _current_recommendation_result(st)
     if recommendation_inputs and economy_summary is not None and not economy_summary.empty:
         try:
             recommendation_result_for_export = build_recommendation_study(
@@ -7613,22 +7761,31 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
                 key="export_single_entity_annual_cashflow",
             )
 
-        if recommendation_inputs and economy_summary is not None and not economy_summary.empty:
+        if recommendation_result_for_export is not None:
             try:
                 recommendation_result = recommendation_result_for_export
-                if recommendation_result is None:
+                if (
+                    recommendation_result is None
+                    and recommendation_inputs
+                    and economy_summary is not None
+                    and not economy_summary.empty
+                ):
                     recommendation_result = build_recommendation_study(
                         summary,
                         economy_summary,
                         RecommendationInputSnapshot(**recommendation_inputs),
                         single_entity_summary=single_entity_summary,
                     )
+                if recommendation_result is None:
+                    raise ValueError("当前没有可导出的推荐组合。")
                 st.download_button(
                     "下载推荐组合 Excel",
                     data=_build_excel_bytes(
                         {
                             "推荐组合": localize_columns(recommendation_result.portfolio),
-                            "电源侧经济性汇总": localize_columns(economy_summary),
+                            "电源侧经济性汇总": localize_columns(
+                                economy_summary if economy_summary is not None else pd.DataFrame()
+                            ),
                             "同一主体经济性汇总": localize_columns(
                                 single_entity_summary if single_entity_summary is not None else pd.DataFrame()
                             ),

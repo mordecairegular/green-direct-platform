@@ -812,6 +812,151 @@ def test_pilot_restore_economy_summary_uses_view_permission_without_export(tmp_p
     assert AuditAction.DOWNLOAD_ARTIFACT not in audit_actions
 
 
+def test_pilot_restore_recommendation_uses_view_permission_without_export(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import ArtifactKind, AuditAction, Project, ProjectRole, StudyResultRecord, User
+    from green_direct.services import RecommendationStudyResult
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+
+    access = app._pilot_access_service()
+    access.registry.save_user(User("admin", "admin@example.local", "Admin"))
+    access.registry.save_user(User("analyst", "analyst@example.local", "Analyst"))
+    project = access.create_project(actor_user_id="admin", project=Project("project_1", "Pilot project"))
+    access.grant_project_role(
+        actor_user_id="admin",
+        project_id=project.project_id,
+        user_id="analyst",
+        role=ProjectRole.ANALYST,
+        can_export_artifacts=False,
+    )
+    access.result_store.store_artifact(
+        artifact_id="technical_summary",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_id="job_tech",
+        kind=ArtifactKind.TECHNICAL_SUMMARY,
+        payload="scenario_id,green_load_rate\nS0001,0.5\n",
+        filename="technical_summary.csv",
+        content_type="text/csv",
+    )
+    access.result_store.store_artifact(
+        artifact_id="recommendation_portfolio_job_1",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_id="job_recommendation",
+        kind=ArtifactKind.RECOMMENDATION_PORTFOLIO,
+        payload=(
+            "scenario_id,recommendation_rank,recommendation_labels,recommendation_status,recommendation_reason\n"
+            "S0001,1,工程代表,selected,历史推荐\n"
+        ),
+        filename="recommendation_portfolio.csv",
+        content_type="text/csv",
+    )
+    access.result_store.store_artifact(
+        artifact_id="recommendation_load_side_detail_job_1",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_id="job_recommendation",
+        kind=ArtifactKind.RECOMMENDATION_PORTFOLIO,
+        payload="scenario_id,load_side_annual_benefit\nS0001,123.4\n",
+        filename="recommendation_load_side_detail.csv",
+        content_type="text/csv",
+    )
+    technical_record = StudyResultRecord(
+        result_id="technical_result",
+        project_id=project.project_id,
+        study_id="study_1",
+        created_by_job_id="job_tech",
+        technical_summary_artifact_id="technical_summary",
+    )
+    recommendation_record = StudyResultRecord(
+        result_id="recommendation_result_job_1",
+        project_id=project.project_id,
+        study_id="study_1",
+        created_by_job_id="job_recommendation",
+        recommendation_artifact_id="recommendation_portfolio_job_1",
+        report_artifact_ids={"load_side_detail": "recommendation_load_side_detail_job_1"},
+    )
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.PILOT_USER_ID_KEY: "analyst",
+                app.PILOT_ACTIVE_PROJECT_ID_KEY: project.project_id,
+                app.PILOT_ACTIVE_PROJECT_CAN_EXPORT_KEY: False,
+                "recommendation_v1_inputs": {"old": True},
+                "download_payloads": {"old": b"payload"},
+                "export_report_scenario": "S9999",
+            }
+
+    dummy = DummyStreamlit()
+    app._pilot_restore_technical_summary_to_session(
+        dummy,
+        access=access,
+        actor_user_id="analyst",
+        record=technical_record,
+    )
+    mismatched_study_record = StudyResultRecord(
+        result_id="recommendation_result_job_2",
+        project_id=project.project_id,
+        study_id="study_2",
+        created_by_job_id="job_recommendation",
+        recommendation_artifact_id="recommendation_portfolio_job_1",
+    )
+    with pytest.raises(ValueError, match="同一 study"):
+        app._pilot_restore_recommendation_to_session(
+            dummy,
+            access=access,
+            actor_user_id="analyst",
+            record=mismatched_study_record,
+        )
+    mismatched_project_record = StudyResultRecord(
+        result_id="recommendation_result_project_2",
+        project_id="project_2",
+        study_id="study_1",
+        created_by_job_id="job_recommendation",
+        recommendation_artifact_id="recommendation_portfolio_job_1",
+    )
+    with pytest.raises(ValueError, match="所属项目"):
+        app._pilot_restore_recommendation_to_session(
+            dummy,
+            access=access,
+            actor_user_id="analyst",
+            record=mismatched_project_record,
+        )
+
+    restored = app._pilot_restore_recommendation_to_session(
+        dummy,
+        access=access,
+        actor_user_id="analyst",
+        record=recommendation_record,
+    )
+
+    recommendation_result = dummy.session_state["recommendation_v1_result"]
+    assert isinstance(recommendation_result, RecommendationStudyResult)
+    assert restored["row_count"] == 1
+    assert recommendation_result.portfolio["recommendation_reason"].tolist() == ["历史推荐"]
+    assert recommendation_result.load_side_detail["load_side_annual_benefit"].tolist() == [123.4]
+    assert "recommendation_v1_inputs" not in dummy.session_state
+    assert "download_payloads" not in dummy.session_state
+    assert "export_report_scenario" not in dummy.session_state
+    assert dummy.session_state["study_result"].result_store_refs["recommendation_result_id"] == (
+        "recommendation_result_job_1"
+    )
+    _, display_recommendation, error_message = app._build_recommendation_result_for_display(
+        dummy,
+        dummy.session_state["batch_result"].summary,
+    )
+    assert error_message is None
+    assert display_recommendation is recommendation_result
+    assert app._workflow_step_done(dummy, "方案推荐") is True
+    audit_actions = [event.action for event in access.result_store.read_audit_log(project.project_id)]
+    assert audit_actions.count(AuditAction.VIEW_ARTIFACT) >= 2
+    assert AuditAction.DOWNLOAD_ARTIFACT not in audit_actions
+
+
 def test_pilot_restore_summary_can_load_hourly_artifact_for_view_without_export(tmp_path, monkeypatch):
     import green_direct.ui.app as app
     from green_direct.models.pilot_backend import ArtifactKind, AuditAction, Project, ProjectRole, StudyResultRecord, User
