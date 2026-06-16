@@ -2,7 +2,12 @@ from dataclasses import astuple
 
 import pytest
 
-from green_direct.core.bess_dispatch import dispatch_hour, dispatch_hour_values_with_limits, dispatch_hour_with_limits
+from green_direct.core.bess_dispatch import (
+    dispatch_bess_hour_values_with_limits,
+    dispatch_hour,
+    dispatch_hour_values_with_limits,
+    dispatch_hour_with_limits,
+)
 from green_direct.models.params import BessParams
 
 
@@ -211,3 +216,49 @@ def test_precomputed_limit_values_match_dispatch_step():
     )
 
     assert values == astuple(step)
+
+
+def test_bess_specific_values_match_generic_bess_path():
+    common = {
+        "load_energy": 22,
+        "renewable_energy": 10,
+        "bess_power_energy_limit": 5,
+        "bess_energy_start": 7,
+        "bess_soc_min_energy": 2,
+        "bess_soc_max_energy": 18,
+        "eta_charge": 0.95,
+        "eta_discharge": 0.9,
+        "allow_export": True,
+        "export_limit_energy": 6,
+        "exchange_limit_energy": 5,
+        "remaining_export_cap": 3,
+    }
+
+    assert dispatch_bess_hour_values_with_limits(**common) == dispatch_hour_values_with_limits(
+        has_bess=True,
+        **common,
+    )
+
+
+def test_bess_specific_no_exchange_limit_matches_infinite_exchange_limit():
+    common = {
+        "load_energy": 18,
+        "renewable_energy": 35,
+        "bess_power_energy_limit": 4,
+        "bess_energy_start": 8,
+        "bess_soc_min_energy": 2,
+        "bess_soc_max_energy": 18,
+        "eta_charge": 0.95,
+        "eta_discharge": 0.9,
+        "allow_export": True,
+        "export_limit_energy": float("inf"),
+        "exchange_limit_energy": float("inf"),
+        "remaining_export_cap": 5,
+    }
+
+    explicit_no_limit = dispatch_bess_hour_values_with_limits(has_exchange_limit=False, **common)
+    inferred_no_limit = dispatch_bess_hour_values_with_limits(**common)
+
+    assert explicit_no_limit == inferred_no_limit
+    assert explicit_no_limit[7] == 0.0
+    assert explicit_no_limit[8] == 0.0

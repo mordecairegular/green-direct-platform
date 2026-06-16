@@ -5633,3 +5633,23 @@ profile / benchmark：
 边界：
 - 不改变 V0.1 dispatch、SOC 滚动、summary 字段、hourly ledger 列名、经济性 V1 或推荐排序；
 - 这是批量内输入曲线准备层优化，下一步性能重点仍是 dispatch helper 内核、summary 表构造/排序和后台 Job 化。
+
+### 2026-06-17 有储能 dispatch 热路径专用 helper
+
+本轮继续推进方案遍历性能优化。前序已把无储能方案数组化、有储能场景的曲线派生量移出小时循环，并让批量入口复用输入曲线数组；profile 继续显示剩余热点集中在有储能逐小时 dispatch helper。
+
+实现：
+- 新增 `dispatch_bess_hour_values_with_limits()`，专门服务有储能场景，保留原 public `dispatch_hour()`、`dispatch_hour_with_limits()` 和 `dispatch_hour_values_with_limits()` 兼容接口；
+- `run_single_scenario()` 的有储能路径直接调用 BESS 专用 helper，绕过通用 helper 的 `has_bess` 分支；
+- 当未配置 `grid_exchange_power_limit` 时，BESS helper 不再每小时执行 `min(..., inf)` 和对应下网缺口/交换限额弃电计算；
+- 新增测试锁定 BESS 专用 helper 与通用 BESS 路径一致，以及有储能 summary-only 热路径不再调用通用 values helper。
+
+验证与反馈环：
+- 本轮基线：`python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 8 --wind-count 8 --bess-power-count 3 --durations 0,2 --skip-full-retention --retain-detail-count 0 --json`，189 个方案技术 summary-first 约 1.0011s；
+- 只拆 BESS helper 后约 0.9918s；再增加无交换限额快路径后约 0.9364s；
+- cProfile 同一技术 summary-only 样本函数调用数约从 400,521 降到 379,353，`min()` 调用约从 63,567 降到 42,399；
+- `python -m pytest tests\test_bess_dispatch.py tests\test_single_scenario.py -q` 通过，49 项通过。
+
+边界：
+- 不改变 V0.1 BESS SOC 滚动、上网比例 cap、并网交换限制、hour_case、summary 字段、经济性 V1 或推荐排序；
+- 这是热路径小切片，不等于解决成千上万方案的全部等待问题；后续仍需正式后台 Job、worker 级取消/重试、数据库/对象存储化和更大的计算内核优化。

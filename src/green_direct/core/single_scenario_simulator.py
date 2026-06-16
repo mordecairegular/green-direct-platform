@@ -9,6 +9,7 @@ import pandas as pd
 
 from green_direct.core.bess_dispatch import (
     DispatchStrategy,
+    dispatch_bess_hour_values_with_limits,
     dispatch_hour_values_with_limits,
     normalize_dispatch_strategy,
 )
@@ -489,6 +490,7 @@ def run_single_scenario(
         if policy.grid_exchange_power_limit is None
         else max(policy.grid_exchange_power_limit * dt_hours, 0.0)
     )
+    has_exchange_limit = policy.grid_exchange_power_limit is not None
     bess_power_energy_limit = bess_power * dt_hours
     bess_soc_min_energy = bess.soc_min * scenario_bess_energy
     bess_soc_max_energy = bess.soc_max * scenario_bess_energy
@@ -653,10 +655,9 @@ def run_single_scenario(
             step_exchange_import_shortfall,
             step_bess_energy_end,
             step_hour_case,
-        ) = dispatch_hour_values_with_limits(
+        ) = dispatch_bess_hour_values_with_limits(
             load_energy=dispatch_load_energy,
             renewable_energy=renewable_energy,
-            has_bess=has_bess,
             bess_power_energy_limit=bess_power_energy_limit,
             bess_energy_start=bess_energy_start,
             bess_soc_min_energy=bess_soc_min_energy,
@@ -667,13 +668,11 @@ def run_single_scenario(
             export_limit_energy=export_limit_energy,
             remaining_export_cap=remaining_cap,
             exchange_limit_energy=exchange_limit_energy,
+            has_exchange_limit=has_exchange_limit,
         )
         bess_energy = step_bess_energy_end
-        if has_bess:
-            soc = bess_energy / scenario_bess_energy
-            soc = min(max(soc, bess.soc_min - 1e-12), bess.soc_max + 1e-12)
-        else:
-            soc = 0.0
+        soc = bess_energy / scenario_bess_energy
+        soc = min(max(soc, bess.soc_min - 1e-12), bess.soc_max + 1e-12)
         cumulative_export += step_grid_export
 
         if data is None:

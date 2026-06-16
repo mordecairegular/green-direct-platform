@@ -356,6 +356,52 @@ def test_no_bess_hourly_detail_fast_path_matches_dispatch_reference(monkeypatch)
             assert result.hourly_detail[column].tolist() == pytest.approx(values)
 
 
+def test_bess_summary_only_uses_bess_specific_values_helper(monkeypatch):
+    curves = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2020-01-01", periods=5, freq="h"),
+            "load_power": [10, 20, 12, 5, 18],
+            "pv_pu": [2.0, 0.2, 1.5, 0.0, 0.1],
+            "wind_pu": [0.0, 0.1, 0.5, 0.0, 0.0],
+        }
+    )
+    scenario = Scenario("S_BESS_FAST", pv_capacity=10, wind_capacity=5, bess_power=4, bess_energy=12)
+    policy_params = PolicyParams(allow_export=True, export_rate_max=0.25, grid_exchange_power_limit=8)
+    bess_params = BessParams(soc_initial=0.5, soc_min=0.1, soc_max=0.9, eta_charge=0.95, eta_discharge=0.9)
+
+    expected = run_single_scenario(
+        curves,
+        scenario,
+        bess_params=bess_params,
+        policy_params=policy_params,
+        retain_hourly_detail=False,
+    )
+
+    def fail_generic_dispatch(*args, **kwargs):
+        raise AssertionError("BESS hot path should call the BESS-specific values helper")
+
+    monkeypatch.setattr(
+        "green_direct.core.single_scenario_simulator.dispatch_hour_values_with_limits",
+        fail_generic_dispatch,
+    )
+    result = run_single_scenario(
+        curves,
+        scenario,
+        bess_params=bess_params,
+        policy_params=policy_params,
+        retain_hourly_detail=False,
+    )
+
+    assert result.hourly_detail.empty
+    assert result.summary.keys() == expected.summary.keys()
+    for key, expected_value in expected.summary.items():
+        actual = result.summary[key]
+        if isinstance(expected_value, float):
+            assert actual == pytest.approx(expected_value), key
+        else:
+            assert actual == expected_value, key
+
+
 def test_case_11_load_side_self_use_consistency():
     result = _run(
         [10, 20, 10],

@@ -149,7 +149,7 @@ python scripts\benchmark_internal_pilot_performance.py --json
 - 同一组输入下经济性 summary 与优化前一致；
 - 年度现金流保留策略不影响推荐排序。
 - 后续可继续把更多 DataFrame/NumPy 批量计算和价格曲线聚合放进共享上下文，避免每个方案重复解析同一组输入。
-- 已减少单方案热路径里的 `DispatchStep` 对象创建：`dispatch_hour_values_with_limits()` 与 `dispatch_hour_with_limits()` 保持同一计算逻辑，现有 golden/批量一致性测试用于证明口径不变；已将批量 runner 不消费的逐方案 diagnostics 变为可跳过，并把 hourly numeric cleanup 前移到 numpy 数组；无储能 summary-only 和无储能 retained hourly detail 场景已走 NumPy 快路径；有储能场景已把与 SOC 无关的曲线派生量移出逐小时循环；批量入口已复用同一份曲线数组。后续可继续评估有储能 summary-only 的更紧凑累加结构、dispatch 内核瘦身或编译化内核。
+- 已减少单方案热路径里的 `DispatchStep` 对象创建：`dispatch_hour_values_with_limits()` 与 `dispatch_hour_with_limits()` 保持同一计算逻辑，现有 golden/批量一致性测试用于证明口径不变；已将批量 runner 不消费的逐方案 diagnostics 变为可跳过，并把 hourly numeric cleanup 前移到 numpy 数组；无储能 summary-only 和无储能 retained hourly detail 场景已走 NumPy 快路径；有储能场景已把与 SOC 无关的曲线派生量移出逐小时循环，批量入口已复用同一份曲线数组；有储能热路径新增 `dispatch_bess_hour_values_with_limits()`，绕过通用 `has_bess` 分支，并在未配置电网交换功率限制时跳过 `min(..., inf)` 型计算。后续可继续评估有储能 summary-only 的更紧凑累加结构、dispatch 内核瘦身或编译化内核。
 
 ## 4. 不做的事
 
