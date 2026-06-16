@@ -193,6 +193,8 @@ python -m green_direct.cli pilot-admin fail-stale-jobs `
 
 该命令会把超过阈值未 heartbeat 的 running 任务标记为 `failed`，写入项目级 `COMPLETE_JOB` 审计，并保留原 `worker_id`、最后 heartbeat 和错误说明。它只修复任务元数据，不会终止操作系统进程，也不代表已经有正式后台队列、重试或资源回收。
 
+平台管理员也可以在 Streamlit “平台管理 -> 任务运维”中查看超时运行任务，并点击“标记超时运行任务失败”。该入口复用同一服务层语义，适合 Render 单 Web Service 首次内测时不方便进入 Shell 的场景。
+
 worker wrapper 可使用同一 CLI 认领 queued job：
 
 ```powershell
@@ -318,7 +320,7 @@ python -m green_direct.cli pilot-admin list-audit-events `
 
 ## 14. 仍未完成的生产化事项
 
-- 正式队列、worker 级取消、重试和限流；当前仅有活动任务取消元数据、stale running 置失败运维入口、按需 hourly detail / annual cashflow 的 queued job 入口，平台管理页手动处理一个排队任务，以及最小 `run-worker-loop` 轮询 worker；
+- 正式队列、worker 级取消、重试和限流；当前仅有活动任务取消元数据、stale running 置失败运维入口、按需 hourly detail / annual cashflow 的 queued job 入口，平台管理页手动处理一个排队任务 / 恢复超时 running 任务元数据，以及最小 `run-worker-loop` 轮询 worker；
 - SQLite/Postgres 或对象存储适配；
 - 原始上传文件保存、留存和清理；
 - 完整历史结果恢复、跨项目搜索和报告版本管理；结果索引标记/置顶和软删除已有第一版；

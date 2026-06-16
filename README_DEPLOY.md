@@ -166,7 +166,7 @@ docker compose --profile worker up -d green-direct-worker
 
 该 worker 当前只执行 `technical_study/hourly_detail` 和 `economic_study/annual_cashflow` 任务。后者仅支持固定价/网页组价经济性结果，逐时价格曲线结果需等价格曲线 artifact 化后再补。它不是正式队列系统，不提供 worker 级取消、重试、资源隔离或多 worker 并发锁；本地 JSON store 版试用期建议最多启动一个 worker。
 
-如果使用 Render 这类只部署单个 Web Service 的首次试用环境，暂时不要把本地 file store 版拆成独立 Worker Service。平台管理员可以在应用内“平台管理 -> 任务运维”手动处理一个排队任务；这会在当前 Streamlit Web 进程内复用同一套 `execute_next_worker_job()` 链路，适合排障和小任务补算，但仍不是自动后台队列。
+如果使用 Render 这类只部署单个 Web Service 的首次试用环境，暂时不要把本地 file store 版拆成独立 Worker Service。平台管理员可以在应用内“平台管理 -> 任务运维”手动处理一个排队任务；这会在当前 Streamlit Web 进程内复用同一套 `execute_next_worker_job()` 链路，适合排障和小任务补算。该页面也可以把超时 running 任务元数据标记为 failed。两者都不是自动后台队列，也不会终止真实操作系统进程。
 
 ## 5. 账号与权限
 
@@ -178,7 +178,7 @@ docker compose --profile worker up -d green-direct-worker
 - 授予/撤销平台管理员；
 - 维护项目成员角色；
 - 控制项目成员是否允许下载/导出结果。
-- 在“任务运维”中查看排队/运行中任务，并手动处理一个受支持的 queued job。
+- 在“任务运维”中查看排队/运行中任务，手动处理一个受支持的 queued job，并恢复超时 running 任务元数据。
 
 当前项目角色为 `admin`、`analyst`、`viewer`，导出权限由 `can_export_artifacts` 独立控制。不可导出用户应能查看网页结果，但不能下载 artifact 或 06 页导出文件。
 

@@ -3561,6 +3561,22 @@ def _run_platform_admin_worker_once(
     )
 
 
+def _fail_platform_admin_stale_jobs(
+    *,
+    actor_user_id: str,
+    project_id: str | None,
+    stale_after_seconds: int = PILOT_JOB_STALE_AFTER_SECONDS,
+) -> str:
+    failed = _pilot_access_service().fail_stale_running_jobs_for_platform_admin(
+        actor_user_id=actor_user_id,
+        project_id=project_id,
+        stale_after_seconds=stale_after_seconds,
+    )
+    if not failed:
+        return "没有发现超时运行任务。"
+    return f"已将 {len(failed)} 个超时运行任务标记为 failed。"
+
+
 def _render_platform_admin_worker_ops(
     st,
     *,
@@ -3589,16 +3605,24 @@ def _render_platform_admin_worker_ops(
         _handle_platform_admin_error(st, exc)
         return
 
+    now = datetime.now(timezone.utc)
     supported_queued = [
         job
         for job in active_jobs
         if job.status == JobStatus.QUEUED and job.job_type in SUPPORTED_PILOT_MANUAL_WORKER_JOB_TYPES
     ]
     running_count = sum(1 for job in active_jobs if job.status == JobStatus.RUNNING)
-    c1, c2, c3 = st.columns(3)
+    stale_running = [
+        job
+        for job in active_jobs
+        if job.status == JobStatus.RUNNING
+        and job.is_stale(now=now, stale_after_seconds=PILOT_JOB_STALE_AFTER_SECONDS)
+    ]
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("活动任务", len(active_jobs))
     c2.metric("可手动处理排队任务", len(supported_queued))
     c3.metric("运行中", running_count)
+    c4.metric("超时运行", len(stale_running))
 
     if active_jobs:
         st.dataframe(_platform_admin_job_frame(active_jobs, projects_by_id=projects_by_id), width="stretch", hide_index=True)
@@ -3612,6 +3636,15 @@ def _render_platform_admin_worker_ops(
     if st.button("处理一个排队任务", key="pilot_admin_run_worker_once", disabled=not supported_queued):
         try:
             st.session_state[PILOT_ADMIN_NOTICE_KEY] = _run_platform_admin_worker_once(
+                actor_user_id=actor_user_id,
+                project_id=project_id,
+            )
+            st.rerun()
+        except Exception as exc:  # noqa: BLE001
+            _handle_platform_admin_error(st, exc)
+    if st.button("标记超时运行任务失败", key="pilot_admin_fail_stale_jobs", disabled=not stale_running):
+        try:
+            st.session_state[PILOT_ADMIN_NOTICE_KEY] = _fail_platform_admin_stale_jobs(
                 actor_user_id=actor_user_id,
                 project_id=project_id,
             )

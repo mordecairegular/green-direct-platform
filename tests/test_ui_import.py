@@ -1505,6 +1505,32 @@ def test_platform_admin_worker_once_reports_idle_queue(monkeypatch):
     assert app._run_platform_admin_worker_once(actor_user_id="admin", project_id=None) == "暂无可处理的排队任务。"
 
 
+def test_platform_admin_stale_cleanup_uses_access_service(monkeypatch):
+    import green_direct.ui.app as app
+
+    captured = {}
+
+    class Access:
+        def fail_stale_running_jobs_for_platform_admin(self, **kwargs):
+            captured.update(kwargs)
+            return [SimpleNamespace(job_id="job_1"), SimpleNamespace(job_id="job_2")]
+
+    monkeypatch.setattr(app, "_pilot_access_service", lambda: Access())
+
+    message = app._fail_platform_admin_stale_jobs(
+        actor_user_id="admin",
+        project_id="project_1",
+        stale_after_seconds=120,
+    )
+
+    assert captured == {
+        "actor_user_id": "admin",
+        "project_id": "project_1",
+        "stale_after_seconds": 120,
+    }
+    assert message == "已将 2 个超时运行任务标记为 failed。"
+
+
 def test_curve_display_tooltip_shows_input_curve_metrics():
     from green_direct.ui.app import _curve_display_tooltip
 

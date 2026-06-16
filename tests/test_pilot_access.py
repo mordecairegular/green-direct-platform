@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pytest
 
 from green_direct.models.pilot_backend import (
@@ -29,6 +31,10 @@ def _service(tmp_path):
         job_store=job_store,
         result_store=result_store,
     )
+
+
+def _dt(hour: int) -> datetime:
+    return datetime(2026, 6, 15, hour, tzinfo=timezone.utc)
 
 
 def _seed_users(service: PilotAccessService) -> None:
@@ -260,6 +266,53 @@ def test_platform_admin_can_list_jobs_across_projects_for_operations(tmp_path):
     assert [job.job_id for job in jobs] == ["job_1"]
     with pytest.raises(PilotAccessError, match="platform operations"):
         service.list_jobs_for_platform_admin(actor_user_id="analyst", statuses=[JobStatus.QUEUED])
+
+
+def test_platform_admin_can_fail_stale_running_jobs_with_audit(tmp_path):
+    service = _service(tmp_path)
+    service.registry.save_user(User("ops", "ops@example.local", "Ops", is_platform_admin=True))
+    service.registry.save_user(User("analyst", "analyst@example.local", "Analyst"))
+    project = service.create_project(
+        actor_user_id="ops",
+        project=Project("project_1", "Internal pilot project"),
+    )
+    service.grant_project_role(
+        actor_user_id="ops",
+        project_id=project.project_id,
+        user_id="analyst",
+        role=ProjectRole.ANALYST,
+    )
+    service.submit_job(actor_user_id="analyst", job=_job("job_stale"))
+    service.job_store.start_job(
+        "project_1",
+        "study_1",
+        "job_stale",
+        started_at=_dt(1),
+        worker_id="worker_1",
+    )
+
+    failed = service.fail_stale_running_jobs_for_platform_admin(
+        actor_user_id="ops",
+        stale_after_seconds=3600,
+        now=_dt(3),
+    )
+
+    assert [job.job_id for job in failed] == ["job_stale"]
+    assert failed[0].status == JobStatus.FAILED
+    audit_events = service.result_store.read_audit_log("project_1")
+    assert any(
+        event.action == AuditAction.COMPLETE_JOB
+        and event.job_id == "job_stale"
+        and event.metadata["reason"] == "stale_running_job"
+        and event.metadata["worker_id"] == "worker_1"
+        for event in audit_events
+    )
+    with pytest.raises(PilotAccessError, match="platform operations"):
+        service.fail_stale_running_jobs_for_platform_admin(
+            actor_user_id="analyst",
+            stale_after_seconds=3600,
+            now=_dt(4),
+        )
 
 
 def test_cancel_job_allows_owner_or_admin_only(tmp_path):

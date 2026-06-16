@@ -4897,3 +4897,25 @@ Render 单 Web Service 首次公网试用时，不应直接把本地 file store 
 - `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
 - `git diff --check` 通过；
 - `python -m pytest -q` 通过，350 项通过。
+
+### 2026-06-16 平台管理页恢复 stale running 任务
+
+上一小节把 queued job 的手动处理入口放到了平台管理页，但如果 Streamlit 进程中断、worker 异常退出或管理员误认领后没有执行，任务仍可能停在 `running`。此前只有 CLI `pilot-admin fail-stale-jobs` 能恢复这类元数据，本轮把它下沉到平台管理页，并把服务层逻辑集中到 `PilotAccessService`。
+
+实现：
+- `PilotAccessService.fail_stale_running_jobs_for_platform_admin()` 新增平台管理员校验、项目范围过滤、`stale_after_seconds` 校验、批量失败和 `COMPLETE_JOB` 审计；
+- `pilot-admin fail-stale-jobs` 改为复用该服务方法，避免 CLI 和 UI 两套审计逻辑分叉；
+- 平台管理页“任务运维”新增“超时运行”计数和“标记超时运行任务失败”按钮；
+- 该按钮只处理超过 `PILOT_JOB_STALE_AFTER_SECONDS` 未 heartbeat 的 running 任务，不会影响正常运行中任务。
+
+边界：
+- 这只是任务元数据恢复和审计，不会杀掉或回收真实 Python / 系统进程；
+- 仍不是正式队列、worker 级取消、重试、限流或资源隔离。
+
+验证：
+- `python -m pytest tests/test_pilot_access.py::test_platform_admin_can_fail_stale_running_jobs_with_audit tests/test_pilot_access.py::test_platform_admin_can_list_jobs_across_projects_for_operations tests/test_ui_import.py::test_platform_admin_stale_cleanup_uses_access_service tests/test_cli.py::test_cli_pilot_admin_fails_stale_running_jobs_and_audits -q` 通过，4 项通过；
+- `python -m pytest tests/test_pilot_access.py tests/test_cli.py::test_cli_pilot_admin_fails_stale_running_jobs_and_audits tests/test_ui_import.py::test_platform_admin_stale_cleanup_uses_access_service tests/test_ui_import.py::test_platform_admin_worker_once_uses_supported_scope_and_reports_result tests/test_ui_import.py::test_platform_admin_worker_once_reports_idle_queue tests/test_ui_import.py::test_streamlit_platform_admin_can_create_user tests/test_ui_import.py::test_streamlit_non_admin_does_not_show_platform_admin_entry -q` 通过，28 项通过；
+- `python -m compileall -q src\green_direct\services\pilot_access.py src\green_direct\cli.py src\green_direct\ui\app.py tests\test_pilot_access.py tests\test_ui_import.py tests\test_cli.py` 通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `git diff --check` 通过；
+- `python -m pytest -q` 通过，352 项通过。

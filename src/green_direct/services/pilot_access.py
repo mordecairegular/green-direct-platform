@@ -297,6 +297,56 @@ class PilotAccessService:
             self._project(project_id, require_active=False)
         return self.job_store.list_jobs(project_id=project_id, statuses=statuses)
 
+    def fail_stale_running_jobs_for_platform_admin(
+        self,
+        *,
+        actor_user_id: str,
+        stale_after_seconds: int,
+        project_id: str | None = None,
+        now: datetime | None = None,
+        error_message: str | None = None,
+    ) -> list[Job]:
+        """Mark stale running job metadata failed for platform operations."""
+
+        self._platform_admin(actor_user_id)
+        if stale_after_seconds < 0:
+            raise ValueError("stale_after_seconds must be non-negative.")
+        if project_id is not None:
+            self._project(project_id, require_active=False)
+
+        timestamp = now or datetime.now(timezone.utc)
+        message = error_message or (
+            "Marked failed by platform admin stale-job cleanup after "
+            f"{int(stale_after_seconds / 60)} minutes without heartbeat."
+        )
+        failed = self.job_store.fail_stale_running_jobs(
+            now=timestamp,
+            stale_after_seconds=stale_after_seconds,
+            error_message=message,
+            project_id=project_id,
+        )
+        for job in failed:
+            self._audit(
+                actor_user_id=actor_user_id,
+                action=AuditAction.COMPLETE_JOB,
+                project_id=job.project_id,
+                study_id=job.study_id,
+                job_id=job.job_id,
+                target_type="job",
+                target_id=job.job_id,
+                metadata={
+                    "status": job.status.value,
+                    "reason": "stale_running_job",
+                    "stale_after_seconds": stale_after_seconds,
+                    "worker_id": job.worker_id,
+                    "last_heartbeat_at": (
+                        job.last_heartbeat_at.isoformat() if job.last_heartbeat_at else None
+                    ),
+                    "error_message": job.error_message,
+                },
+            )
+        return failed
+
     def load_job(self, *, actor_user_id: str, project_id: str, study_id: str, job_id: str) -> Job:
         """Load a job visible to an active project member."""
 

@@ -533,45 +533,17 @@ def _cmd_purge_expired_artifacts(args: argparse.Namespace) -> int:
 
 def _cmd_fail_stale_jobs(args: argparse.Namespace) -> int:
     services = _pilot_services(args.store_dir)
-    services.admin.list_users(actor_user_id=args.actor_user_id)
-    now = datetime.now(timezone.utc)
     stale_after_seconds = int(args.stale_after_minutes) * 60
-    if stale_after_seconds < 0:
-        raise ValueError("--stale-after-minutes must be non-negative.")
     message = (
         "Marked failed by pilot-admin fail-stale-jobs after "
         f"{args.stale_after_minutes} minutes without heartbeat."
     )
-    failed = services.job_store.fail_stale_running_jobs(
-        now=now,
+    failed = services.access.fail_stale_running_jobs_for_platform_admin(
+        actor_user_id=args.actor_user_id,
         stale_after_seconds=stale_after_seconds,
-        error_message=message,
         project_id=args.project_id,
+        error_message=message,
     )
-    for job in failed:
-        services.result_store.append_audit_log(
-            AuditLog(
-                event_id=f"stale-job-fail-{uuid4().hex}",
-                actor_user_id=args.actor_user_id,
-                action=AuditAction.COMPLETE_JOB,
-                project_id=job.project_id,
-                study_id=job.study_id,
-                job_id=job.job_id,
-                target_type="job",
-                target_id=job.job_id,
-                metadata={
-                    "status": job.status.value,
-                    "reason": "stale_running_job",
-                    "stale_after_seconds": stale_after_seconds,
-                    "worker_id": job.worker_id,
-                    "last_heartbeat_at": (
-                        job.last_heartbeat_at.isoformat() if job.last_heartbeat_at else None
-                    ),
-                    "error_message": job.error_message,
-                },
-                created_at=now,
-            )
-        )
     print(f"Marked stale running jobs failed: {len(failed)}")
     for job in failed:
         finished_at = job.finished_at.isoformat() if job.finished_at else ""

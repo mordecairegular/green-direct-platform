@@ -1084,7 +1084,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `list_stale_running_jobs()` / `fail_stale_running_jobs()`：按 `last_heartbeat_at` 或 `started_at` 判断超时 running 任务，并可批量标记失败；
 - 任务文件按 `projects/{project_id}/studies/{study_id}/jobs/{job_id}.json` 隔离，路径片段使用白名单校验。
 
-`LocalJobStore` 目前只保存任务元数据和本地认领原语，本身不做重试、不做 worker 级资源中断，也没有跨进程队列锁。`pilot_worker.execute_next_worker_job()` 已提供第一版 worker 执行路径，可处理 `technical_study/hourly_detail` 并写回逐小时明细 artifact，也可处理固定价/网页组价经济性结果的 `economic_study/annual_cashflow` 并写回所选方案年度现金流 artifact；`execute_worker_loop()` / `pilot-admin run-worker-loop` 可持续轮询并执行受支持任务，但仍不是正式后台队列。Streamlit 欢迎页已消费任务状态，显示活动任务、任务状态明细，并通过 `PilotAccessService.cancel_job()` 更新取消状态；`pilot-admin fail-stale-jobs` 可把进程中断后遗留的 running 元数据转成 failed，便于试用期恢复项目状态，但不会杀死或回收任何操作系统进程。后续接入正式后台时，应让前台提交 `Job`、轮询 `JobStatus`，由后台 worker 通过受控服务认领任务、写入 `worker_id` / heartbeat 和 `LocalResultStore` 或其替代存储。
+`LocalJobStore` 目前只保存任务元数据和本地认领原语，本身不做重试、不做 worker 级资源中断，也没有跨进程队列锁。`pilot_worker.execute_next_worker_job()` 已提供第一版 worker 执行路径，可处理 `technical_study/hourly_detail` 并写回逐小时明细 artifact，也可处理固定价/网页组价经济性结果的 `economic_study/annual_cashflow` 并写回所选方案年度现金流 artifact；`execute_worker_loop()` / `pilot-admin run-worker-loop` 可持续轮询并执行受支持任务，但仍不是正式后台队列。Streamlit 欢迎页已消费任务状态，显示活动任务、任务状态明细，并通过 `PilotAccessService.cancel_job()` 更新取消状态；平台管理页“任务运维”和 `pilot-admin fail-stale-jobs` 都可把进程中断后遗留的 running 元数据转成 failed，便于试用期恢复项目状态，但不会杀死或回收任何操作系统进程。后续接入正式后台时，应让前台提交 `Job`、轮询 `JobStatus`，由后台 worker 通过受控服务认领任务、写入 `worker_id` / heartbeat 和 `LocalResultStore` 或其替代存储。
 
 `src/green_direct/services/pilot_access.py` 已提供第一版 `PilotAccessService`：
 
