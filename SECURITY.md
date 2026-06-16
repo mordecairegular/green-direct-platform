@@ -108,7 +108,7 @@
 ## 已知限制
 
 - 本地 JSON/file store 没有数据库事务、并发锁和正式备份调度；
-- 计算任务仍主要在 Streamlit 进程内同步执行；
+- 计算任务仍主要在 Streamlit 进程内同步执行，仅有按需 hourly detail 的 one-shot worker；
 - 历史 summary-only 结果可加载已有 hourly artifact，但尚不能在缺少原始输入 artifact 时跨会话按需补算逐小时明细；
 - 不是正式公网 SaaS 安全架构；
-- 需要在后续引入后台 worker、SQLite/Postgres 或对象存储、集中日志、监控告警和安全扫描。
+- 需要在后续引入常驻后台 worker、SQLite/Postgres 或对象存储、集中日志、监控告警和安全扫描。

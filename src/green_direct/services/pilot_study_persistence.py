@@ -520,6 +520,7 @@ def persist_hourly_detail_artifact(
     technical_job_id: str | None = None,
     technical_result_id: str = "technical_result",
     retention_days: int = 30,
+    artifact_job_id: str | None = None,
 ) -> PersistedHourlyDetailArtifact:
     """Persist one on-demand hourly detail CSV and attach it to the technical result index."""
 
@@ -550,13 +551,14 @@ def persist_hourly_detail_artifact(
         )
         job_id = technical_job_id
 
+    artifact_owner_job_id = artifact_job_id or job_id
     retention_policy, expires_at = _hourly_detail_expiry(retention_days)
     artifact_id = f"hourly_detail_{scenario_key}"
     artifact = access_service.result_store.store_artifact(
         artifact_id=artifact_id,
         project_id=project_id,
         study_id=study_id,
-        job_id=job_id,
+        job_id=artifact_owner_job_id,
         kind=ArtifactKind.HOURLY_DETAIL,
         payload=_frame_csv(hourly_detail),
         filename=f"{artifact_id}.csv",
@@ -580,13 +582,14 @@ def persist_hourly_detail_artifact(
             action=AuditAction.STORE_ARTIFACT,
             project_id=project_id,
             study_id=study_id,
-            job_id=job_id,
+            job_id=artifact_owner_job_id,
             target_type="artifact",
             target_id=artifact.artifact_id,
             metadata={
                 "kind": artifact.kind.value,
                 "scenario_id": scenario_key,
                 "retention_policy": artifact.retention_policy.value,
+                "attached_result_id": technical_result_id,
             },
         )
     )

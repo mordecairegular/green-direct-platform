@@ -159,7 +159,7 @@ PNG 图表包后台任务也按会话隔离：
 - 停用用户时会撤销该用户仍然有效的本地会话；
 - 创建用户、更新用户、重置密码、停用和平台管理员标记变更会写入全局 `AuditLog`；
 - 为避免锁死后台，服务不允许停用或降级最后一个活跃平台管理员；
-- `src/green_direct/cli.py` 已提供 `pilot-admin` 命令行入口，可执行 bootstrap、创建用户、重置密码、停用用户、授予/撤销平台管理员、列出用户/会话/审计事件/项目/项目成员/任务、创建或归档项目、授予或禁用项目成员、认领 queued job、刷新 worker heartbeat/进度、标记 worker 成功/失败终态、清理过期 artifact payload 和标记超时 running 任务失败；
+- `src/green_direct/cli.py` 已提供 `pilot-admin` 命令行入口，可执行 bootstrap、创建用户、重置密码、停用用户、授予/撤销平台管理员、列出用户/会话/审计事件/项目/项目成员/任务、创建或归档项目、授予或禁用项目成员、认领 queued job、刷新 worker heartbeat/进度、标记 worker 成功/失败终态、执行一次受支持 worker job、清理过期 artifact payload 和标记超时 running 任务失败；
 - 当前服务已接入 Streamlit 最小平台管理页，但仍未替代后续 SQLite/Postgres、企业身份系统或正式审计后台。
 
 已落地的第一步 JobStore：
@@ -171,9 +171,10 @@ PNG 图表包后台任务也按会话隔离：
 - 支持 `claim_next_queued_job()`，可按项目和任务类型认领最早 queued 任务并转为 running，写入 `worker_id` 和 heartbeat，作为后续 worker 轮询的本地原语；
 - `Job.input_artifact_ids` 会随 job JSON 持久化；`pilot-admin list-jobs` 已显示输入 artifact 数量，便于运维判断某个 queued/running job 是否带了受控输入引用；
 - 任务请求 payload 可通过 `queue_job_with_input_artifact()` 保存为 `job_input_<job_id>.json`，并以默认 `job_payload` key 挂入 `Job.input_artifact_ids`；外部输入如 `technical_summary`、`config_snapshot`、`input_curve_*` 也会在同一映射中保留；
+- `src/green_direct/services/pilot_worker.py` 已提供第一条 one-shot worker 执行路径：`execute_next_worker_job()` 先认领 queued job，再根据 `Job.input_artifact_ids` 读取输入 artifact 并执行；当前仅支持 `technical_study` + `job_payload.task="hourly_detail"`；
 - 支持 `list_stale_running_jobs()` 和 `fail_stale_running_jobs()`，可把超过阈值未 heartbeat 的 running 任务标记为 failed；`pilot-admin fail-stale-jobs` 会复用该能力并写 `COMPLETE_JOB` 审计；
 - 路径片段使用白名单校验，防止 `project_id`、`study_id`、`job_id` 被拼接成越权路径；
-- 当前实现只持久化任务状态和本地认领原语；JSON 写入已使用原子替换，但仍不包含真正 worker 调度、重试策略、跨进程并发锁或管理员 UI；后续任务队列或数据库实现应沿用同一 `Job` 契约。
+- 当前实现只持久化任务状态、本地认领原语和一条最小 one-shot 执行路径；JSON 写入已使用原子替换，但仍不包含常驻 worker daemon、正式调度器、重试策略、跨进程并发锁或管理员 UI；后续任务队列或数据库实现应沿用同一 `Job` 契约。
 - Streamlit 欢迎页已消费该任务状态：可筛选 `queued` / `running` 活动任务、展示任务状态明细并提供最小取消入口。但取消和 stale cleanup 都只改变任务元数据状态，不代表已有 worker 级中断、重试或资源隔离。
 
 已落地的第一步权限与审计服务：
@@ -185,6 +186,7 @@ PNG 图表包后台任务也按会话隔离：
 - `succeed_worker_job()` / `fail_worker_job()` 已作为平台管理员保护的 worker 终态入口，要求 `worker_id` 与 running job 记录一致，并写 `COMPLETE_JOB` 审计；
 - `submit_job()` 已支持并校验 `Job.input_artifact_ids`：若提交的 job 声明了输入 artifact，服务层会要求这些 artifact 已存在于同一 `project_id` / `study_id`，并把引用写入 `SUBMIT_JOB` 审计 metadata；
 - `queue_job_with_input_artifact()` 在 `submit_job()` 前预校验权限和外部 artifact，并写 `STORE_ARTIFACT` 审计；它只提交 queued job，不在 Streamlit 请求内执行计算；
+- `execute_next_worker_job()` / `pilot-admin run-worker-once` 已可执行第一条受支持 worker 链路：读取 `job_payload`、`technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，复用 `run_hourly_detail_for_scenario()` 生成单方案逐小时明细，写回 `ArtifactKind.HOURLY_DETAIL` 并标记 job 成功或失败；
 - `list_accessible_projects()` 已用于 Streamlit 登录后的项目工作区选择，只返回当前用户有有效 membership 的项目；
 - `admin` 可创建/归档项目、授予/停用成员、提交任务、查看任务和产物、取消他人任务；
 - `analyst` 可提交和查看本项目任务，并取消自己提交的任务；
@@ -194,7 +196,7 @@ PNG 图表包后台任务也按会话隔离：
 - 产物索引读取仍要求项目查看权限；网页内恢复/图表查看 payload 使用 `read_artifact_payload_for_view()`，要求项目查看权限并写入 `VIEW_ARTIFACT` 审计；文件下载/导出 payload 使用 `read_artifact_payload()`，要求项目导出权限，成功和拒绝都会写入 `DOWNLOAD_ARTIFACT` 审计；当前 Streamlit 06 页尚未落盘的临时 CSV/Excel/ZIP/Markdown 下载使用 `record_transient_export_download()` 记录同类审计；
 - 停用用户、停用 membership、非成员、已归档项目的新任务提交会被拒绝；
 - 创建项目、成员变更、提交任务、取消任务、读取产物 payload 会写入 `AuditLog`；
-- 当前服务仍不包含 worker 调度、数据库事务或跨进程并发锁；它是当前 Streamlit 项目工作区、后续任务入口和 SQLite/Postgres 适配器应复用的权限/审计语义。
+- 当前服务仍不包含常驻 worker daemon、数据库事务或跨进程并发锁；它是当前 Streamlit 项目工作区、后续任务入口和 SQLite/Postgres 适配器应复用的权限/审计语义。
 
 试用版已有本地文件版密码与会话服务，可先用于开发和受控内网演示；正式内网版仍应评估 SQLite/Postgres 会话表、企业微信、OIDC、LDAP 或公司统一身份。
 

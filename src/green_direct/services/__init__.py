@@ -27,6 +27,11 @@ from green_direct.services.pilot_study_persistence import (
     recommendation_result_fingerprint,
     technical_input_fingerprint,
 )
+from green_direct.services.pilot_worker import (
+    PilotWorkerExecutionResult,
+    execute_claimed_worker_job,
+    execute_next_worker_job,
+)
 from green_direct.services.result_store import LocalResultStore
 from green_direct.services.study_runner import (
     EconomicStudyResult,
@@ -63,6 +68,7 @@ __all__ = [
     "PilotAdminError",
     "PilotLoginSession",
     "PilotSessionRecord",
+    "PilotWorkerExecutionResult",
     "PersistedEconomicStudy",
     "PersistedExportArtifact",
     "PersistedHourlyDetailArtifact",
@@ -80,6 +86,8 @@ __all__ = [
     "UploadValidationError",
     "build_recommendation_study",
     "economic_input_fingerprint",
+    "execute_claimed_worker_job",
+    "execute_next_worker_job",
     "filter_uploads",
     "inspect_upload",
     "persist_economic_study_result",

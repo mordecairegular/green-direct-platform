@@ -1084,7 +1084,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `list_stale_running_jobs()` / `fail_stale_running_jobs()`：按 `last_heartbeat_at` 或 `started_at` 判断超时 running 任务，并可批量标记失败；
 - 任务文件按 `projects/{project_id}/studies/{study_id}/jobs/{job_id}.json` 隔离，路径片段使用白名单校验。
 
-`LocalJobStore` 目前只保存任务元数据和本地认领原语，不启动 worker、不做重试、不做 worker 级资源中断，也没有跨进程队列锁。Streamlit 欢迎页已消费该任务状态，显示活动任务、任务状态明细，并通过 `PilotAccessService.cancel_job()` 更新取消状态；`pilot-admin fail-stale-jobs` 可把进程中断后遗留的 running 元数据转成 failed，便于试用期恢复项目状态，但不会杀死或回收任何操作系统进程。后续接入正式后台时，应让前台提交 `Job`、轮询 `JobStatus`，由后台 worker 通过受控服务认领任务、写入 `worker_id` / heartbeat 和 `LocalResultStore` 或其替代存储。
+`LocalJobStore` 目前只保存任务元数据和本地认领原语，本身不启动 worker、不做重试、不做 worker 级资源中断，也没有跨进程队列锁。`pilot_worker.execute_next_worker_job()` 已提供第一条 one-shot worker 执行路径，可处理 `technical_study/hourly_detail` 并写回逐小时明细 artifact，但还不是常驻后台队列。Streamlit 欢迎页已消费任务状态，显示活动任务、任务状态明细，并通过 `PilotAccessService.cancel_job()` 更新取消状态；`pilot-admin fail-stale-jobs` 可把进程中断后遗留的 running 元数据转成 failed，便于试用期恢复项目状态，但不会杀死或回收任何操作系统进程。后续接入正式后台时，应让前台提交 `Job`、轮询 `JobStatus`，由后台 worker 通过受控服务认领任务、写入 `worker_id` / heartbeat 和 `LocalResultStore` 或其替代存储。
 
 `src/green_direct/services/pilot_access.py` 已提供第一版 `PilotAccessService`：
 
@@ -1304,7 +1304,7 @@ Explicit export artifact
 
 边界：
 - 这仍是 Streamlit 进程内同步写入，不是真正后台 worker；
-- 已有 `Job.input_artifact_ids` 和 `queue_job_with_input_artifact()` 作为 worker 输入引用/入队契约，但当前同步写入路径还没有把技术/经济/推荐计算改为 queued job 执行；后续 worker wrapper 应读取这些 artifact、执行任务、写回 result/artifact，并通过 `PilotAccessService` 更新 heartbeat 与终态；
+- 已有 `Job.input_artifact_ids`、`queue_job_with_input_artifact()` 和第一条 `execute_next_worker_job()` one-shot worker 执行路径；当前仅支持 `technical_study` + `job_payload.task="hourly_detail"`，可读取 `job_payload`、`technical_summary`、`config_snapshot` 和 `input_curve_*` 后补算单方案逐小时明细并写回 `ArtifactKind.HOURLY_DETAIL`；技术全量仿真、经济性、推荐、图表和报告仍未改为 queued job 执行；
 - 当前不持久化全量逐小时明细、PNG/Excel/批量导出包或完整报告；当前会话内补算出的单方案 `hourly_detail` 已可在有项目结果索引时写入 `ResultStore`，导出页已可显式保存所选方案 HTML 图表包和简版 Markdown 报告；技术 summary 恢复也会带回 input artifact 索引，并可在三条 input artifact 未过期且快照含 `curve_columns` 时跨会话重新补算缺失明细；经济性结果可恢复 summary、已保存的年度现金流和 `recommendation_inputs.json`，但 summary-only 经济运行不会凭空恢复未保留的现金流；推荐 portfolio 可 portfolio-only 恢复，但不包含推荐视角选择或重新排序工作台状态；
 - 当前结果面板支持技术 summary-only 恢复、经济 summary-only 恢复、推荐 portfolio-only 恢复、已有 hourly artifact 加载、项目 admin 标记/置顶结果索引、项目 admin 软删除/隐藏结果索引、活动任务取消入口和任务状态明细，但不恢复完整历史 `StudyResult`，不做跨项目搜索；取消入口只更新任务状态元数据，不代表已有后台 worker 级中断能力；
 - `technical_input_fingerprint()` 目前基于 `config_snapshot` 生成稳定 sha256，用于追踪输入配置；原始上传曲线本身由 input curve artifact 的 `sha256` 和 `size_bytes` 记录；

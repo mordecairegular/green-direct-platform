@@ -4732,3 +4732,26 @@ benchmark：
 验证：
 - `pytest tests/test_pilot_study_persistence.py tests/test_pilot_backend_models.py tests/test_pilot_access.py tests/test_job_store.py -q` 通过，56 项通过；
 - `python -m compileall -q src\green_direct\models\pilot_backend.py src\green_direct\services\pilot_study_persistence.py src\green_direct\services\__init__.py` 通过。
+
+### 2026-06-16 最小 one-shot worker：按需逐小时明细
+
+本轮把上一轮“payload artifact 入队”推进到第一条可执行 worker 链路。目标不是一次性做完整任务队列，而是先证明后台 worker 能独立读取项目级 artifact，复用既有计算口径，写回结果 artifact，并走 heartbeat/终态审计。
+
+本轮实现：
+- 新增 `src/green_direct/services/pilot_worker.py`；
+- 新增 `PilotWorkerExecutionResult`、`execute_next_worker_job()` 和 `execute_claimed_worker_job()`；
+- 当前 worker 仅支持 `JobType.TECHNICAL_STUDY` 且 `job_payload.task == "hourly_detail"`；
+- worker 会通过 `PilotAccessService.claim_next_job_for_worker()` 认领 queued job，读取 `job_payload`、`technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact；
+- worker 从 `config_snapshot["curve_columns"]`、BESS、Policy、清洗参数和时间参数重建 `TechnicalStudyInput`，再调用既有 `run_hourly_detail_for_scenario()`，不改变 V0.1 调度口径；
+- 计算完成后调用 `persist_hourly_detail_artifact(..., artifact_job_id=<worker job id>)` 写入 `ArtifactKind.HOURLY_DETAIL`，并挂回 `StudyResultRecord.hourly_detail_artifact_ids`；
+- worker 会更新进度/heartbeat，成功时调用 `succeed_worker_job()` 写 `COMPLETE_JOB` 审计；不支持或失败的 job 会被标记为 failed，并保存脱敏后的错误消息；
+- `pilot-admin run-worker-once` 已接入 CLI，可在服务器上先用一次性命令演练“认领-执行-写回-终态”。
+
+边界说明：
+- 这只是第一条 one-shot worker 执行路径，不是常驻 worker daemon、正式队列、重试系统、并发锁、资源隔离或 worker 级取消；
+- 当前还没有把 Streamlit 缺明细时的按钮改成提交后台 job；UI 仍会同步补算，但下一步可以把没有 hourly artifact 的场景接到 `queue_job_with_input_artifact()`；
+- 当前只支持按需逐小时明细；技术全量仿真、经济性补年度现金流、图表包、PNG/Excel/批量包和完整报告后台化仍待实现。
+
+验证：
+- `pytest tests/test_pilot_worker.py tests/test_pilot_study_persistence.py tests/test_cli.py tests/test_pilot_access.py tests/test_job_store.py -q` 通过，53 项通过；
+- `python -m compileall -q src\green_direct\services\pilot_worker.py src\green_direct\services\pilot_study_persistence.py src\green_direct\services\__init__.py src\green_direct\cli.py` 通过。

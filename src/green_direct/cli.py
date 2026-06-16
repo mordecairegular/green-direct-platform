@@ -31,6 +31,7 @@ from green_direct.services import (
     LocalPilotRegistry,
     PilotAccessService,
     LocalResultStore,
+    execute_next_worker_job,
 )
 
 DEFAULT_PILOT_STORE_DIR = Path(".runtime") / "pilot_store"
@@ -431,6 +432,32 @@ def _cmd_fail_worker_job(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_run_worker_once(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    result = execute_next_worker_job(
+        access_service=services.access,
+        actor_user_id=args.actor_user_id,
+        worker_id=args.worker_id,
+        project_id=args.project_id,
+        job_types=getattr(args, "job_type", None),
+    )
+    if result is None:
+        print("No queued job matched.")
+        return 0
+    _print_job_header(include_stale=False)
+    _print_job_row(result.job)
+    if result.artifact is not None:
+        print(
+            "artifact\t"
+            f"{result.artifact.project_id}\t{result.artifact.study_id}\t"
+            f"{result.artifact.artifact_id}\t{result.artifact.kind.value}\t"
+            f"{result.artifact.size_bytes}"
+        )
+    if result.message:
+        print(result.message)
+    return 0
+
+
 def _cmd_purge_expired_artifacts(args: argparse.Namespace) -> int:
     services = _pilot_services(args.store_dir)
     services.admin.list_users(actor_user_id=args.actor_user_id)
@@ -735,6 +762,22 @@ def build_parser() -> argparse.ArgumentParser:
     fail_worker_job.add_argument("--job-id", required=True)
     fail_worker_job.add_argument("--error-message", required=True, help="Sanitized worker failure message.")
     fail_worker_job.set_defaults(func=_cmd_fail_worker_job)
+
+    run_worker_once = pilot_admin_sub.add_parser(
+        "run-worker-once",
+        help="Claim and execute one supported queued worker job.",
+    )
+    _add_common_store_arg(run_worker_once)
+    _add_actor_arg(run_worker_once)
+    run_worker_once.add_argument("--worker-id", required=True, help="Worker id to assign to the claimed job.")
+    run_worker_once.add_argument("--project-id", help="Limit execution to one active project.")
+    run_worker_once.add_argument(
+        "--job-type",
+        action="append",
+        choices=[job_type.value for job_type in JobType],
+        help="Filter by job type. May be provided multiple times.",
+    )
+    run_worker_once.set_defaults(func=_cmd_run_worker_once)
 
     purge_artifacts = pilot_admin_sub.add_parser(
         "purge-expired-artifacts",

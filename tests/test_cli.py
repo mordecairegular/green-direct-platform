@@ -939,3 +939,26 @@ def test_cli_exposes_green_direct_console_script():
 
     assert parsed.command == "pilot-admin"
     assert parsed.pilot_admin_command == "fail-worker-job"
+
+
+def test_cli_exposes_run_worker_once_command():
+    parser = build_parser()
+    parsed = parser.parse_args(
+        [
+            "pilot-admin",
+            "run-worker-once",
+            "--actor-user-id",
+            "admin",
+            "--worker-id",
+            "worker_1",
+            "--project-id",
+            "project_1",
+            "--job-type",
+            "technical_study",
+        ]
+    )
+
+    assert parsed.command == "pilot-admin"
+    assert parsed.pilot_admin_command == "run-worker-once"
+    assert parsed.worker_id == "worker_1"
+    assert parsed.job_type == ["technical_study"]

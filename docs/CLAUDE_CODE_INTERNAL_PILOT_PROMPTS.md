@@ -81,6 +81,7 @@ python -m pytest -q
    - 欢迎页活动任务和任务状态明细是否只展示当前项目任务，取消入口是否仍走后端权限和审计；
    - `Job.worker_id` / `last_heartbeat_at`、`pilot-admin list-jobs` 和 `pilot-admin fail-stale-jobs` 是否能先查看超时 running 元数据、再转为 failed，并保留项目级审计；
    - `queue_job_with_input_artifact()` 是否先校验权限和外部 artifact，再把非空请求 payload 保存为 `ArtifactKind.JOB_INPUT`，并把 `job_payload` 与外部输入引用一起写入 `Job.input_artifact_ids`；
+   - `execute_next_worker_job()` 和 `pilot-admin run-worker-once` 是否只执行受支持的 `technical_study/hourly_detail` job，是否复用 `run_hourly_detail_for_scenario()`，成功后写回 `ArtifactKind.HOURLY_DETAIL` 并审计，失败时是否标记 failed 而不是卡在 running；
    - `LocalJobStore.claim_next_queued_job()`、`PilotAccessService.claim_next_job_for_worker()`、`update_worker_job_progress()`、`succeed_worker_job()`、`fail_worker_job()`、`pilot-admin claim-next-job`、`heartbeat-job`、`complete-worker-job` 和 `fail-worker-job` 是否只更新任务元数据、校验 worker、支持任务类型过滤，并跳过归档项目；命令是否明确不执行真实计算；
    - `pilot-admin list-audit-events` 是否只能由平台管理员读取，并能分别抽查全局审计和项目级审计；
    - 长任务失败、取消、重复点击、页面切换后的状态是否可恢复或可解释。
