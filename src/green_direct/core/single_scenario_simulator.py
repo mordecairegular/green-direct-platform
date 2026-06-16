@@ -545,6 +545,21 @@ def run_single_scenario(
         summary["dispatch_strategy"] = dispatch_strategy.value
         return ScenarioResult(summary=summary, hourly_detail=hourly, warnings=[], diagnostics=diagnostics)
 
+    pv_power_values = pv_pu_values * pv_capacity
+    wind_power_values = wind_pu_values * wind_capacity
+    pv_generation_values = np.maximum(pv_power_values, 0.0)
+    wind_generation_values = np.maximum(wind_power_values, 0.0)
+    renewable_generation_values = pv_generation_values + wind_generation_values
+    pv_station_use_values = np.maximum(-pv_power_values, 0.0)
+    wind_station_use_values = np.maximum(-wind_power_values, 0.0)
+    station_use_values = pv_station_use_values + wind_station_use_values
+    net_renewable_values = renewable_generation_values - station_use_values
+    renewable_power_values = np.maximum(net_renewable_values, 0.0)
+    station_use_deficit_values = np.maximum(-net_renewable_values, 0.0)
+    load_energy_values = load_values * dt_hours
+    renewable_energy_values = renewable_power_values * dt_hours
+    dispatch_load_energy_values = (load_values + station_use_deficit_values) * dt_hours
+
     cumulative_export = 0.0
     data: dict[str, object] | None = None
     if retain_hourly_detail:
@@ -553,15 +568,15 @@ def run_single_scenario(
             "timestamp": timestamps,
             "hour_index": np.arange(n),
             "load_power": load_values.copy(),
-            "pv_power": np.zeros(n),
-            "wind_power": np.zeros(n),
-            "pv_generation_power": np.zeros(n),
-            "wind_generation_power": np.zeros(n),
-            "renewable_generation_power": np.zeros(n),
-            "pv_station_use_power": np.zeros(n),
-            "wind_station_use_power": np.zeros(n),
-            "station_use_power": np.zeros(n),
-            "renewable_power": np.zeros(n),
+            "pv_power": pv_power_values.copy(),
+            "wind_power": wind_power_values.copy(),
+            "pv_generation_power": pv_generation_values.copy(),
+            "wind_generation_power": wind_generation_values.copy(),
+            "renewable_generation_power": renewable_generation_values.copy(),
+            "pv_station_use_power": pv_station_use_values.copy(),
+            "wind_station_use_power": wind_station_use_values.copy(),
+            "station_use_power": station_use_values.copy(),
+            "renewable_power": renewable_power_values.copy(),
             "direct_self_use_power": np.zeros(n),
             "bess_charge_power": np.zeros(n),
             "bess_discharge_power": np.zeros(n),
@@ -578,9 +593,9 @@ def run_single_scenario(
             "hour_case": np.empty(n, dtype=object),
         }
 
-    total_load_energy = 0.0
-    pv_station_use_energy = 0.0
-    wind_station_use_energy = 0.0
+    total_load_energy = float(load_energy_values.sum())
+    pv_station_use_energy = float(pv_station_use_values.sum() * dt_hours)
+    wind_station_use_energy = float(wind_station_use_values.sum() * dt_hours)
     direct_self_use_energy = 0.0
     bess_discharge_to_load = 0.0
     grid_import_energy = 0.0
@@ -594,21 +609,9 @@ def run_single_scenario(
     max_grid_export_power = 0.0
 
     for idx in range(n):
-        load_power = load_values[idx]
-        pv_power = pv_pu_values[idx] * pv_capacity
-        wind_power = wind_pu_values[idx] * wind_capacity
-        pv_generation_power = max(pv_power, 0.0)
-        wind_generation_power = max(wind_power, 0.0)
-        renewable_generation_power = pv_generation_power + wind_generation_power
-        pv_station_use_power = max(-pv_power, 0.0)
-        wind_station_use_power = max(-wind_power, 0.0)
-        station_use_power = pv_station_use_power + wind_station_use_power
-        net_renewable_power = renewable_generation_power - station_use_power
-        renewable_power = max(net_renewable_power, 0.0)
-        station_use_deficit_power = max(-net_renewable_power, 0.0)
-        load_energy = load_power * dt_hours
-        renewable_energy = renewable_power * dt_hours
-        dispatch_load_energy = (load_power + station_use_deficit_power) * dt_hours
+        load_energy = float(load_energy_values[idx])
+        renewable_energy = float(renewable_energy_values[idx])
+        dispatch_load_energy = float(dispatch_load_energy_values[idx])
         soc_start = soc
         bess_energy_start = bess_energy
         remaining_cap = None
@@ -651,9 +654,6 @@ def run_single_scenario(
         cumulative_export += step_grid_export
 
         if data is None:
-            total_load_energy += load_energy
-            pv_station_use_energy += pv_station_use_power * dt_hours
-            wind_station_use_energy += wind_station_use_power * dt_hours
             direct_self_use_energy += direct_self_use
             bess_discharge_to_load += step_bess_discharge
             grid_import_energy += step_grid_import
@@ -667,15 +667,6 @@ def run_single_scenario(
             max_grid_export_power = max(max_grid_export_power, step_grid_export * dt_inverse)
 
         if data is not None:
-            data["pv_power"][idx] = pv_power
-            data["wind_power"][idx] = wind_power
-            data["pv_generation_power"][idx] = pv_generation_power
-            data["wind_generation_power"][idx] = wind_generation_power
-            data["renewable_generation_power"][idx] = renewable_generation_power
-            data["pv_station_use_power"][idx] = pv_station_use_power
-            data["wind_station_use_power"][idx] = wind_station_use_power
-            data["station_use_power"][idx] = station_use_power
-            data["renewable_power"][idx] = renewable_energy * dt_inverse
             data["direct_self_use_power"][idx] = direct_self_use * dt_inverse
             data["bess_charge_power"][idx] = step_bess_charge * dt_inverse
             data["bess_discharge_power"][idx] = step_bess_discharge * dt_inverse

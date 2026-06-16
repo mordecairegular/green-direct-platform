@@ -5582,3 +5582,28 @@ profile / benchmark：
 边界：
 - 不改变 V0.1 dispatch、SOC 滚动、summary 字段、hourly ledger 列名、经济性 V1 或推荐排序；
 - 这只减少 summary-only 批量中的空对象构造，有储能逐小时循环仍是主要热路径。
+
+### 2026-06-17 有储能逐小时循环预计算曲线派生量
+
+本轮继续处理上一轮 profiler 指向的有储能 SOC 逐小时循环。前序已清掉空 hourly DataFrame 构造，但有储能场景里，光伏/风电出力、正负出力拆分、站用电、净可用绿电、调度负荷和逐小时电量等与 SOC 无关的值仍在每小时 Python 循环里重复计算。
+
+实现：
+- `run_single_scenario()` 在进入有储能逐小时循环前，用 NumPy 预计算 `pv_power_values`、`wind_power_values`、正向发电、负向站用电、`renewable_power_values`、`station_use_deficit_values`、`load_energy_values`、`renewable_energy_values` 和 `dispatch_load_energy_values`；
+- 保留逐小时明细时，相关 ledger 列直接使用预计算数组，循环内只填 dispatch/SOC 输出列；
+- summary-only 时，`total_load_energy`、光伏/风电站用电等可直接由数组求和，循环内继续只累加 dispatch 结果；
+- 逐小时循环仍调用同一 `dispatch_hour_values_with_limits()`，SOC 滚动、年上网比例 cap、并网功率限制和 BESS 充放电口径不变。
+
+验证与反馈环：
+- 改前同轮基线：`python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 8 --wind-count 8 --bess-power-count 3 --durations 0,2 --skip-full-retention --retain-detail-count 0 --json`，189 个方案，技术 summary-first 约 2.3252s，经济性 summary-only 约 0.5964s；
+- 改后同命令复跑：技术 summary-first 约 1.2666s，经济性 summary-only 约 0.5581s；
+- 30 个方案、168 小时、完整明细保留 benchmark：技术 full-detail 约 0.3194s，summary-first 保留 20 个明细约 0.2888s；
+- cProfile 显示 189 方案技术 summary-only 函数调用数约 514,076，Python `max` 调用约从前轮 423,363 降到 296,355；
+- `python -m pytest tests\test_single_scenario.py tests\test_batch_runner.py -q` 通过，53 项通过；
+- `python -m pytest tests\test_study_runner.py tests\test_pilot_worker.py tests\test_pilot_study_persistence.py -q` 通过，28 项通过；
+- `python -m compileall -q src\green_direct\core\single_scenario_simulator.py tests\test_single_scenario.py` 通过；
+- `python -m pytest -q` 通过，384 项通过；
+- `git diff --check` 通过，仅有 Windows 换行转换提示。
+
+边界：
+- 不改变 V0.1 dispatch、SOC 滚动、summary 字段、hourly ledger 列名、经济性 V1 或推荐排序；
+- 剩余热路径主要是 BESS dispatch helper 本身、summary DataFrame 排序/构造，以及后续真正后台 Job 化。
