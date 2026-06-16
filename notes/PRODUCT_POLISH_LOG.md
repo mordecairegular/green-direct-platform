@@ -5607,3 +5607,29 @@ profile / benchmark：
 边界：
 - 不改变 V0.1 dispatch、SOC 滚动、summary 字段、hourly ledger 列名、经济性 V1 或推荐排序；
 - 剩余热路径主要是 BESS dispatch helper 本身、summary DataFrame 排序/构造，以及后续真正后台 Job 化。
+
+### 2026-06-17 批量技术仿真复用输入曲线数组
+
+本轮继续沿着 profiler 剩余热点推进。上一轮把有储能场景中与 SOC 无关的曲线派生量移出逐小时循环后，cProfile 仍显示每个方案都会从同一个 `curves` DataFrame 重复取 `timestamp/load_power/pv_pu/wind_pu` 并 `to_numpy()`。这对成百上千方案属于纯批量固定开销。
+
+实现：
+- `single_scenario_simulator.py` 新增 `PreparedCurveData` 和 `prepare_curve_data()`，一次性把输入曲线四列转为数组；
+- `run_single_scenario()` 新增内部 `_prepared_curves` 参数；公开调用不传时仍自行校验并从 `DataFrame` 取列，保持兼容；
+- `run_batch()` 在串行路径中准备一次曲线数组，并传给每个方案；
+- 并行路径通过 worker initializer 保存同一份 `PreparedCurveData`，块内方案复用；
+- `tests/test_batch_runner.py` 锁定 batch hot path 会传入 `_prepared_curves`。
+
+验证与反馈环：
+- 改前同轮基线：`python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 8 --wind-count 8 --bess-power-count 3 --durations 0,2 --skip-full-retention --retain-detail-count 0 --json`，189 个方案，技术 summary-first 约 1.2250s，经济性 summary-only 约 0.5037s；
+- 改后同命令复跑：技术 summary-first 约 1.1194s，经济性 summary-only 约 0.4985s；
+- 30 个方案、168 小时、完整明细保留 benchmark：技术 full-detail 约 0.3120s，summary-first 保留 20 个明细约 0.2556s；
+- cProfile 显示 189 方案技术 summary-only 函数调用数约从 514,076 降到 400,521；DataFrame 取列和 `to_numpy()` 不再出现在每方案热点中；
+- `python -m pytest tests\test_single_scenario.py tests\test_batch_runner.py -q` 通过，53 项通过；
+- `python -m pytest tests\test_study_runner.py tests\test_pilot_worker.py tests\test_pilot_study_persistence.py -q` 通过，28 项通过；
+- `python -m compileall -q src\green_direct\core\single_scenario_simulator.py src\green_direct\batch\batch_runner.py tests\test_batch_runner.py` 通过。
+- `python -m pytest -q` 通过，384 项通过；
+- `git diff --check` 通过，仅有 Windows 换行转换提示。
+
+边界：
+- 不改变 V0.1 dispatch、SOC 滚动、summary 字段、hourly ledger 列名、经济性 V1 或推荐排序；
+- 这是批量内输入曲线准备层优化，下一步性能重点仍是 dispatch helper 内核、summary 表构造/排序和后台 Job 化。

@@ -153,7 +153,7 @@ def test_batch_runner_uses_summary_only_mode_for_non_retained_details(monkeypatc
         "bess_power": {"start": 0, "end": 1, "step": 1},
         "bess_duration_hours": [0, 2],
     }
-    calls: list[tuple[str, bool, bool]] = []
+    calls: list[tuple[str, bool, bool, bool]] = []
     original = batch_runner.run_single_scenario
 
     def wrapped_run_single_scenario(curves, scenario, **kwargs):
@@ -162,6 +162,7 @@ def test_batch_runner_uses_summary_only_mode_for_non_retained_details(monkeypatc
                 scenario.scenario_id,
                 bool(kwargs.get("retain_hourly_detail", True)),
                 bool(kwargs.get("collect_diagnostics", True)),
+                kwargs.get("_prepared_curves") is not None,
             )
         )
         return original(curves, scenario, **kwargs)
@@ -178,12 +179,12 @@ def test_batch_runner_uses_summary_only_mode_for_non_retained_details(monkeypatc
 
     assert set(result.hourly_details) == {"S0003"}
     assert calls == [
-        ("S0001", False, False),
-        ("S0002", False, False),
-        ("S0003", True, False),
-        ("S0004", False, False),
-        ("S0005", False, False),
-        ("S0006", False, False),
+        ("S0001", False, False, True),
+        ("S0002", False, False, True),
+        ("S0003", True, False, True),
+        ("S0004", False, False, True),
+        ("S0005", False, False, True),
+        ("S0006", False, False, True),
     ]
 
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 
@@ -82,6 +84,29 @@ HOURLY_NUMERIC_LEDGER_COLUMNS = [
 ]
 
 _SHARED_EMPTY_HOURLY_DETAIL = pd.DataFrame(columns=HOURLY_LEDGER_COLUMNS)
+
+
+@dataclass(frozen=True)
+class PreparedCurveData:
+    """Column arrays shared by many scenario simulations in one batch run."""
+
+    timestamps: np.ndarray
+    load_values: np.ndarray
+    pv_pu_values: np.ndarray
+    wind_pu_values: np.ndarray
+
+
+def prepare_curve_data(curves: pd.DataFrame) -> PreparedCurveData:
+    required = {"timestamp", "load_power", "pv_pu", "wind_pu"}
+    missing = required - set(curves.columns)
+    if missing:
+        raise ValueError(f"Missing required curve columns: {', '.join(sorted(missing))}")
+    return PreparedCurveData(
+        timestamps=curves["timestamp"].to_numpy(),
+        load_values=curves["load_power"].to_numpy(dtype=float),
+        pv_pu_values=curves["pv_pu"].to_numpy(dtype=float),
+        wind_pu_values=curves["wind_pu"].to_numpy(dtype=float),
+    )
 
 
 def _empty_hourly_detail(*, shared: bool) -> pd.DataFrame:
@@ -185,11 +210,7 @@ def collect_single_scenario_input_diagnostics(
         location="strategy",
     )
     return diagnostics
-def _validate_inputs(curves: pd.DataFrame, scenario: Scenario, bess_params: BessParams, dt_hours: float) -> None:
-    required = {"timestamp", "load_power", "pv_pu", "wind_pu"}
-    missing = required - set(curves.columns)
-    if missing:
-        raise ValueError(f"Missing required curve columns: {', '.join(sorted(missing))}")
+def _validate_scenario_inputs(scenario: Scenario, bess_params: BessParams, dt_hours: float) -> None:
     if dt_hours <= 0:
         raise ValueError("dt_hours must be greater than 0.")
     for name in ["pv_capacity", "wind_capacity", "bess_power", "bess_energy"]:
@@ -429,6 +450,7 @@ def run_single_scenario(
     retain_hourly_detail: bool = True,
     collect_diagnostics: bool = True,
     _share_empty_hourly_detail: bool = False,
+    _prepared_curves: PreparedCurveData | None = None,
 ) -> ScenarioResult:
     """Run hourly energy-balance simulation for one scenario."""
 
@@ -437,7 +459,8 @@ def run_single_scenario(
     dispatch_strategy = normalize_dispatch_strategy(strategy)
     if dispatch_strategy is not DispatchStrategy.GRID_CONNECTED_RENEWABLE_FIRST_GREEDY:
         raise ValueError(f"Unsupported dispatch strategy: {dispatch_strategy.value}")
-    _validate_inputs(curves, scenario, bess, dt_hours)
+    curve_data = _prepared_curves if _prepared_curves is not None else prepare_curve_data(curves)
+    _validate_scenario_inputs(scenario, bess, dt_hours)
     diagnostics = (
         collect_single_scenario_input_diagnostics(
             curves,
@@ -480,11 +503,11 @@ def run_single_scenario(
         soc = 0.0
     initial_bess_energy = bess_energy
 
-    n = len(curves)
-    timestamps = curves["timestamp"].to_numpy()
-    load_values = curves["load_power"].to_numpy(dtype=float)
-    pv_pu_values = curves["pv_pu"].to_numpy(dtype=float)
-    wind_pu_values = curves["wind_pu"].to_numpy(dtype=float)
+    timestamps = curve_data.timestamps
+    load_values = curve_data.load_values
+    pv_pu_values = curve_data.pv_pu_values
+    wind_pu_values = curve_data.wind_pu_values
+    n = len(load_values)
     total_renewable_generation = float(
         (
             pv_capacity * np.maximum(pv_pu_values, 0.0).sum()

@@ -9,7 +9,7 @@ from typing import Callable, Iterable, Sequence, TypeVar
 import pandas as pd
 
 from green_direct.batch.scenario_generator import count_scenarios, generate_scenarios
-from green_direct.core.single_scenario_simulator import run_single_scenario
+from green_direct.core.single_scenario_simulator import PreparedCurveData, prepare_curve_data, run_single_scenario
 from green_direct.models.params import BessParams, PerformanceParams, PolicyParams
 from green_direct.models.results import ScenarioResult
 from green_direct.models.scenario import Scenario
@@ -36,6 +36,7 @@ class _ScenarioRunRecord:
 
 
 _WORKER_CURVES: pd.DataFrame | None = None
+_WORKER_PREPARED_CURVES: PreparedCurveData | None = None
 _WORKER_BESS_PARAMS: BessParams | None = None
 _WORKER_POLICY_PARAMS: PolicyParams | None = None
 _WORKER_DT_HOURS: float = 1.0
@@ -61,6 +62,7 @@ def _scenario_run_record(
     curves: pd.DataFrame,
     scenario: Scenario,
     *,
+    prepared_curves: PreparedCurveData | None = None,
     bess_params: BessParams | None,
     policy_params: PolicyParams | None,
     dt_hours: float,
@@ -77,6 +79,7 @@ def _scenario_run_record(
             retain_hourly_detail=retain_hourly_detail,
             collect_diagnostics=collect_diagnostics,
             _share_empty_hourly_detail=not retain_hourly_detail,
+            _prepared_curves=prepared_curves,
         )
     except Exception as exc:  # noqa: BLE001 - per-scenario failure must be recorded
         return _error_record(scenario, exc)
@@ -91,15 +94,17 @@ def _scenario_run_record(
 
 def _init_parallel_worker(
     curves: pd.DataFrame,
+    prepared_curves: PreparedCurveData,
     bess_params: BessParams | None,
     policy_params: PolicyParams | None,
     dt_hours: float,
     retain_hourly_details: bool,
     retained_hourly_ids: set[str],
 ) -> None:
-    global _WORKER_CURVES, _WORKER_BESS_PARAMS, _WORKER_POLICY_PARAMS, _WORKER_DT_HOURS
+    global _WORKER_CURVES, _WORKER_PREPARED_CURVES, _WORKER_BESS_PARAMS, _WORKER_POLICY_PARAMS, _WORKER_DT_HOURS
     global _WORKER_RETAIN_HOURLY_DETAILS, _WORKER_RETAINED_HOURLY_IDS
     _WORKER_CURVES = curves
+    _WORKER_PREPARED_CURVES = prepared_curves
     _WORKER_BESS_PARAMS = bess_params
     _WORKER_POLICY_PARAMS = policy_params
     _WORKER_DT_HOURS = dt_hours
@@ -113,6 +118,7 @@ def _scenario_run_record_from_worker(scenario: Scenario) -> _ScenarioRunRecord:
     return _scenario_run_record(
         _WORKER_CURVES,
         scenario,
+        prepared_curves=_WORKER_PREPARED_CURVES,
         bess_params=_WORKER_BESS_PARAMS,
         policy_params=_WORKER_POLICY_PARAMS,
         dt_hours=_WORKER_DT_HOURS,
@@ -154,11 +160,13 @@ def _scenario_records(
     retain_hourly_details: bool,
     retained_hourly_ids: set[str],
 ) -> Iterable[_ScenarioRunRecord]:
+    prepared_curves = prepare_curve_data(curves)
     if parallel_workers <= 1 or len(scenarios) <= 1:
         for scenario in scenarios:
             yield _scenario_run_record(
                 curves,
                 scenario,
+                prepared_curves=prepared_curves,
                 bess_params=bess_params,
                 policy_params=policy_params,
                 dt_hours=dt_hours,
@@ -170,7 +178,15 @@ def _scenario_records(
     with ProcessPoolExecutor(
         max_workers=parallel_workers,
         initializer=_init_parallel_worker,
-        initargs=(curves, bess_params, policy_params, dt_hours, retain_hourly_details, retained_hourly_ids),
+        initargs=(
+            curves,
+            prepared_curves,
+            bess_params,
+            policy_params,
+            dt_hours,
+            retain_hourly_details,
+            retained_hourly_ids,
+        ),
     ) as executor:
         chunks = _scenario_chunks(scenarios, _parallel_chunk_size(len(scenarios), parallel_workers))
         for records in executor.map(_scenario_chunk_records_from_worker, chunks):
