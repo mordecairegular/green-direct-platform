@@ -22,7 +22,7 @@
 
 - 只允许邀请或管理员创建用户登录，不开放社会化自注册；
 - 产品仍只是绿电直连 / 源网荷储前期方案测算和政策指标初判工具，不接 EMS、SCADA、调度自动化、真实电表或任何生产控制网络；
-- 必须区分平台管理员、项目管理员、可计算不可导出用户、可计算可导出用户；当前 `ProjectMembership.can_export_artifacts` 已提供第一版“可导出/不可导出”后端授权位，但未来 API、反向代理下载和对象存储签名仍必须复用同一语义；
+- 必须区分平台管理员、项目管理员、可计算不可导出用户、可计算可导出用户；当前 `ProjectMembership.can_export_artifacts` 已提供第一版“可导出/不可导出”后端授权位，已落盘 artifact 下载和当前 06 页临时导出下载都复用该语义；未来 API、反向代理下载和对象存储签名仍必须复用同一语义；
 - 上传、计算、结果查看、产物下载、管理员跨项目查看都应经过后端权限校验并写入审计日志；
 - 原始上传文件、逐小时明细和导出文件需要保留期限和清理机制，项目元数据、参数快照、结果摘要和审计日志应更长时间保留；当前已完成技术三曲线 input artifact、本地 artifact payload 过期清理，以及基于 input artifact 的单方案明细跨会话补算第一版，尚未覆盖价格曲线、导出文件、关键 Run 保留和定时调度；
 - 公网内测前必须补充 `.env.example`、部署 runbook、HTTPS/反向代理说明、数据卷、备份/恢复和回滚说明；当前已有内部试用部署 runbook、本地 store 备份/恢复脚本、Dockerfile、docker-compose、`README_DEPLOY.md` 和 `SECURITY.md` 第一版，仍需在目标服务器实机演练，并补系统服务托管、日志轮转、监控告警和安全扫描。
@@ -181,7 +181,7 @@ PNG 图表包后台任务也按会话隔离：
 - `viewer` 只能查看本项目任务和产物，不能提交或取消任务；
 - 成员是否能下载/导出 artifact 由 `can_export_artifacts` 独立控制，不再仅由 `viewer` / `analyst` / `admin` 推断；
 - 结果索引读取已通过 `list_project_result_records()` / `list_study_result_records()` 纳入项目查看权限；
-- 产物索引读取仍要求项目查看权限；网页内恢复/图表查看 payload 使用 `read_artifact_payload_for_view()`，要求项目查看权限并写入 `VIEW_ARTIFACT` 审计；文件下载/导出 payload 使用 `read_artifact_payload()`，要求项目导出权限，成功和拒绝都会写入 `DOWNLOAD_ARTIFACT` 审计；
+- 产物索引读取仍要求项目查看权限；网页内恢复/图表查看 payload 使用 `read_artifact_payload_for_view()`，要求项目查看权限并写入 `VIEW_ARTIFACT` 审计；文件下载/导出 payload 使用 `read_artifact_payload()`，要求项目导出权限，成功和拒绝都会写入 `DOWNLOAD_ARTIFACT` 审计；当前 Streamlit 06 页尚未落盘的临时 CSV/Excel/ZIP/Markdown 下载使用 `record_transient_export_download()` 记录同类审计；
 - 停用用户、停用 membership、非成员、已归档项目的新任务提交会被拒绝；
 - 创建项目、成员变更、提交任务、取消任务、读取产物 payload 会写入 `AuditLog`；
 - 当前服务仍不包含 worker 调度、数据库事务或并发锁；它是当前 Streamlit 项目工作区、后续任务入口和 SQLite/Postgres 适配器应复用的权限/审计语义。

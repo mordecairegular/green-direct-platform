@@ -312,6 +312,55 @@ def test_artifact_payload_download_requires_export_permission_and_audits_denial(
     assert denied_event.metadata["reason"].startswith("User cannot export")
 
 
+def test_transient_export_download_requires_permission_and_is_audited(tmp_path):
+    service = _service(tmp_path)
+    project = _create_project_with_members(service)
+
+    event = service.record_transient_export_download(
+        actor_user_id="viewer",
+        project_id=project.project_id,
+        study_id="study_1",
+        export_key="simple_markdown_report",
+        file_name="green_direct_report_S0001.md",
+        content_type="text/markdown",
+        size_bytes=128,
+        metadata={"scenario_id": "S0001"},
+    )
+
+    assert event.action == AuditAction.DOWNLOAD_ARTIFACT
+    assert event.target_type == "transient_export"
+    assert event.target_id == "simple_markdown_report"
+    assert event.metadata["success"] is True
+    assert event.metadata["file_name"] == "green_direct_report_S0001.md"
+    assert event.metadata["size_bytes"] == 128
+    assert event.metadata["scenario_id"] == "S0001"
+
+    service.grant_project_role(
+        actor_user_id="admin",
+        project_id=project.project_id,
+        user_id="analyst",
+        role=ProjectRole.ANALYST,
+        can_export_artifacts=False,
+    )
+    with pytest.raises(PilotAccessError, match="cannot export"):
+        service.record_transient_export_download(
+            actor_user_id="analyst",
+            project_id=project.project_id,
+            study_id="study_1",
+            export_key="technical_economy_summary_excel",
+            file_name="green_direct_technical_economy_summary.xlsx",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            size_bytes=256,
+        )
+
+    denied_event = service.result_store.read_audit_log(project.project_id)[-1]
+    assert denied_event.action == AuditAction.DOWNLOAD_ARTIFACT
+    assert denied_event.target_type == "transient_export"
+    assert denied_event.target_id == "technical_economy_summary_excel"
+    assert denied_event.metadata["success"] is False
+    assert denied_event.metadata["reason"].startswith("User cannot export")
+
+
 def test_artifact_payload_view_does_not_require_export_permission(tmp_path):
     service = _service(tmp_path)
     _create_project_with_members(service)

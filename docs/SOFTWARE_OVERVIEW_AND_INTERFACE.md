@@ -1081,6 +1081,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `list_project_result_records()` / `list_study_result_records()`：带项目查看权限校验的结果索引列表；
 - `load_artifact()`：带项目查看权限校验的产物索引读取；
 - `read_artifact_payload()`：带项目导出权限校验的产物 payload 读取，成功和拒绝都会写入 `DOWNLOAD_ARTIFACT` 审计；
+- `record_transient_export_download()`：为尚未落盘为 artifact 的当前会话导出按钮记录下载审计，复用项目导出权限并写入 `DOWNLOAD_ARTIFACT`；
 - 创建项目、成员变更、提交任务、取消任务和产物读取/拒绝会写入 `AuditLog`。
 
 `PilotAccessService` 是权限和审计服务门面，不启动 worker、不做数据库事务或并发锁；后续 Streamlit 管理页、后台任务入口和 SQLite/Postgres 适配器应优先复用这层语义，避免直接绕过角色控制调用底层本地文件 store。

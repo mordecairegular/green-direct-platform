@@ -435,6 +435,55 @@ class PilotAccessService:
         )
         return payload
 
+    def record_transient_export_download(
+        self,
+        *,
+        actor_user_id: str,
+        project_id: str,
+        study_id: str | None,
+        export_key: str,
+        file_name: str,
+        content_type: str,
+        size_bytes: int | None = None,
+        metadata: dict | None = None,
+    ) -> AuditLog:
+        """Audit an in-memory export download that is not yet a stored artifact."""
+
+        event_metadata = {
+            **(metadata or {}),
+            "export_key": str(export_key),
+            "file_name": str(file_name),
+            "content_type": str(content_type),
+        }
+        if size_bytes is not None:
+            event_metadata["size_bytes"] = int(size_bytes)
+        try:
+            self.require_project_export(actor_user_id=actor_user_id, project_id=project_id)
+        except PilotAccessError as exc:
+            self._audit(
+                actor_user_id=actor_user_id,
+                action=AuditAction.DOWNLOAD_ARTIFACT,
+                project_id=project_id,
+                study_id=study_id,
+                target_type="transient_export",
+                target_id=str(export_key),
+                metadata={
+                    **event_metadata,
+                    "success": False,
+                    "reason": str(exc),
+                },
+            )
+            raise
+        return self._audit(
+            actor_user_id=actor_user_id,
+            action=AuditAction.DOWNLOAD_ARTIFACT,
+            project_id=project_id,
+            study_id=study_id,
+            target_type="transient_export",
+            target_id=str(export_key),
+            metadata={**event_metadata, "success": True},
+        )
+
     def read_artifact_payload_for_view(self, *, actor_user_id: str, artifact: JobArtifact) -> bytes:
         """Read artifact bytes for in-app viewing without granting file download rights."""
 

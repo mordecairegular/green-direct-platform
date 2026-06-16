@@ -2246,6 +2246,64 @@ def _persist_pilot_export_artifact_if_enabled(
     return persisted
 
 
+def _audit_pilot_transient_export_download_if_enabled(
+    *,
+    st,
+    export_key: str,
+    file_name: str,
+    content_type: str,
+    size_bytes: int | None = None,
+    metadata: dict | None = None,
+) -> None:
+    if not _pilot_auth_enabled():
+        return
+    actor_user_id = _current_pilot_user_id(st)
+    project_id = _current_pilot_project_id(st)
+    study_id = _current_pilot_study_id(st)
+    if not actor_user_id or not project_id:
+        return
+    try:
+        _pilot_access_service().record_transient_export_download(
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_id,
+            export_key=export_key,
+            file_name=file_name,
+            content_type=content_type,
+            size_bytes=size_bytes,
+            metadata=metadata,
+        )
+    except Exception as exc:  # noqa: BLE001 - the page-level export guard should already prevent this
+        if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
+            st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = f"导出下载审计失败：{exc}"
+            return
+        raise
+
+
+def _pilot_transient_export_download_kwargs(
+    st,
+    *,
+    export_key: str,
+    file_name: str,
+    content_type: str,
+    size_bytes: int | None = None,
+    metadata: dict | None = None,
+) -> dict:
+    if not _pilot_auth_enabled():
+        return {}
+    return {
+        "on_click": _audit_pilot_transient_export_download_if_enabled,
+        "kwargs": {
+            "st": st,
+            "export_key": export_key,
+            "file_name": file_name,
+            "content_type": content_type,
+            "size_bytes": size_bytes,
+            "metadata": metadata,
+        },
+    }
+
+
 def _pilot_project_option_label(option: tuple[Project, ProjectMembership]) -> str:
     project, membership = option
     export_text = "可导出" if membership.can_export_artifacts else "不可导出"
@@ -7703,14 +7761,22 @@ def _render_chart_png_docx_export_panel(
             png_warnings = png_cached.get("warnings", [])
             if png_warnings:
                 st.warning("部分 PNG 未能导出；可先下载 HTML ZIP 复核，或检查 Kaleido 与 Chrome/Chromium 环境。")
+            png_file_name = str(png_cached["file_name"])
             st.download_button(
                 "下载 Word 友好 PNG ZIP",
                 data=png_cached["data"],
-                file_name=png_cached["file_name"],
+                file_name=png_file_name,
                 mime="application/zip",
                 key="export_selected_chart_png_docx_zip",
                 help="包含适合 A4 纵向 Word 正文插图的 PNG、每图 meta、chart_manifest.csv 和 README。",
-                on_click="ignore",
+                **_pilot_transient_export_download_kwargs(
+                    st,
+                    export_key="chart_png_docx_zip",
+                    file_name=png_file_name,
+                    content_type="application/zip",
+                    size_bytes=len(png_cached["data"]),
+                    metadata={"scenario_id": selected_id},
+                ),
             )
 
     fragment = getattr(st, "fragment", None)
@@ -7812,12 +7878,22 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
                 """,
                 unsafe_allow_html=True,
             )
+            selected_hourly_csv = localize_columns(hourly).to_csv(index=False).encode("utf-8-sig")
+            selected_hourly_file = f"hourly_detail_{selected_id}.csv"
             st.download_button(
                 "下载所选方案逐小时 CSV",
-                data=localize_columns(hourly).to_csv(index=False).encode("utf-8-sig"),
-                file_name=f"hourly_detail_{selected_id}.csv",
+                data=selected_hourly_csv,
+                file_name=selected_hourly_file,
                 mime="text/csv",
                 key="export_selected_hourly_csv",
+                **_pilot_transient_export_download_kwargs(
+                    st,
+                    export_key="selected_hourly_csv",
+                    file_name=selected_hourly_file,
+                    content_type="text/csv",
+                    size_bytes=len(selected_hourly_csv),
+                    metadata={"scenario_id": selected_id},
+                ),
             )
             with st.expander("批量技术结果包", expanded=False):
                 st.caption("生成方案汇总 Excel 和全部逐小时明细 ZIP，适合归档或二次复核。")
@@ -7829,6 +7905,14 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
                         file_name=payloads["excel_name"],
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         key="export_summary_excel",
+                        **_pilot_transient_export_download_kwargs(
+                            st,
+                            export_key="batch_summary_excel",
+                            file_name=str(payloads["excel_name"]),
+                            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            size_bytes=len(payloads["excel_bytes"]),
+                            metadata={"scenario_scope": "all"},
+                        ),
                     )
                     st.download_button(
                         "下载全部逐小时明细 ZIP",
@@ -7836,6 +7920,14 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
                         file_name=payloads["zip_name"],
                         mime="application/zip",
                         key="export_hourly_zip",
+                        **_pilot_transient_export_download_kwargs(
+                            st,
+                            export_key="all_hourly_zip",
+                            file_name=str(payloads["zip_name"]),
+                            content_type="application/zip",
+                            size_bytes=len(payloads["zip_bytes"]),
+                            metadata={"scenario_scope": "all"},
+                        ),
                     )
 
     with chart_col:
@@ -7858,13 +7950,22 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
             if st.checkbox("准备所选方案图表 HTML ZIP", value=False, key="export_prepare_chart_html"):
                 with st.spinner("正在生成图表 HTML ZIP..."):
                     chart_zip = _build_chart_html_zip(summary, selected_id, hourly, comparison_summary=comparison_summary)
+                chart_html_file = f"chart_html_{selected_id}.zip"
                 st.download_button(
                     "下载所选方案图表 HTML ZIP",
                     data=chart_zip,
-                    file_name=f"chart_html_{selected_id}.zip",
+                    file_name=chart_html_file,
                     mime="application/zip",
                     key="export_selected_chart_html_zip",
                     help="包含四季典型日、关键运行日、全年曲线、SOC、电网交换、月度流向、热力图和多方案对比图；每张图附带 meta 说明。",
+                    **_pilot_transient_export_download_kwargs(
+                        st,
+                        export_key="chart_html_zip",
+                        file_name=chart_html_file,
+                        content_type="application/zip",
+                        size_bytes=len(chart_zip),
+                        metadata={"scenario_id": selected_id},
+                    ),
                 )
                 if _pilot_auth_enabled() and st.button("保存 HTML 图表包到项目历史", key="export_store_chart_html_zip"):
                     persisted = _persist_pilot_export_artifact_if_enabled(
@@ -7899,12 +8000,22 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
                 sheets["电源侧经济性汇总"] = localize_columns(economy_summary)
             if single_entity_summary is not None and not single_entity_summary.empty:
                 sheets["同一主体经济性汇总"] = localize_columns(single_entity_summary)
+            technical_economy_excel = _build_excel_bytes(sheets)
+            technical_economy_file = "green_direct_technical_economy_summary.xlsx"
             st.download_button(
                 "下载技术+经济汇总 Excel",
-                data=_build_excel_bytes(sheets),
-                file_name="green_direct_technical_economy_summary.xlsx",
+                data=technical_economy_excel,
+                file_name=technical_economy_file,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="export_technical_economy_excel",
+                **_pilot_transient_export_download_kwargs(
+                    st,
+                    export_key="technical_economy_summary_excel",
+                    file_name=technical_economy_file,
+                    content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    size_bytes=len(technical_economy_excel),
+                    metadata={"scenario_scope": "summary"},
+                ),
             )
             markdown_report = _build_simple_report_markdown(
                 summary=summary,
@@ -7918,6 +8029,14 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
                 file_name=f"green_direct_report_{selected_id}.md",
                 mime="text/markdown",
                 key="export_simple_markdown_report",
+                **_pilot_transient_export_download_kwargs(
+                    st,
+                    export_key="simple_markdown_report",
+                    file_name=f"green_direct_report_{selected_id}.md",
+                    content_type="text/markdown",
+                    size_bytes=len(markdown_report.encode("utf-8")),
+                    metadata={"scenario_id": selected_id},
+                ),
             )
             if _pilot_auth_enabled() and st.button("保存 Markdown 报告到项目历史", key="export_store_markdown_report"):
                 persisted = _persist_pilot_export_artifact_if_enabled(
@@ -7936,10 +8055,18 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
         st.caption("这里保留经济性复核文件和推荐组合 Excel，避免默认导出页过载。")
         st.download_button(
             "下载当前技术+经济汇总 Excel",
-            data=_build_excel_bytes(sheets),
-            file_name="green_direct_technical_economy_summary.xlsx",
+            data=technical_economy_excel,
+            file_name=technical_economy_file,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="export_technical_economy_excel_advanced",
+            **_pilot_transient_export_download_kwargs(
+                st,
+                export_key="technical_economy_summary_excel",
+                file_name=technical_economy_file,
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                size_bytes=len(technical_economy_excel),
+                metadata={"scenario_scope": "summary", "entry": "advanced"},
+            ),
         )
         power_annual_cashflows = (
             economy_result.get("annual_cashflows")
@@ -7947,16 +8074,26 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
             else {}
         )
         if selected_id in power_annual_cashflows:
+            power_cashflow_excel = _build_excel_bytes(
+                {
+                    f"电源侧年度现金流_{selected_id}": localize_columns(power_annual_cashflows[selected_id]),
+                }
+            )
+            power_cashflow_file = f"power_side_annual_cashflow_{selected_id}.xlsx"
             st.download_button(
                 "下载所选方案电源侧年度现金流 Excel",
-                data=_build_excel_bytes(
-                    {
-                        f"电源侧年度现金流_{selected_id}": localize_columns(power_annual_cashflows[selected_id]),
-                    }
-                ),
-                file_name=f"power_side_annual_cashflow_{selected_id}.xlsx",
+                data=power_cashflow_excel,
+                file_name=power_cashflow_file,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="export_power_side_annual_cashflow",
+                **_pilot_transient_export_download_kwargs(
+                    st,
+                    export_key="power_side_annual_cashflow_excel",
+                    file_name=power_cashflow_file,
+                    content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    size_bytes=len(power_cashflow_excel),
+                    metadata={"scenario_id": selected_id},
+                ),
             )
 
         single_entity_annual_cashflows = (
@@ -7965,17 +8102,27 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
             else {}
         )
         if selected_id in single_entity_annual_cashflows and single_entity_summary is not None:
+            single_entity_cashflow_excel = _build_single_entity_annual_workbook_bytes(
+                scenario_id=selected_id,
+                annual=single_entity_annual_cashflows[selected_id],
+                technical_summary=summary,
+                economic_summary=single_entity_summary,
+            )
+            single_entity_cashflow_file = f"single_entity_pre_tax_annual_cashflow_{selected_id}.xlsx"
             st.download_button(
                 "下载所选方案同一主体年度现金流 Excel",
-                data=_build_single_entity_annual_workbook_bytes(
-                    scenario_id=selected_id,
-                    annual=single_entity_annual_cashflows[selected_id],
-                    technical_summary=summary,
-                    economic_summary=single_entity_summary,
-                ),
-                file_name=f"single_entity_pre_tax_annual_cashflow_{selected_id}.xlsx",
+                data=single_entity_cashflow_excel,
+                file_name=single_entity_cashflow_file,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="export_single_entity_annual_cashflow",
+                **_pilot_transient_export_download_kwargs(
+                    st,
+                    export_key="single_entity_annual_cashflow_excel",
+                    file_name=single_entity_cashflow_file,
+                    content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    size_bytes=len(single_entity_cashflow_excel),
+                    metadata={"scenario_id": selected_id},
+                ),
             )
 
         if recommendation_result_for_export is not None:
@@ -7995,23 +8142,33 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
                     )
                 if recommendation_result is None:
                     raise ValueError("当前没有可导出的推荐组合。")
+                recommendation_excel = _build_excel_bytes(
+                    {
+                        "推荐组合": localize_columns(recommendation_result.portfolio),
+                        "电源侧经济性汇总": localize_columns(
+                            economy_summary if economy_summary is not None else pd.DataFrame()
+                        ),
+                        "同一主体经济性汇总": localize_columns(
+                            single_entity_summary if single_entity_summary is not None else pd.DataFrame()
+                        ),
+                        "负荷侧可成交收益明细": localize_columns(recommendation_result.load_side_detail),
+                    }
+                )
+                recommendation_file = "recommendation_portfolio_v1.xlsx"
                 st.download_button(
                     "下载推荐组合 Excel",
-                    data=_build_excel_bytes(
-                        {
-                            "推荐组合": localize_columns(recommendation_result.portfolio),
-                            "电源侧经济性汇总": localize_columns(
-                                economy_summary if economy_summary is not None else pd.DataFrame()
-                            ),
-                            "同一主体经济性汇总": localize_columns(
-                                single_entity_summary if single_entity_summary is not None else pd.DataFrame()
-                            ),
-                            "负荷侧可成交收益明细": localize_columns(recommendation_result.load_side_detail),
-                        }
-                    ),
-                    file_name="recommendation_portfolio_v1.xlsx",
+                    data=recommendation_excel,
+                    file_name=recommendation_file,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="export_recommendation_portfolio_v1",
+                    **_pilot_transient_export_download_kwargs(
+                        st,
+                        export_key="recommendation_portfolio_excel",
+                        file_name=recommendation_file,
+                        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        size_bytes=len(recommendation_excel),
+                        metadata={"scenario_scope": "portfolio"},
+                    ),
                 )
             except Exception as exc:  # noqa: BLE001 - export page should stay usable
                 st.info(f"推荐组合导出暂不可用：{exc}")

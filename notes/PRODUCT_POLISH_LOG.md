@@ -4124,3 +4124,33 @@ exchange_import_shortfall_energy == 0
 - `python -m pytest -q` 通过，295 项通过；
 - `$env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help` 通过；
 - `git diff --check` 无实际空白错误，仅提示 Windows 换行转换。
+
+### 2026-06-16 当前导出页临时下载审计
+
+上一轮解决的是“用户主动把 HTML 图表包 / Markdown 报告保存到项目历史”。本轮继续补另一条更细的上线审计链路：06 导出页大量 CSV / Excel / ZIP / Markdown 下载仍是当前会话内即时生成的临时文件，不一定会保存成 artifact。受控公网内测要求“导出尝试有审计”，因此即使不落盘为项目历史，点击下载也应留下脱敏审计线索。
+
+本轮判断：
+- 临时下载审计不应等同于 artifact 留存；它只记录谁在什么项目 / study 中下载了哪类文件、文件名、MIME、大小和必要业务元数据；
+- 临时下载仍必须复用 `ProjectMembership.can_export_artifacts`，未来 API、反向代理下载和对象存储签名 URL 也应沿用同一权限门面；
+- 不可导出用户在 UI 上仍被 06 页拦截；服务层方法本身也要能拒绝并审计失败，避免未来入口绕过页面；
+- 该能力不改变任何计算、图表、经济性或推荐口径。
+
+本轮实现：
+- `PilotAccessService` 新增 `record_transient_export_download()`，用于尚未落盘为 artifact 的当前会话导出文件；
+- 该方法先执行 `require_project_export()`，成功或拒绝都写 `AuditAction.DOWNLOAD_ARTIFACT`，`target_type="transient_export"`；
+- 06 导出页所有主要临时下载按钮接入回调审计：所选方案逐小时 CSV、批量技术 Excel/ZIP、Word 友好 PNG ZIP、HTML 图表 ZIP、技术经济汇总 Excel、Markdown 简报、电源侧/同一主体年度现金流 Excel、推荐组合 Excel；
+- 下载审计 metadata 只记录 `export_key`、`file_name`、`content_type`、`size_bytes` 和方案/范围信息，不记录原始曲线或结果 payload；
+- 文档同步为：当前 Streamlit 06 页临时下载已接审计，但未来 API、反向代理、对象存储签名 URL 和正式下载服务仍需复用该服务语义。
+
+边界说明：
+- Streamlit 回调是在当前页面下载按钮上记录审计，不等同于正式下载 API；
+- 历史 artifact 下载仍走 `read_artifact_payload()`；网页内恢复/查看仍走 `read_artifact_payload_for_view()`；
+- 若未来新增下载按钮，必须继续接 `_pilot_transient_export_download_kwargs()` 或先保存为 artifact 再通过 `read_artifact_payload()` 下载。
+
+验证：
+- `python -m pytest tests/test_pilot_access.py tests/test_ui_import.py::test_pilot_history_artifact_refs_and_download_use_access_service -q` 通过，15 项通过；
+- `python -m compileall -q src/green_direct/services/pilot_access.py src/green_direct/ui/app.py tests/test_pilot_access.py` 通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `python -m pytest -q` 通过，296 项通过；
+- `$env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help` 通过；
+- `git diff --check` 无实际空白错误，仅提示 Windows 换行转换。
