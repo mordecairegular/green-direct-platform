@@ -84,6 +84,13 @@ python -m green_direct.cli pilot-admin list-projects `
     --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
     --actor-user-id admin
 
+python -m green_direct.cli pilot-admin create-project `
+    --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --actor-user-id admin `
+    --project-id project_1 `
+    --name "试用项目 1" `
+    --owner-user-id analyst_01
+
 python -m green_direct.cli pilot-admin list-project-members `
     --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
     --actor-user-id admin `
@@ -98,7 +105,7 @@ python -m green_direct.cli pilot-admin grant-project-role `
     --cannot-export-artifacts
 ```
 
-`grant-project-role` 可用 `--can-export-artifacts` 或 `--cannot-export-artifacts` 明确维护导出权限；`disable-project-member` 可禁用单个项目成员关系。
+`create-project` 会把 `--owner-user-id` 指定用户设为项目创建人并授予项目 `admin`；若不指定 owner，则默认使用执行命令的平台管理员。`grant-project-role` 可用 `--can-export-artifacts` 或 `--cannot-export-artifacts` 明确维护导出权限；`disable-project-member` 可禁用单个项目成员关系；`archive-project` 可归档项目，归档后不能再新增或更新成员。
 
 ## 6. 启动服务
 

@@ -1037,7 +1037,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `set_platform_admin()`：授予或撤销平台管理员标记；
 - `disable_user()`：停用用户，并撤销其有效本地会话；
 - `list_users()`：平台管理员列出用户；
-- `list_projects()` / `list_project_memberships()` / `grant_project_role()` / `disable_project_membership()`：平台管理员查看项目并维护项目成员角色和导出授权。
+- `create_project()` / `archive_project()` / `list_projects()` / `list_project_memberships()` / `grant_project_role()` / `disable_project_membership()`：平台管理员创建或归档项目，并维护项目成员角色和导出授权。
 
 `LocalPilotAdminService` 会写入 `CREATE_USER` / `UPDATE_USER` / `UPDATE_MEMBERSHIP` 审计事件，并阻止停用或降级最后一个活跃平台管理员。它是后续 Streamlit 管理页和数据库适配器应复用的账号/项目成员管理语义，不是完整企业 IAM。
 
@@ -1050,6 +1050,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `grant-platform-admin` / `revoke-platform-admin`：授予或撤销平台管理员；
 - `list-users` / `list-sessions`：查看用户和会话；
 - `list-projects` / `list-project-members`：查看项目和项目成员；
+- `create-project` / `archive-project`：创建项目并给 owner 初始项目 admin，或归档项目；
 - `grant-project-role` / `disable-project-member`：授予或更新项目角色、禁用项目成员；
 - `list-jobs`：查看全局或单项目任务元数据，可按状态筛选，并可标记是否超过 heartbeat 阈值；
 - `purge-expired-artifacts`：由平台管理员清理已过期 artifact payload，保留元数据并写入项目级 `DELETE_ARTIFACT` 审计；
@@ -1144,6 +1145,13 @@ python -m green_direct.cli pilot-admin list-users `
 python -m green_direct.cli pilot-admin list-projects `
     --store-dir .runtime/pilot_store `
     --actor-user-id admin
+
+python -m green_direct.cli pilot-admin create-project `
+    --store-dir .runtime/pilot_store `
+    --actor-user-id admin `
+    --project-id project_1 `
+    --name "试用项目 1" `
+    --owner-user-id analyst_01
 
 python -m green_direct.cli pilot-admin grant-project-role `
     --store-dir .runtime/pilot_store `

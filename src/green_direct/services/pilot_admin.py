@@ -210,6 +210,56 @@ class LocalPilotAdminService:
             return [project for project in projects if project.status == ProjectStatus.ACTIVE]
         return projects
 
+    def create_project(
+        self,
+        *,
+        actor_user_id: str,
+        project: Project,
+        owner_user_id: str | None = None,
+    ) -> Project:
+        """Create a project after checking platform-admin permission."""
+
+        actor = self._platform_admin(actor_user_id)
+        owner_id = owner_user_id or project.created_by_user_id or actor.user_id
+        owner = self.registry.load_user(owner_id)
+        if not owner.is_active:
+            raise PilotAdminError(f"Project owner is disabled: {owner_id}")
+        project_to_save = replace(project, created_by_user_id=owner.user_id)
+        saved = self.registry.save_project(project_to_save)
+        self.registry.grant_project_role(
+            project_id=saved.project_id,
+            user_id=owner.user_id,
+            role=ProjectRole.ADMIN,
+        )
+        self._audit(
+            actor_user_id=actor.user_id,
+            action=AuditAction.CREATE_PROJECT,
+            project_id=saved.project_id,
+            target_type="project",
+            target_id=saved.project_id,
+            metadata={
+                "name": saved.name,
+                "owner_user_id": owner.user_id,
+                "platform_admin_override": True,
+            },
+        )
+        return saved
+
+    def archive_project(self, *, actor_user_id: str, project_id: str) -> Project:
+        """Archive a project after checking platform-admin permission."""
+
+        actor = self._platform_admin(actor_user_id)
+        archived = self.registry.archive_project(project_id)
+        self._audit(
+            actor_user_id=actor.user_id,
+            action=AuditAction.UPDATE_PROJECT,
+            project_id=archived.project_id,
+            target_type="project",
+            target_id=archived.project_id,
+            metadata={"status": archived.status.value, "platform_admin_override": True},
+        )
+        return archived
+
     def list_project_memberships(
         self,
         *,

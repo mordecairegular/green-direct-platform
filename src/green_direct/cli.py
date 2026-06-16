@@ -199,6 +199,31 @@ def _cmd_list_projects(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_create_project(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    project = services.admin.create_project(
+        actor_user_id=args.actor_user_id,
+        project=Project(
+            args.project_id,
+            args.name,
+            created_by_user_id=args.owner_user_id,
+        ),
+        owner_user_id=args.owner_user_id,
+    )
+    print(f"Created project: {project.project_id}")
+    return 0
+
+
+def _cmd_archive_project(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    project = services.admin.archive_project(
+        actor_user_id=args.actor_user_id,
+        project_id=args.project_id,
+    )
+    print(f"Archived project: {project.project_id}")
+    return 0
+
+
 def _cmd_list_project_members(args: argparse.Namespace) -> int:
     services = _pilot_services(args.store_dir)
     memberships = services.admin.list_project_memberships(
@@ -449,6 +474,23 @@ def build_parser() -> argparse.ArgumentParser:
     _add_actor_arg(list_projects)
     list_projects.add_argument("--active-only", action="store_true")
     list_projects.set_defaults(func=_cmd_list_projects)
+
+    create_project = pilot_admin_sub.add_parser("create-project", help="Create a project.")
+    _add_common_store_arg(create_project)
+    _add_actor_arg(create_project)
+    create_project.add_argument("--project-id", required=True)
+    create_project.add_argument("--name", required=True)
+    create_project.add_argument(
+        "--owner-user-id",
+        help="Initial project admin user id. Defaults to the actor user id.",
+    )
+    create_project.set_defaults(func=_cmd_create_project)
+
+    archive_project = pilot_admin_sub.add_parser("archive-project", help="Archive a project.")
+    _add_common_store_arg(archive_project)
+    _add_actor_arg(archive_project)
+    archive_project.add_argument("--project-id", required=True)
+    archive_project.set_defaults(func=_cmd_archive_project)
 
     list_project_members = pilot_admin_sub.add_parser(
         "list-project-members",

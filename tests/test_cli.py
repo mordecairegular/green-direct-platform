@@ -10,7 +10,6 @@ from green_direct.models.pilot_backend import (
     Job,
     JobStatus,
     JobType,
-    Project,
     ProjectRole,
 )
 from green_direct.services import LocalJobStore, LocalPilotAuth, LocalPilotRegistry, LocalResultStore
@@ -226,7 +225,25 @@ def test_cli_pilot_admin_manages_project_memberships(tmp_path, monkeypatch, caps
     capsys.readouterr()
 
     registry = LocalPilotRegistry(tmp_path)
-    registry.save_project(Project("project_1", "Pilot Project", created_by_user_id="admin"))
+    assert main(
+        [
+            "pilot-admin",
+            "create-project",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--project-id",
+            "project_1",
+            "--name",
+            "Pilot Project",
+            "--owner-user-id",
+            "analyst",
+        ]
+    ) == 0
+    assert "Created project: project_1" in capsys.readouterr().out
+    owner_membership = registry.get_project_membership("project_1", "analyst")
+    assert owner_membership is not None
+    assert owner_membership.role == ProjectRole.ADMIN
 
     assert main(
         [
@@ -239,7 +256,7 @@ def test_cli_pilot_admin_manages_project_memberships(tmp_path, monkeypatch, caps
     ) == 0
     project_output = capsys.readouterr().out
     assert "project_id\tname\tstatus\tcreated_by\tcreated_at" in project_output
-    assert "project_1\tPilot Project\tactive\tadmin" in project_output
+    assert "project_1\tPilot Project\tactive\tanalyst" in project_output
 
     assert main(
         [
@@ -299,9 +316,24 @@ def test_cli_pilot_admin_manages_project_memberships(tmp_path, monkeypatch, caps
 
     audit_events = LocalResultStore(tmp_path).read_audit_log("project_1")
     assert [event.action for event in audit_events] == [
+        AuditAction.CREATE_PROJECT,
         AuditAction.UPDATE_MEMBERSHIP,
         AuditAction.UPDATE_MEMBERSHIP,
     ]
+
+    assert main(
+        [
+            "pilot-admin",
+            "archive-project",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--project-id",
+            "project_1",
+        ]
+    ) == 0
+    assert "Archived project: project_1" in capsys.readouterr().out
+    assert registry.load_project("project_1").status.value == "archived"
 
 
 def test_cli_pilot_admin_lists_jobs_with_filters_and_stale_marker(tmp_path, monkeypatch, capsys):

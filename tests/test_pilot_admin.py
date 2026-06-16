@@ -175,6 +175,38 @@ def test_platform_admin_can_manage_project_memberships_without_project_admin_rol
     )
 
 
+def test_platform_admin_can_create_and_archive_project(tmp_path):
+    service = _admin_service(tmp_path)
+    service.bootstrap_platform_admin(user=User("platform_admin", "admin@example.local", "Admin"), password="admin-password")
+    service.create_user(actor_user_id="platform_admin", user=User("owner", "owner@example.local", "Owner"))
+
+    project = service.create_project(
+        actor_user_id="platform_admin",
+        project=Project("project_1", "Internal pilot project"),
+        owner_user_id="owner",
+    )
+    membership = service.registry.get_project_membership("project_1", "owner")
+    archived = service.archive_project(actor_user_id="platform_admin", project_id="project_1")
+
+    assert project.created_by_user_id == "owner"
+    assert membership is not None
+    assert membership.role == ProjectRole.ADMIN
+    assert archived.status.value == "archived"
+
+    events = service.result_store.read_audit_log("project_1")
+    assert [event.action for event in events] == [AuditAction.CREATE_PROJECT, AuditAction.UPDATE_PROJECT]
+    assert events[0].metadata["owner_user_id"] == "owner"
+    assert events[1].metadata["status"] == "archived"
+
+    with pytest.raises(PilotAdminError, match="archived project"):
+        service.grant_project_role(
+            actor_user_id="platform_admin",
+            project_id="project_1",
+            user_id="owner",
+            role=ProjectRole.ADMIN,
+        )
+
+
 def test_create_user_rejects_duplicate_login_name(tmp_path):
     service = _admin_service(tmp_path)
     service.bootstrap_platform_admin(user=User("admin", "admin@example.local", "Admin"), password="admin-password")

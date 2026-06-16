@@ -4413,3 +4413,32 @@ exchange_import_shortfall_energy == 0
 - `pytest tests/test_cli.py -q` 通过，8 项通过；
 - `python -m compileall -q src scripts tests` 通过；
 - `pytest -q` 通过，316 项通过。
+
+### 2026-06-16 pilot-admin 项目创建与归档入口
+
+本轮继续补服务器侧后台账户控制闭环。上一轮 CLI 已能维护已有项目的成员，但如果 Web 项目工作区或平台管理页不可用，平台管理员仍缺少命令行创建项目和归档项目的入口。内部 10-20 人试用时，项目生命周期不能只依赖前台页面。
+
+本轮判断：
+- 项目创建/归档应进入 `LocalPilotAdminService`，由平台管理员权限统一校验；
+- 创建项目时应指定或默认确定 owner，并自动授予 owner 项目 `admin`；
+- 归档项目后沿用已有规则：不能再新增或更新成员；
+- 不做物理删除、项目迁移或数据库级生命周期管理。
+
+本轮实现：
+- `LocalPilotAdminService.create_project()`：平台管理员创建项目，设置 owner，并给 owner 初始项目 `admin`；
+- `LocalPilotAdminService.archive_project()`：平台管理员归档项目并写 `UPDATE_PROJECT` 审计；
+- `pilot-admin create-project`：支持 `--project-id`、`--name` 和可选 `--owner-user-id`；
+- `pilot-admin archive-project`：归档指定项目；
+- `tests/test_pilot_admin.py` 覆盖服务层创建/归档、owner 成员关系和审计；
+- `tests/test_cli.py` 覆盖 CLI 创建项目、成员维护和归档；
+- TODO、软件接口总览、内部试用 runbook、受控公网审计矩阵、预发布质量审查、架构计划、Claude Code 提示词和 handoff 已同步。
+
+边界说明：
+- 该能力仍基于本地 JSON store，不是正式数据库后台；
+- 归档项目不会删除任务、结果索引或 artifact；
+- 平台管理员 CLI 是服务器侧应急入口，不代表最终企业 IAM 或正式后台管理系统已完成。
+
+验证：
+- `pytest tests/test_pilot_admin.py tests/test_cli.py -q` 通过，19 项通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `pytest -q` 通过，317 项通过。
