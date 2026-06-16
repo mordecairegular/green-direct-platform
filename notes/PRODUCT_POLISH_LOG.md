@@ -5923,3 +5923,23 @@ profile / benchmark：
 边界：
 - 该检查不联网安装依赖，也不替代真实 Docker build/Render build log；
 - 后续新增运行时依赖时，必须同步修改 `pyproject.toml` 和 `requirements-runtime.txt`；开发依赖仍放在 `requirements.txt` 或 optional dev，不进入 runtime sync 口径。
+
+### 2026-06-17 Docker/Compose BROWSER_PATH 与 Render 对齐
+
+本轮继续收紧图表导出在托管部署中的运行时一致性。Render Blueprint 已设置 `BROWSER_PATH=/usr/bin/chromium`，Docker 镜像也安装了 Chromium，但 Dockerfile 和 docker-compose 的 Web/worker 环境变量此前没有显式声明同一路径；这会让本地容器、Compose worker 和 Render Web Service 在 Kaleido/PNG 导出时依赖不同的自动发现行为。
+
+调整：
+- Dockerfile 默认环境变量新增 `BROWSER_PATH=/usr/bin/chromium`；
+- docker-compose 的 Web Service 和可选 worker profile 都新增 `BROWSER_PATH: "/usr/bin/chromium"`；
+- `preflight_internal_pilot_deploy.py` 把 Dockerfile、Compose Web 和 Compose worker 的 browser path 纳入静态检查；
+- `tests/test_deployment_artifacts.py` 锁定新增环境变量和 preflight check 名称。
+
+验证：
+- `python -m pytest tests\test_deployment_artifacts.py -q` 通过，11 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`，包含 `dockerfile:BROWSER_PATH=/usr/bin/chromium`、`compose:env:BROWSER_PATH`、`compose:worker-env:BROWSER_PATH` 和既有 `render:env:BROWSER_PATH`；
+- `python -m compileall -q scripts\preflight_internal_pilot_deploy.py` 通过。
+
+边界：
+- 这是部署默认值和静态门槛对齐，不等于已经完成真实 Docker build、Render build 或云端 PNG 导出实测；
+- 真实首次发布后仍应在 Render 环境里下载一个含图表 PNG 的导出包，确认 Chromium/Kaleido 在目标镜像中可用；
+- 不改变图表语义、技术仿真、经济性 V1、推荐排序或权限口径。

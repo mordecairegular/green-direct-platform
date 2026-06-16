@@ -24,6 +24,7 @@ def test_docker_compose_defaults_to_internal_pilot_safety():
     assert environment["GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT"] == (
         "${GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT:-20}"
     )
+    assert environment["BROWSER_PATH"] == "/usr/bin/chromium"
     assert environment["STREAMLIT_SERVER_ADDRESS"] == "0.0.0.0"
     assert environment["STREAMLIT_SERVER_PORT"] == "8503"
     assert environment["STREAMLIT_SERVER_HEADLESS"] == "true"
@@ -36,6 +37,7 @@ def test_docker_compose_defaults_to_internal_pilot_safety():
     assert worker_environment["GREEN_DIRECT_ENABLE_PILOT_AUTH"] == "1"
     assert worker_environment["GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT"] == "0"
     assert worker_environment["GREEN_DIRECT_PILOT_STORE_DIR"] == "/data/pilot_store"
+    assert worker_environment["BROWSER_PATH"] == "/usr/bin/chromium"
     assert worker_environment["PYTHONPATH"] == "/app/src"
     worker_command = compose["services"]["green-direct-worker"]["command"]
     assert "technical_study" in worker_command
@@ -51,6 +53,7 @@ def test_dockerfile_defaults_to_safe_server_mode():
     assert "GREEN_DIRECT_MAX_SCENARIOS_PER_RUN=20000" in dockerfile
     assert "GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD=1000" in dockerfile
     assert "GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT=20" in dockerfile
+    assert "BROWSER_PATH=/usr/bin/chromium" in dockerfile
     assert "streamlit" in dockerfile
     assert "_stcore/health" in dockerfile
     assert "USER appuser" in dockerfile
@@ -149,7 +152,9 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     assert "compose:volume" in check_names
     assert "compose:env:GREEN_DIRECT_MAX_UPLOAD_MB" in check_names
     assert "compose:env:STREAMLIT_SERVER_HEADLESS" in check_names
+    assert "compose:env:BROWSER_PATH" in check_names
     assert "compose:worker-env:GREEN_DIRECT_PILOT_STORE_DIR" in check_names
+    assert "compose:worker-env:BROWSER_PATH" in check_names
     assert "compose:worker-job-types" in check_names
     assert "dockerfile:PORT=8503" in check_names
     assert "dockerfile:--server.maxUploadSize=${STREAMLIT_SERVER_MAX_UPLOAD_SIZE:-${GREEN_DIRECT_MAX_UPLOAD_MB:-20}}" in check_names
