@@ -75,6 +75,7 @@
 对应审计和性能文档：
 
 - `docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md`：把受控公网内测准备方案映射为当前仓库的 P0 审计矩阵；
+- `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md`：把首次受控公网内测发布串成执行作战单，覆盖本地 preflight、push、GitHub Actions、Render Blueprint、Web Service Shell doctor/bootstrap、Cloudflare Access、手机验收和回滚；
 - `docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md`：记录托管平台公网测试路线，推荐容器/PaaS 承载应用本体、Cloudflare 做 DNS/HTTPS/Access；
 - `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md`：面向“同事用手机/移动网络试用”的最短操作清单；
 - `docs/PERFORMANCE_OPTIMIZATION_PLAN.md`：记录方案遍历、summary-first、并行、经济性批量化和后台 Job 的性能路线；
@@ -87,10 +88,11 @@
 - `render.yaml`：当前 pilot Blueprint 显式部署 `codex/UI`，设置 `numInstances=1` 和 `autoDeployTrigger: checksPass`；Render 应等 GitHub Actions 质量门通过后再自动部署，避免部署默认分支或未通过检查的提交。
 - `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`：UI 提升提示词已明确要求先做当前运行截图/浏览器审查，再选择一个可验收小切片；首轮 UI 提升优先考虑窄屏/手机可用性或 03 经济性首屏节奏，不要让 Claude Code 一次性“美化全部六页”。
 
-2026-06-16 当前部署前事实状态：
+2026-06-17 当前部署前事实状态：
 - `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 已通过，`failed_count=0`，包含 `smoke:streamlit`；
 - `python scripts\preflight_internal_pilot_deploy.py --pilot-store-dir .runtime\preflight_doctor_smoke --json` 已通过，`failed_count=0`，包含 `pilot-store:*` 检查；
 - `python scripts\preflight_internal_pilot_deploy.py --json` 已通过，`failed_count=0`；
+- `python -m pytest tests\test_deployment_artifacts.py -q` 已通过，11 项通过，覆盖首次发布作战单、Render 分支、GitHub Actions 质量门和部署 preflight；
 - `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 按预期失败，当前关键失败项是 `git:sync`：本地 `codex/UI` 跟踪 `origin/codex/UI`，仍领先 upstream；本地有未提交改动时也会额外失败 `git:clean`。该命令现在还会核对当前分支和 upstream 是否匹配 `render.yaml` 的部署分支；部署前应重新运行该命令获取实时状态；
 - 当前 `origin` 为 `https://github.com/mordecairegular/green-direct-platform.git`；
 - 因此下一步不是继续改 Vercel 适配，而是经用户确认后推送当前分支到私有 GitHub，等待 GitHub Actions 质量门通过，再按 Render/Cloudflare checklist 做真实部署演练。

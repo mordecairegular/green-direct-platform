@@ -5537,3 +5537,22 @@ profile / benchmark：
 - `python -m pytest tests\test_deployment_artifacts.py -q` 通过，10 项通过；
 - `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
 - `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 本地按预期失败：新增 `git:render-branch`、`git:branch`、`git:upstream-branch` 均通过；当前未提交改动导致 `git:clean` 失败，本地仍 ahead upstream 导致 `git:sync` 失败。
+
+### 2026-06-17 新增受控公网内测首次发布作战单
+
+本轮继续把“GitHub 私有仓库 -> Render Blueprint -> Cloudflare Access -> 同事移动网络试用”的首发流程从分散说明收束成单条执行链。此前 `docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md` 负责平台判断，`docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 负责验收，但首次发布执行人仍需要在多个文件之间来回跳转。
+
+调整：
+- 新增 `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md`，按实际发布顺序覆盖本地 preflight、GitHub push、`--require-git-sync`、GitHub Actions 质量门、Render Blueprint、Web Service Shell 中的 `pilot-admin doctor` / `bootstrap`、Cloudflare Zero Trust Access、手机 4G/5G 验收、故障排查和回滚；
+- `README_DEPLOY.md`、托管平台部署路线、移动网络试用清单和 handoff 均改为优先指向首次发布作战单；
+- `preflight_internal_pilot_deploy.py` 把该作战单纳入必备部署文件，避免后续误删；
+- `tests/test_deployment_artifacts.py` 增加内容锚点测试，锁定 push、git sync、Actions、Render Shell、doctor/bootstrap、Cloudflare Access、手机验收和安全环境变量这些关键步骤。
+
+边界：
+- 这是部署执行文档和质量门补强，不改变计算口径、Streamlit UI、账号权限逻辑或 Render 配置；
+- 真正公网试用仍需用户确认后 push 到私有 GitHub，并在 Render/Cloudflare 控制台完成实机部署演练。
+
+验证：
+- `python -m pytest tests\test_deployment_artifacts.py -q` 通过，11 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `python -m compileall -q scripts\preflight_internal_pilot_deploy.py tests\test_deployment_artifacts.py` 通过。

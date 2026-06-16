@@ -38,6 +38,7 @@ REQUIRED_FILES = (
     "requirements-runtime.txt",
     "docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md",
     "docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md",
+    "docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md",
     "docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md",
     "scripts/smoke_streamlit_app.py",
 )

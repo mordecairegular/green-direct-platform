@@ -39,7 +39,7 @@ Cloudflare 的最佳角色：域名、HTTPS、WAF/基础防护、Zero Trust Acce
 
 当前仓库已有最小后台 worker loop，但 `render.yaml` 仍只创建 Web Service。原因是本地 file store 版依赖 `/data/pilot_store`，不应在 Render 上直接再建一个独立 Worker Service 并假设它能共享同一个服务磁盘。若要拆成 Web + Worker 两个托管服务，优先把项目库迁移到 Postgres/SQLite 托管盘方案和对象存储；若部署在自有 VM / Docker Compose，可用同一命名卷启动可选 `green-direct-worker` profile。
 
-如果目标只是让同事在手机或移动网络下先试用，请优先按 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 执行；本文保留更完整的平台判断和架构边界。
+如果目标只是让同事在手机或移动网络下先试用，请优先按 `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md` 执行首次发布，再用 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 做发给同事前验收；本文保留更完整的平台判断和架构边界。
 
 ## 2. 为什么先选 Render
 

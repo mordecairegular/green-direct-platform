@@ -109,6 +109,7 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     assert payload["failed_count"] == 0
     check_names = {check["name"] for check in payload["checks"]}
     assert "file:.github/workflows/internal-pilot-quality.yml" in check_names
+    assert "file:docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md" in check_names
     assert "dockerignore:.github/" in check_names
     assert "render:runtime" in check_names
     assert "render:branch" in check_names
@@ -187,3 +188,21 @@ def test_internal_pilot_preflight_exposes_git_sync_check():
     assert "git:branch" in script
     assert "git:render-branch" in script
     assert "git:upstream-branch" in script
+
+
+def test_public_beta_first_launch_playbook_covers_handoff_steps():
+    playbook = (ROOT / "docs" / "PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md").read_text(encoding="utf-8")
+
+    for needle in [
+        "git push origin codex/UI",
+        "preflight_internal_pilot_deploy.py --require-git-sync",
+        "Internal Pilot Quality Gate",
+        "Render Web Service Shell",
+        "pilot-admin doctor",
+        "pilot-admin bootstrap",
+        "Cloudflare Zero Trust Access",
+        "手机 4G/5G",
+        "GREEN_DIRECT_ENABLE_PILOT_AUTH=1",
+        "GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0",
+    ]:
+        assert needle in playbook
