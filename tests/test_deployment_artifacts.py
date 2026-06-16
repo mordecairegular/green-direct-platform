@@ -54,6 +54,8 @@ def test_dockerfile_defaults_to_safe_server_mode():
     assert "streamlit" in dockerfile
     assert "_stcore/health" in dockerfile
     assert "USER appuser" in dockerfile
+    assert "COPY requirements-runtime.txt ./" in dockerfile
+    assert "pip install --no-cache-dir -r requirements-runtime.txt" in dockerfile
     assert "--server.maxUploadSize=${STREAMLIT_SERVER_MAX_UPLOAD_SIZE:-${GREEN_DIRECT_MAX_UPLOAD_MB:-20}}" in dockerfile
 
 
@@ -137,6 +139,7 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     assert "file:scripts/backup_pilot_store.ps1" in check_names
     assert "file:scripts/restore_pilot_store.ps1" in check_names
     assert "dockerignore:.github/" in check_names
+    assert "runtime-deps:pyproject-sync" in check_names
     assert "render:runtime" in check_names
     assert "render:branch" in check_names
     assert "render:auto-deploy" in check_names

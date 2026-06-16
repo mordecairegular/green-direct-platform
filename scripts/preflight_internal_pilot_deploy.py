@@ -146,6 +146,36 @@ def _load_yaml(path: Path) -> Any:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
+def _runtime_requirement_lines(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    requirements: set[str] = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        value = line.split("#", 1)[0].strip()
+        if value:
+            requirements.add(value)
+    return requirements
+
+
+def _pyproject_dependency_lines(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    dependencies: set[str] = set()
+    in_dependencies = False
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if line.startswith("dependencies"):
+            in_dependencies = True
+            continue
+        if in_dependencies:
+            if line == "]":
+                break
+            value = line.rstrip(",").strip().strip('"').strip("'")
+            if value:
+                dependencies.add(value)
+    return dependencies
+
+
 def _required_file_checks(checks: list[dict[str, str]]) -> None:
     for relative in REQUIRED_FILES:
         path = ROOT / relative
@@ -176,6 +206,8 @@ def _dockerfile_checks(checks: list[dict[str, str]]) -> None:
         "GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD=1000",
         "GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT=20",
         "PORT=8503",
+        "COPY requirements-runtime.txt ./",
+        "pip install --no-cache-dir -r requirements-runtime.txt",
         "USER appuser",
         "_stcore/health",
         "--server.port=${PORT",
@@ -183,6 +215,26 @@ def _dockerfile_checks(checks: list[dict[str, str]]) -> None:
     )
     for needle in expected:
         _check(needle in text, checks, f"dockerfile:{needle}", f"Dockerfile contains {needle}")
+
+
+def _runtime_dependency_checks(checks: list[dict[str, str]]) -> None:
+    runtime_requirements = _runtime_requirement_lines(ROOT / "requirements-runtime.txt")
+    project_dependencies = _pyproject_dependency_lines(ROOT / "pyproject.toml")
+    missing_from_runtime = sorted(project_dependencies - runtime_requirements)
+    extra_runtime = sorted(runtime_requirements - project_dependencies)
+    _record(
+        checks,
+        "runtime-deps:pyproject-sync",
+        "pass" if not missing_from_runtime and not extra_runtime else "fail",
+        (
+            "requirements-runtime.txt matches pyproject project dependencies"
+            if not missing_from_runtime and not extra_runtime
+            else (
+                "runtime dependency mismatch; "
+                f"missing_from_runtime={missing_from_runtime}; extra_runtime={extra_runtime}"
+            )
+        ),
+    )
 
 
 def _compose_checks(checks: list[dict[str, str]]) -> None:
@@ -503,6 +555,7 @@ def main(argv: list[str] | None = None) -> int:
     _required_file_checks(checks)
     _dockerignore_checks(checks)
     _dockerfile_checks(checks)
+    _runtime_dependency_checks(checks)
     _compose_checks(checks)
     _render_checks(checks)
     _git_tracked_safety_checks(checks)

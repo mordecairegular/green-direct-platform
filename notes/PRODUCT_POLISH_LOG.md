@@ -5906,3 +5906,20 @@ profile / benchmark：
 边界：
 - 这是 Blueprint 静态门槛，不替代 Render 控制台里对实际磁盘创建、计费套餐、区域、快照/备份能力和可用容量的人工确认；
 - 真实发布仍需在 Web Service Shell 运行 `pilot-admin doctor --store-dir /data/pilot_store --json` 并完成备份/恢复演练。
+
+### 2026-06-17 运行时依赖同步纳入部署 preflight
+
+本轮继续检查 Docker/Render 运行镜像的可执行性。当前 Dockerfile 为了缩小运行镜像安装 `requirements-runtime.txt`，而项目打包口径在 `pyproject.toml` 的 `[project].dependencies`。如果后续新增运行时依赖时只更新其中一个文件，本地开发环境可能正常，但 Render 镜像会在构建或启动后才暴露缺包问题。
+
+调整：
+- `preflight_internal_pilot_deploy.py` 新增 `runtime-deps:pyproject-sync` 检查，读取 `pyproject.toml` 的项目运行时依赖，并与 `requirements-runtime.txt` 做集合一致性校验；
+- Dockerfile 检查新增 `COPY requirements-runtime.txt ./` 和 `pip install --no-cache-dir -r requirements-runtime.txt`，锁定运行镜像确实使用 runtime 依赖文件；
+- `tests/test_deployment_artifacts.py` 锁定新增检查名和 Dockerfile 运行时依赖安装口径。
+
+验证：
+- `python -m pytest tests\test_deployment_artifacts.py -q` 通过，11 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`，包含 `runtime-deps:pyproject-sync`。
+
+边界：
+- 该检查不联网安装依赖，也不替代真实 Docker build/Render build log；
+- 后续新增运行时依赖时，必须同步修改 `pyproject.toml` 和 `requirements-runtime.txt`；开发依赖仍放在 `requirements.txt` 或 optional dev，不进入 runtime sync 口径。
