@@ -6,6 +6,7 @@ from green_direct.economy import EconomicParams
 from green_direct.models.diagnostics import InputDiagnostics
 from green_direct.models.pilot_backend import (
     ArtifactKind,
+    ArtifactRetentionPolicy,
     AuditAction,
     JobStatus,
     Project,
@@ -20,6 +21,7 @@ from green_direct.services import (
     PilotAccessService,
     economic_input_fingerprint,
     persist_economic_study_result,
+    persist_hourly_detail_artifact,
     persist_recommendation_study_result,
     persist_technical_study_result,
     recommendation_result_fingerprint,
@@ -182,6 +184,86 @@ def test_persist_technical_study_result_rejects_viewer(tmp_path):
         )
 
     assert service.job_store.list_project_jobs(project.project_id) == []
+
+
+def test_persist_hourly_detail_artifact_attaches_to_technical_result(tmp_path):
+    service = _access_service(tmp_path)
+    service.registry.save_user(User("admin", "admin@example.local", "Admin"))
+    project = service.create_project(
+        actor_user_id="admin",
+        project=Project("project_1", "Internal pilot project"),
+    )
+    technical = persist_technical_study_result(
+        access_service=service,
+        actor_user_id="admin",
+        project_id=project.project_id,
+        technical_result=_technical_result(),
+    )
+    hourly = pd.DataFrame(
+        {
+            "scenario_id": ["S0001"],
+            "timestamp": ["2026-01-01 00:00:00"],
+            "load_power": [1.25],
+        }
+    )
+
+    persisted = persist_hourly_detail_artifact(
+        access_service=service,
+        actor_user_id="admin",
+        project_id=project.project_id,
+        study_id="study_1",
+        scenario_id="S0001",
+        hourly_detail=hourly,
+        technical_job_id=technical.job.job_id,
+    )
+
+    record = service.result_store.load_result_record(project.project_id, "study_1", "technical_result")
+    payload = service.result_store.read_artifact_payload(persisted.artifact).decode("utf-8")
+
+    assert persisted.artifact.kind == ArtifactKind.HOURLY_DETAIL
+    assert persisted.artifact.retention_policy == ArtifactRetentionPolicy.EXPIRE
+    assert persisted.artifact.expires_at is not None
+    assert "load_power" in payload
+    assert "1.25" in payload
+    assert record.hourly_detail_artifact_ids == {"S0001": "hourly_detail_S0001"}
+    assert record.created_by_job_id == technical.job.job_id
+    assert any(
+        event.action == AuditAction.STORE_ARTIFACT and event.target_id == "hourly_detail_S0001"
+        for event in service.result_store.read_audit_log(project.project_id)
+    )
+
+
+def test_persist_hourly_detail_artifact_rejects_viewer(tmp_path):
+    service = _access_service(tmp_path)
+    service.registry.save_user(User("admin", "admin@example.local", "Admin"))
+    service.registry.save_user(User("viewer", "viewer@example.local", "Viewer"))
+    project = service.create_project(
+        actor_user_id="admin",
+        project=Project("project_1", "Internal pilot project"),
+    )
+    technical = persist_technical_study_result(
+        access_service=service,
+        actor_user_id="admin",
+        project_id=project.project_id,
+        technical_result=_technical_result(),
+    )
+    service.grant_project_role(
+        actor_user_id="admin",
+        project_id=project.project_id,
+        user_id="viewer",
+        role=ProjectRole.VIEWER,
+    )
+
+    with pytest.raises(PilotAccessError, match="cannot submit jobs"):
+        persist_hourly_detail_artifact(
+            access_service=service,
+            actor_user_id="viewer",
+            project_id=project.project_id,
+            study_id="study_1",
+            scenario_id="S0001",
+            hourly_detail=pd.DataFrame({"scenario_id": ["S0001"], "hour_index": [0]}),
+            technical_job_id=technical.job.job_id,
+        )
 
 
 def test_persist_economic_study_result_writes_versioned_artifacts_and_record(tmp_path):

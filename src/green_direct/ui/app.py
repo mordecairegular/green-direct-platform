@@ -68,6 +68,7 @@ from green_direct.services import (
     filter_uploads,
     inspect_upload,
     persist_economic_study_result,
+    persist_hourly_detail_artifact,
     persist_recommendation_study_result,
     persist_technical_study_result,
     recommendation_result_fingerprint,
@@ -2040,6 +2041,14 @@ def _study_result_with_pilot_recommendation_refs(study_result: StudyResult, pers
     return replace(study_result, result_store_refs=refs)
 
 
+def _study_result_with_pilot_hourly_detail_ref(study_result: StudyResult, persisted) -> StudyResult:
+    refs = {
+        **study_result.result_store_refs,
+        f"hourly_detail_artifact_id_{persisted.scenario_id}": persisted.artifact.artifact_id,
+    }
+    return replace(study_result, result_store_refs=refs)
+
+
 def _current_pilot_study_id(st) -> str | None:
     study_result = st.session_state.get("study_result")
     if isinstance(study_result, StudyResult):
@@ -2129,6 +2138,38 @@ def _persist_pilot_recommendation_result_if_enabled(st, recommendation_result) -
     st.session_state[PILOT_RECOMMENDATION_STORE_SIGNATURE_KEY] = signature
     st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
         f"已写入项目推荐结果存储：Job {persisted.job.job_id} / Result {persisted.result_record.result_id}"
+    )
+    return persisted
+
+
+def _persist_pilot_hourly_detail_if_enabled(st, scenario_id: str, hourly_detail: pd.DataFrame) -> object | None:
+    if not _pilot_auth_enabled():
+        return None
+    actor_user_id = _current_pilot_user_id(st)
+    project_id = _current_pilot_project_id(st)
+    study_result = st.session_state.get("study_result")
+    if not actor_user_id or not project_id or not isinstance(study_result, StudyResult):
+        return None
+    refs = study_result.result_store_refs
+    try:
+        persisted = persist_hourly_detail_artifact(
+            access_service=_pilot_access_service(),
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_result.study_id,
+            scenario_id=str(scenario_id),
+            hourly_detail=hourly_detail,
+            technical_job_id=refs.get("technical_job_id"),
+            technical_result_id=str(refs.get("technical_result_id") or "technical_result"),
+        )
+    except Exception as exc:  # noqa: BLE001 - hourly detail should remain usable in-session
+        if isinstance(exc, (PilotAccessError, FileExistsError, FileNotFoundError, ValueError, OSError)):
+            st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = f"项目逐小时明细保存失败：{exc}"
+            return None
+        raise
+    st.session_state["study_result"] = _study_result_with_pilot_hourly_detail_ref(study_result, persisted)
+    st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
+        f"已写入项目逐小时明细存储：方案 {persisted.scenario_id} / Artifact {persisted.artifact.artifact_id}"
     )
     return persisted
 
@@ -3278,6 +3319,11 @@ def _append_hourly_detail_to_current_result(st, scenario_id: str, summary: pd.Da
         st.session_state["study_result"] = replace(study_result, technical_result=next_technical_result)
     st.session_state.pop("download_payloads", None)
     _clear_chart_export_cache(st)
+    _persist_pilot_hourly_detail_if_enabled(
+        st,
+        str(scenario_id),
+        scenario_result.hourly_detail,
+    )
     _save_runtime_snapshot(st)
     return f"已补算方案 {scenario_id} 的逐小时明细，可继续生成图表和导出。"
 

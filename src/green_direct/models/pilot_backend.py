@@ -102,6 +102,7 @@ class AuditAction(str, Enum):
     UPDATE_PROJECT = "update_project"
     UPDATE_MEMBERSHIP = "update_membership"
     UPLOAD_INPUT = "upload_input"
+    STORE_ARTIFACT = "store_artifact"
     SUBMIT_JOB = "submit_job"
     CANCEL_JOB = "cancel_job"
     COMPLETE_JOB = "complete_job"

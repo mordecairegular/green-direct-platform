@@ -1089,6 +1089,104 @@ def test_append_hourly_detail_updates_current_result(monkeypatch):
     assert "download_payloads" not in dummy.session_state
 
 
+def test_append_hourly_detail_persists_pilot_artifact(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.batch.batch_runner import BatchResult
+    from green_direct.models.diagnostics import InputDiagnostics
+    from green_direct.models.pilot_backend import ArtifactKind, Project, User
+    from green_direct.services import StudyResult, TechnicalStudyInput, TechnicalStudyResult
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+
+    access = app._pilot_access_service()
+    access.registry.save_user(User("admin", "admin@example.local", "Admin"))
+    project = access.create_project(
+        actor_user_id="admin",
+        project=Project("project_1", "Internal pilot project"),
+    )
+    summary = pd.DataFrame(
+        {
+            "scenario_id": ["S0002"],
+            "pv_capacity": [1.0],
+            "wind_capacity": [0.0],
+            "bess_power": [0.0],
+            "bess_energy": [0.0],
+        }
+    )
+    batch_result = BatchResult(
+        summary=summary,
+        hourly_details={},
+        errors=pd.DataFrame(),
+        warnings=[],
+        scenario_count=1,
+    )
+    technical_result = TechnicalStudyResult(
+        study_id="study-ui-hourly",
+        batch_result=batch_result,
+        input_diagnostics=InputDiagnostics(),
+        config_snapshot={"study_id": "study-ui-hourly"},
+    )
+    technical_input = TechnicalStudyInput(
+        load_source=b"",
+        pv_source=b"",
+        wind_source=b"",
+        load_time_col="time",
+        load_value_col="load",
+        pv_time_col="time",
+        pv_value_col="pv",
+        wind_time_col="time",
+        wind_value_col="wind",
+        scenario_grid={},
+    )
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.PILOT_USER_ID_KEY: "admin",
+                app.PILOT_ACTIVE_PROJECT_ID_KEY: project.project_id,
+                app.TECHNICAL_STUDY_INPUT_KEY: technical_input,
+                "batch_result": batch_result,
+                "download_payloads": {"old": b"payload"},
+            }
+
+    dummy = DummyStreamlit()
+    persisted_technical = app._persist_pilot_technical_result_if_enabled(dummy, technical_result)
+    dummy.session_state["study_result"] = app._study_result_with_pilot_refs(
+        StudyResult.from_technical(technical_result),
+        persisted_technical,
+    )
+    hourly = pd.DataFrame(
+        {
+            "scenario_id": ["S0002"],
+            "hour_index": [0],
+            "load_power": [1.0],
+        }
+    )
+    monkeypatch.setattr(
+        app,
+        "run_hourly_detail_for_scenario",
+        lambda inputs, *, scenario_id, summary: SimpleNamespace(hourly_detail=hourly),
+    )
+    monkeypatch.setattr(app, "_clear_chart_export_cache", lambda st: None)
+    monkeypatch.setattr(app, "_save_runtime_snapshot", lambda st: None)
+
+    app._append_hourly_detail_to_current_result(dummy, "S0002", summary)
+
+    store = app._pilot_access_service().result_store
+    artifact = store.load_artifact(project.project_id, "study-ui-hourly", "hourly_detail_S0002")
+    record = store.load_result_record(project.project_id, "study-ui-hourly", "technical_result")
+    payload = store.read_artifact_payload(artifact).decode("utf-8")
+
+    assert artifact.kind == ArtifactKind.HOURLY_DETAIL
+    assert record.hourly_detail_artifact_ids == {"S0002": "hourly_detail_S0002"}
+    assert "load_power" in payload
+    assert dummy.session_state["study_result"].result_store_refs["hourly_detail_artifact_id_S0002"] == (
+        "hourly_detail_S0002"
+    )
+    assert app.PILOT_RESULT_STORE_NOTICE_KEY in dummy.session_state
+
+
 def test_partial_hourly_retention_clears_price_curve():
     import green_direct.ui.app as app
     from green_direct.economy import read_price_curve

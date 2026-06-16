@@ -3791,3 +3791,29 @@ exchange_import_shortfall_energy == 0
 - Docker 镜像只复制运行所需代码、配置和样例，不复制本地 `.runtime` 或 `.env`；
 - 反向代理示例仍需按目标服务器域名、证书、网络和日志策略实机调整；
 - 仍不建议直接把 8503 端口暴露到公网。
+
+### 2026-06-16 按需逐小时明细项目级 artifact 第一版
+
+本轮继续补受控公网内测 Route A 的项目级结果留存缺口。上一轮已经能在当前 session 内补算单个方案逐小时明细，但补算结果仍只活在浏览器会话里；如果用户随后切换页面、下载或排障，还缺少可追踪的项目级产物索引。
+
+本轮判断：
+- 先只保存“当前会话按需补算出的单方案明细”，不一次性迁移所有历史逐小时台账，避免引入后台 worker、原始输入文件持久化和完整历史恢复的组合风险；
+- hourly detail 是大体量 artifact，默认应采用到期清理策略，而不是和技术 summary 一样长期保留；
+- 写入 artifact 也属于关键动作，应写审计日志，但日志只记录 artifact 类型、场景号和留存策略，不记录逐小时原始数据。
+
+本轮实现：
+- `persist_hourly_detail_artifact()` 会把指定方案的 `hourly_detail` 写为 `ArtifactKind.HOURLY_DETAIL` CSV，默认 30 天过期；
+- 写入后更新 `StudyResultRecord.hourly_detail_artifact_ids[scenario_id]`，让历史结果索引能看到该方案已有明细产物；
+- 新增 `AuditAction.STORE_ARTIFACT`，按需 hourly artifact 写入会写项目级审计；
+- Streamlit 的“补算逐小时明细”动作在更新当前 `batch_result` / `study_result` 后，会在内部试用登录和项目上下文启用时尽量把明细写入项目结果库；写库失败不会丢弃当前会话补算结果。
+
+边界说明：
+- 这仍不是后台任务，也没有新增排队、取消或重试；
+- 历史 summary-only 恢复后仍不能跨会话补算，因为原始曲线输入尚未作为受控 input artifact 持久化；
+- 当前不会自动从已有 hourly artifact 恢复到工作流图表页，只是先补齐项目级产物保存和索引。
+
+验证：
+- `pytest -q tests/test_pilot_backend_models.py tests/test_pilot_study_persistence.py tests/test_ui_import.py::test_append_hourly_detail_updates_current_result tests/test_ui_import.py::test_append_hourly_detail_persists_pilot_artifact` 通过，19 项通过；
+- `python -m compileall -q src/green_direct/models/pilot_backend.py src/green_direct/services/pilot_study_persistence.py src/green_direct/ui/app.py tests/test_pilot_study_persistence.py tests/test_ui_import.py` 通过；
+- `pytest -q` 通过，282 项通过；
+- `python -m compileall -q src scripts tests` 通过。

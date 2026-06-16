@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from uuid import uuid4
 
 from green_direct.models.pilot_backend import (
+    AuditAction,
+    AuditLog,
+    ArtifactRetentionPolicy,
     ArtifactKind,
     Job,
     JobArtifact,
@@ -54,6 +58,15 @@ class PersistedRecommendationStudy:
     load_side_detail_artifact: JobArtifact
     result_record: StudyResultRecord
     input_fingerprint: str
+
+
+@dataclass(frozen=True)
+class PersistedHourlyDetailArtifact:
+    """Project-scoped persistence refs for one on-demand hourly detail CSV."""
+
+    scenario_id: str
+    artifact: JobArtifact
+    result_record: StudyResultRecord
 
 
 def _stable_hash(payload: object) -> str:
@@ -122,6 +135,12 @@ def _config_snapshot_json(technical_result: TechnicalStudyResult) -> str:
 
 def _frame_csv(frame) -> str:
     return frame.to_csv(index=False)
+
+
+def _hourly_detail_expiry(retention_days: int) -> tuple[ArtifactRetentionPolicy, datetime | None]:
+    if int(retention_days) <= 0:
+        return ArtifactRetentionPolicy.KEEP, None
+    return ArtifactRetentionPolicy.EXPIRE, datetime.now(timezone.utc) + timedelta(days=int(retention_days))
 
 
 def persist_technical_study_result(
@@ -216,6 +235,95 @@ def persist_technical_study_result(
         config_snapshot_artifact=config_artifact,
         result_record=record,
         input_fingerprint=input_fingerprint,
+    )
+
+
+def persist_hourly_detail_artifact(
+    *,
+    access_service: PilotAccessService,
+    actor_user_id: str,
+    project_id: str,
+    study_id: str,
+    scenario_id: str,
+    hourly_detail,
+    technical_job_id: str | None = None,
+    technical_result_id: str = "technical_result",
+    retention_days: int = 30,
+) -> PersistedHourlyDetailArtifact:
+    """Persist one on-demand hourly detail CSV and attach it to the technical result index."""
+
+    access_service.require_project_job_submit(actor_user_id=actor_user_id, project_id=project_id)
+    scenario_key = str(scenario_id).strip()
+    if not scenario_key:
+        raise ValueError("scenario_id must not be empty.")
+    if getattr(hourly_detail, "empty", False):
+        raise ValueError("hourly_detail must not be empty.")
+
+    try:
+        record = access_service.result_store.load_result_record(
+            project_id,
+            study_id,
+            technical_result_id,
+        )
+        job_id = record.created_by_job_id
+    except FileNotFoundError:
+        if not technical_job_id:
+            raise FileNotFoundError(
+                "Technical result record is required before storing hourly detail artifacts."
+            )
+        record = StudyResultRecord(
+            result_id=technical_result_id,
+            project_id=project_id,
+            study_id=study_id,
+            created_by_job_id=technical_job_id,
+        )
+        job_id = technical_job_id
+
+    retention_policy, expires_at = _hourly_detail_expiry(retention_days)
+    artifact_id = f"hourly_detail_{scenario_key}"
+    artifact = access_service.result_store.store_artifact(
+        artifact_id=artifact_id,
+        project_id=project_id,
+        study_id=study_id,
+        job_id=job_id,
+        kind=ArtifactKind.HOURLY_DETAIL,
+        payload=_frame_csv(hourly_detail),
+        filename=f"{artifact_id}.csv",
+        content_type="text/csv",
+        retention_policy=retention_policy,
+        expires_at=expires_at,
+        overwrite=True,
+    )
+    next_record = replace(
+        record,
+        hourly_detail_artifact_ids={
+            **record.hourly_detail_artifact_ids,
+            scenario_key: artifact.artifact_id,
+        },
+    )
+    saved_record = access_service.result_store.save_result_record(next_record, overwrite=True)
+    access_service.result_store.append_audit_log(
+        AuditLog(
+            event_id=f"audit_{uuid4().hex[:16]}",
+            actor_user_id=actor_user_id,
+            action=AuditAction.STORE_ARTIFACT,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=job_id,
+            target_type="artifact",
+            target_id=artifact.artifact_id,
+            metadata={
+                "kind": artifact.kind.value,
+                "scenario_id": scenario_key,
+                "retention_policy": artifact.retention_policy.value,
+            },
+        )
+    )
+
+    return PersistedHourlyDetailArtifact(
+        scenario_id=scenario_key,
+        artifact=artifact,
+        result_record=saved_record,
     )
 
 

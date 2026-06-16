@@ -12,10 +12,12 @@ from green_direct.services.pilot_auth import (
 from green_direct.services.pilot_registry import LocalPilotRegistry
 from green_direct.services.pilot_study_persistence import (
     PersistedEconomicStudy,
+    PersistedHourlyDetailArtifact,
     PersistedRecommendationStudy,
     PersistedTechnicalStudy,
     economic_input_fingerprint,
     persist_economic_study_result,
+    persist_hourly_detail_artifact,
     persist_recommendation_study_result,
     persist_technical_study_result,
     recommendation_result_fingerprint,
@@ -58,6 +60,7 @@ __all__ = [
     "PilotLoginSession",
     "PilotSessionRecord",
     "PersistedEconomicStudy",
+    "PersistedHourlyDetailArtifact",
     "PersistedRecommendationStudy",
     "PersistedTechnicalStudy",
     "RecommendationInputSnapshot",
@@ -74,6 +77,7 @@ __all__ = [
     "filter_uploads",
     "inspect_upload",
     "persist_economic_study_result",
+    "persist_hourly_detail_artifact",
     "persist_recommendation_study_result",
     "persist_technical_study_result",
     "recommendation_result_fingerprint",
