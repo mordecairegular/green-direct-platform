@@ -5720,3 +5720,24 @@ profile / benchmark：
 边界：
 - 这不是新的代码能力，也不替代实际 Claude Code review/debug；
 - 真正公网内测仍需要推送 GitHub、等待 GitHub Actions 质量门、Render Blueprint 实机部署、Render Shell doctor/bootstrap、Cloudflare Access 和手机移动网络验收。
+
+### 2026-06-17 经济性 FIRR 临时更换下凹快路径
+
+本轮继续推进大方案池经济性测算性能。profile 显示 5,000 行 synthetic economic summary 下，`run_economic_study()` 的主要热点仍在 FIRR：部分储能方案因更换年份净现金流短暂转负，会从常规单符号变化快路径掉入完整候选利率扫描。
+
+实现：
+- 新增 `_looks_like_temporary_replacement_dip()`，仅识别“初始投资为负、运营期主要为正、中间更换年小幅转负、紧接后续现金流可覆盖该下凹、之后恢复为正”的常见储能更换现金流；
+- 这类现金流直接复用 `_bisect_irr_root()` 求唯一根，不再扫描完整候选利率网格；
+- 末尾转负、下凹后恢复不足、下凹幅度大于正常正向经营现金流、或其他非传统现金流仍回退原候选扫描，保留多 IRR 拒绝语义；
+- 新增测试确保储能更换临时下凹不触发候选扫描，同时原 `[-100, 230, -132]` 多 IRR 拒绝测试和一个中途下凹多根病态样本仍保留。
+
+验证与反馈环：
+- `python -m pytest tests\test_economy_v1.py tests\test_single_entity_economy.py -q` 通过，32 项通过；
+- 收紧快路径条件后，随机 20,000 次探测中符合快路径的 12,298 个样本没有发现多根误判；
+- 合成 5,000 行经济 summary 的 profile：总函数调用数约从 11,452,201 降到 6,835,063，cProfile 总耗时约从 5.257s 降到 3.053s；
+- 同一 profile 的 `_npv()` 调用约从 2,705,965 降到 1,163,135，候选利率扫描约从 1,063 次降到 353 次；
+- 168 小时、189 方案 benchmark 单次经济性结果有噪声，重复样本约 0.45-0.47s；该小样本不能单独作为性能结论，主要证据看 5,000 行纯经济 profile。
+
+边界：
+- 不改变经济性 V1 现金流字段、税费、折旧、储能更换年份、NPV/FIRR 定义或推荐排序口径；
+- 这只是 FIRR 求解路径瘦身，后续仍需继续推进后台 Job、价格曲线 artifact 化、数据库/对象存储和更大规模经济性批量化。

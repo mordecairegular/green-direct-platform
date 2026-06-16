@@ -32,6 +32,7 @@
 - 06 页已接入固定价/网页组价经济性结果的按需年度现金流后台任务：缺少所选方案现金流时可提交 `economic_study/annual_cashflow` queued job，worker 读取 `technical_summary` 和 `recommendation_inputs` 后为所选方案生成电源侧/同一主体年度现金流 artifact，并由导出页轮询加载；
 - 经济性批量评价已减少 `iterrows()`、重复校验、未保留年度现金流表构造和部分 IRR 求解开销；
 - 经济性批量评价已缓存 `other_operating_revenues` 年度生效表，并把同一方案内每年不变的电源侧收入、VAT 拆分、O&M 和基础折旧移出年度循环，减少大方案池下每方案固定开销；随后又新增电源侧和同一主体批量评价共享上下文，把全方案共用的折现因子、固定资产拆分、其他收入年度表和默认电价口径预处理到批量入口；批量 summary-only 内部复用空年度现金流表哨兵，公开单方案调用仍保持独立空表语义；这些优化不改变 V1 现金流口径。
+- FIRR 求解已为常见储能更换临时现金流下凹增加快路径：当现金流是“初始投资为负、运营期主要为正、中间更换年短暂小幅转负、紧接后续现金流可覆盖该下凹、之后恢复为正”时，直接用同一个 bisection 根求解，不再扫描完整候选利率网格；真正末尾转负、下凹后恢复不足或大幅非传统现金流仍回退到原多根扫描并保留多 IRR 拒绝语义。
 - 单方案逐小时调度热路径已新增预计算限额和轻量返回入口：`dispatch_hour()` 保留原接口，`dispatch_hour_with_limits()` 保留 dataclass 兼容接口，`dispatch_hour_values_with_limits()` 返回原始 values 供 `run_single_scenario()` 热路径直接消费；`run_single_scenario()` 在循环外预计算 BESS 功率能量限额、SOC 能量边界、并网/上网能量限额、策略枚举和曲线数组，循环内避免为每小时创建 `DispatchStep` dataclass，减少每小时重复参数解析、对象创建和 pandas Series 构造；不改变 V0.1 调度口径。
 - 无储能方案已接入 NumPy 快路径。该类方案没有 SOC 滚动状态，不需要逐小时创建 dispatch 调用；summary-only 分支直接按数组计算直供、下网、上网、弃电、年上网比例 cap、站用电和电网交换限额汇总，再复用 `calculate_summary_from_values()`；保留逐小时明细时也用同一组数组构造 `HourlyEnergyLedger`，再复用 `calculate_summary()`。该优化仅影响无储能分支，不改变有储能 SOC 滚动口径。
 - 批量技术仿真已在 hot path 关闭逐方案 `InputDiagnostics` 构造；单方案公开调用默认仍保留 diagnostics。保留逐小时明细的场景已把 tiny float / `-0.0` 清零从 pandas DataFrame 后处理移到 DataFrame 构造前的 numpy 数组处理，减少 `mask/_where` 开销；不改变 hourly ledger 字段或 summary 口径。
@@ -140,6 +141,7 @@ python scripts\benchmark_internal_pilot_performance.py --json
 - 将其他经营收入年度表、电源侧固定收入/成本和基础折旧预处理为可复用上下文；（已完成第一版）
 - 将电源侧和同一主体批量评价的全方案共享参数预处理成批量上下文，避免每个方案重复解析同一组经济参数；（已完成第一版）
 - 保留 FIRR 精确口径，但对常规单符号变化现金流使用快速路径；
+- 对储能更换导致的临时小额现金流下凹使用 bisection 快路径，避免大批量方案反复扫描完整候选利率网格；（已完成第一版）
 - 推荐排序只依赖经济性 summary；
 - UI 已在大方案池下只为前 N 个方案保留完整年度现金流；固定价/网页组价结果已支持用户指定方案按需后台补年度现金流。后续应补逐时价格曲线模式的价格曲线 artifact、全局任务通知和正式队列。
 

@@ -301,6 +301,32 @@ def _sign_change_count(values: list[float]) -> int:
     return sum(1 for previous, current in zip(signs, signs[1:]) if previous != current)
 
 
+def _looks_like_temporary_replacement_dip(values: list[float]) -> bool:
+    """Return True for common replacement dips that should still have one IRR root."""
+
+    if len(values) < 4 or values[0] >= 0:
+        return False
+    operation_values = values[1:]
+    positive_values = [value for value in operation_values if value > 0]
+    dip_indexes = [index for index, value in enumerate(operation_values) if value < 0]
+    if not positive_values or not dip_indexes:
+        return False
+    if operation_values[-1] <= 0:
+        return False
+    max_positive = max(positive_values)
+    for index in dip_indexes:
+        dip = operation_values[index]
+        if abs(dip) >= max_positive:
+            return False
+        if not any(value > 0 for value in operation_values[:index]):
+            return False
+        if not any(value > 0 for value in operation_values[index + 1 :]):
+            return False
+        if operation_values[index + 1] <= abs(dip):
+            return False
+    return True
+
+
 def _calculate_irr(cashflows: list[float]) -> tuple[float | None, str]:
     nonzero = [value for value in cashflows if abs(value) > 1e-9]
     if not nonzero:
@@ -311,6 +337,11 @@ def _calculate_irr(cashflows: list[float]) -> tuple[float | None, str]:
         return None, "IRR 无法可靠计算：现金流全为非负值，项目缺少初始投资流出。"
 
     if _sign_change_count(nonzero) == 1:
+        root = _bisect_irr_root(cashflows, -0.9999, 10.0)
+        if root is not None:
+            return root, "ok"
+
+    if _looks_like_temporary_replacement_dip(nonzero):
         root = _bisect_irr_root(cashflows, -0.9999, 10.0)
         if root is not None:
             return root, "ok"

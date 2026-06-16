@@ -234,8 +234,40 @@ def test_irr_returns_unique_root_when_replacement_creates_temporary_cashflow_dip
     assert _npv(cashflows, firr) == pytest.approx(0.0, abs=1e-4)
 
 
+def test_irr_uses_fast_path_for_temporary_replacement_dip(monkeypatch):
+    import green_direct.economy.economic_evaluator as evaluator
+
+    def fail_candidate_scan():
+        raise AssertionError("temporary replacement dip should not scan candidate rates")
+
+    monkeypatch.setattr(evaluator, "_irr_candidate_rates", fail_candidate_scan)
+    cashflows = [-73400.0] + [7000.0] * 21 + [-1000.0] + [7000.0] * 3
+
+    firr, status = evaluator._calculate_irr(cashflows)
+
+    assert status == "ok"
+    assert firr == pytest.approx(0.079, abs=0.001)
+
+
 def test_irr_rejects_true_multiple_irr_roots():
     firr, status = _calculate_irr([-100.0, 230.0, -132.0])
+
+    assert firr is None
+    assert "多个IRR解" in status
+
+
+def test_irr_rejects_pathological_midstream_dip_with_multiple_roots():
+    cashflows = [
+        -90.58180931582324,
+        77.54879406589109,
+        55.46011920966117,
+        86.50054042495839,
+        4.567238268582243,
+        -49.49395629605586,
+        5.211099652454242,
+    ]
+
+    firr, status = _calculate_irr(cashflows)
 
     assert firr is None
     assert "多个IRR解" in status
