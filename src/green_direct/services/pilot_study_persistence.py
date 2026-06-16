@@ -77,6 +77,17 @@ class PersistedHourlyDetailArtifact:
     result_record: StudyResultRecord
 
 
+@dataclass(frozen=True)
+class PersistedExportArtifact:
+    """Project-scoped persistence refs for one explicit report/chart export."""
+
+    artifact_key: str
+    job: Job
+    artifact: JobArtifact
+    result_record: StudyResultRecord
+    input_fingerprint: str
+
+
 def _stable_hash(payload: object) -> str:
     data = json.dumps(
         json_value(payload),
@@ -181,10 +192,14 @@ def _annual_cashflows_zip(cashflows: dict[str, object]) -> bytes:
     return buffer.getvalue()
 
 
-def _hourly_detail_expiry(retention_days: int) -> tuple[ArtifactRetentionPolicy, datetime | None]:
+def _artifact_expiry(retention_days: int) -> tuple[ArtifactRetentionPolicy, datetime | None]:
     if int(retention_days) <= 0:
         return ArtifactRetentionPolicy.KEEP, None
     return ArtifactRetentionPolicy.EXPIRE, datetime.now(timezone.utc) + timedelta(days=int(retention_days))
+
+
+def _hourly_detail_expiry(retention_days: int) -> tuple[ArtifactRetentionPolicy, datetime | None]:
+    return _artifact_expiry(retention_days)
 
 
 def _source_payload_bytes(source) -> bytes:
@@ -461,6 +476,143 @@ def persist_hourly_detail_artifact(
         scenario_id=scenario_key,
         artifact=artifact,
         result_record=saved_record,
+    )
+
+
+def persist_export_artifact(
+    *,
+    access_service: PilotAccessService,
+    actor_user_id: str,
+    project_id: str,
+    study_id: str,
+    artifact_key: str,
+    payload: bytes | str,
+    filename: str,
+    content_type: str,
+    artifact_kind: ArtifactKind | str = ArtifactKind.REPORT,
+    metadata: dict | None = None,
+    retention_days: int = 7,
+) -> PersistedExportArtifact:
+    """Persist one user-requested chart/report export as a project-scoped artifact."""
+
+    artifact_kind = ArtifactKind(artifact_kind)
+    if artifact_kind not in {ArtifactKind.CHART_PACKAGE, ArtifactKind.REPORT}:
+        raise ValueError("artifact_kind must be chart_package or report.")
+    artifact_key = validate_path_segment(str(artifact_key).strip(), "artifact_key")
+    safe_filename = validate_path_segment(str(filename).strip(), "filename")
+    if not artifact_key:
+        raise ValueError("artifact_key must not be empty.")
+    payload_bytes = payload.encode("utf-8") if isinstance(payload, str) else bytes(payload)
+    if not payload_bytes:
+        raise ValueError("payload must not be empty.")
+
+    metadata_payload = json_value(metadata or {})
+    if not isinstance(metadata_payload, dict):
+        raise ValueError("metadata must be a mapping.")
+    payload_sha256 = hashlib.sha256(payload_bytes).hexdigest()
+    input_fingerprint = _stable_hash(
+        {
+            "artifact_key": artifact_key,
+            "artifact_kind": artifact_kind.value,
+            "content_type": content_type,
+            "filename": safe_filename,
+            "metadata": metadata_payload,
+            "payload_sha256": payload_sha256,
+            "size_bytes": len(payload_bytes),
+        }
+    )
+    job_type = JobType.CHART_EXPORT if artifact_kind == ArtifactKind.CHART_PACKAGE else JobType.REPORT_EXPORT
+    job = Job(
+        job_id=f"job_{uuid4().hex[:16]}",
+        project_id=project_id,
+        study_id=study_id,
+        requested_by_user_id=actor_user_id,
+        job_type=job_type,
+        input_fingerprint=input_fingerprint,
+        progress_current=0,
+        progress_total=1,
+        progress_message="export artifact queued",
+    )
+    submitted = access_service.submit_job(actor_user_id=actor_user_id, job=job)
+    running = access_service.start_job(
+        actor_user_id=actor_user_id,
+        project_id=project_id,
+        study_id=study_id,
+        job_id=submitted.job_id,
+    )
+    artifact_id = f"{artifact_key}_{running.job_id}"
+    result_id = f"export_result_{running.job_id}"
+    retention_policy, expires_at = _artifact_expiry(retention_days)
+    try:
+        artifact = access_service.result_store.store_artifact(
+            artifact_id=artifact_id,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=running.job_id,
+            kind=artifact_kind,
+            payload=payload_bytes,
+            filename=safe_filename,
+            content_type=content_type,
+            retention_policy=retention_policy,
+            expires_at=expires_at,
+        )
+        _audit_stored_artifact(
+            access_service=access_service,
+            actor_user_id=actor_user_id,
+            artifact=artifact,
+            metadata={
+                **metadata_payload,
+                "artifact_key": artifact_key,
+                "job_type": job_type.value,
+                "kind": artifact.kind.value,
+                "retention_policy": artifact.retention_policy.value,
+                "size_bytes": artifact.size_bytes,
+                "sha256": artifact.sha256,
+            },
+        )
+        access_service.update_job_progress(
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=running.job_id,
+            current=1,
+            total=1,
+            message="export artifact ready",
+        )
+        record = access_service.result_store.save_result_record(
+            StudyResultRecord(
+                result_id=result_id,
+                project_id=project_id,
+                study_id=study_id,
+                created_by_job_id=running.job_id,
+                report_artifact_ids={artifact_key: artifact.artifact_id},
+            )
+        )
+        succeeded = access_service.succeed_job(
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=running.job_id,
+        )
+    except Exception as exc:
+        try:
+            access_service.fail_job(
+                actor_user_id=actor_user_id,
+                project_id=project_id,
+                study_id=study_id,
+                job_id=running.job_id,
+                error_message=str(exc),
+            )
+        except Exception:
+            pass
+        raise
+
+    return PersistedExportArtifact(
+        artifact_key=artifact_key,
+        job=succeeded,
+        artifact=artifact,
+        result_record=record,
+        input_fingerprint=input_fingerprint,
     )
 
 

@@ -13,6 +13,7 @@ from green_direct.models.pilot_backend import (
     ArtifactRetentionPolicy,
     AuditAction,
     JobStatus,
+    JobType,
     Project,
     ProjectRole,
     User,
@@ -25,6 +26,7 @@ from green_direct.services import (
     PilotAccessService,
     economic_input_fingerprint,
     persist_economic_study_result,
+    persist_export_artifact,
     persist_hourly_detail_artifact,
     persist_recommendation_study_result,
     persist_technical_study_result,
@@ -321,6 +323,99 @@ def test_persist_hourly_detail_artifact_rejects_viewer(tmp_path):
             scenario_id="S0001",
             hourly_detail=pd.DataFrame({"scenario_id": ["S0001"], "hour_index": [0]}),
             technical_job_id=technical.job.job_id,
+        )
+
+
+def test_persist_export_artifact_writes_report_and_chart_package(tmp_path):
+    service = _access_service(tmp_path)
+    service.registry.save_user(User("admin", "admin@example.local", "Admin"))
+    project = service.create_project(
+        actor_user_id="admin",
+        project=Project("project_1", "Internal pilot project"),
+    )
+
+    markdown = persist_export_artifact(
+        access_service=service,
+        actor_user_id="admin",
+        project_id=project.project_id,
+        study_id="study_1",
+        artifact_key="markdown",
+        payload="# Pilot report\n",
+        filename="green_direct_report_S0001.md",
+        content_type="text/markdown",
+        artifact_kind=ArtifactKind.REPORT,
+        metadata={"scenario_id": "S0001"},
+    )
+    chart = persist_export_artifact(
+        access_service=service,
+        actor_user_id="admin",
+        project_id=project.project_id,
+        study_id="study_1",
+        artifact_key="chart_html",
+        payload=b"chart zip bytes",
+        filename="chart_html_S0001.zip",
+        content_type="application/zip",
+        artifact_kind=ArtifactKind.CHART_PACKAGE,
+        metadata={"scenario_id": "S0001"},
+    )
+
+    markdown_payload = service.result_store.read_artifact_payload(markdown.artifact).decode("utf-8")
+    chart_payload = service.result_store.read_artifact_payload(chart.artifact)
+    audit_events = service.result_store.read_audit_log(project.project_id)
+
+    assert markdown.job.status == JobStatus.SUCCEEDED
+    assert markdown.job.job_type == JobType.REPORT_EXPORT
+    assert markdown.artifact.kind == ArtifactKind.REPORT
+    assert markdown.artifact.retention_policy == ArtifactRetentionPolicy.EXPIRE
+    assert markdown.artifact.expires_at is not None
+    assert markdown.result_record.report_artifact_ids == {"markdown": markdown.artifact.artifact_id}
+    assert markdown_payload == "# Pilot report\n"
+    assert chart.job.job_type == JobType.CHART_EXPORT
+    assert chart.artifact.kind == ArtifactKind.CHART_PACKAGE
+    assert chart.result_record.report_artifact_ids == {"chart_html": chart.artifact.artifact_id}
+    assert chart_payload == b"chart zip bytes"
+    assert any(
+        event.action == AuditAction.STORE_ARTIFACT
+        and event.target_id == markdown.artifact.artifact_id
+        and event.metadata["artifact_key"] == "markdown"
+        and event.metadata["scenario_id"] == "S0001"
+        for event in audit_events
+    )
+    assert any(
+        event.action == AuditAction.STORE_ARTIFACT
+        and event.target_id == chart.artifact.artifact_id
+        and event.metadata["kind"] == ArtifactKind.CHART_PACKAGE.value
+        for event in audit_events
+    )
+
+
+def test_persist_export_artifact_rejects_viewer(tmp_path):
+    service = _access_service(tmp_path)
+    service.registry.save_user(User("admin", "admin@example.local", "Admin"))
+    service.registry.save_user(User("viewer", "viewer@example.local", "Viewer"))
+    project = service.create_project(
+        actor_user_id="admin",
+        project=Project("project_1", "Internal pilot project"),
+    )
+    service.grant_project_role(
+        actor_user_id="admin",
+        project_id=project.project_id,
+        user_id="viewer",
+        role=ProjectRole.VIEWER,
+        can_export_artifacts=True,
+    )
+
+    with pytest.raises(PilotAccessError, match="cannot submit jobs"):
+        persist_export_artifact(
+            access_service=service,
+            actor_user_id="viewer",
+            project_id=project.project_id,
+            study_id="study_1",
+            artifact_key="markdown",
+            payload="# Pilot report\n",
+            filename="green_direct_report_S0001.md",
+            content_type="text/markdown",
+            artifact_kind=ArtifactKind.REPORT,
         )
 
 

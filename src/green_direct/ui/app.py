@@ -78,6 +78,7 @@ from green_direct.services import (
     filter_uploads,
     inspect_upload,
     persist_economic_study_result,
+    persist_export_artifact,
     persist_hourly_detail_artifact,
     persist_recommendation_study_result,
     persist_technical_study_result,
@@ -2201,6 +2202,50 @@ def _persist_pilot_hourly_detail_if_enabled(st, scenario_id: str, hourly_detail:
     return persisted
 
 
+def _persist_pilot_export_artifact_if_enabled(
+    st,
+    *,
+    artifact_key: str,
+    payload: bytes | str,
+    filename: str,
+    content_type: str,
+    artifact_kind: ArtifactKind,
+    metadata: dict | None = None,
+) -> object | None:
+    if not _pilot_auth_enabled():
+        return None
+    if not _current_pilot_project_can_export_artifacts(st):
+        st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = "当前项目未开放导出，无法保存导出产物。"
+        return None
+    actor_user_id = _current_pilot_user_id(st)
+    project_id = _current_pilot_project_id(st)
+    study_id = _current_pilot_study_id(st)
+    if not actor_user_id or not project_id or not study_id:
+        return None
+    try:
+        persisted = persist_export_artifact(
+            access_service=_pilot_access_service(),
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_id,
+            artifact_key=artifact_key,
+            payload=payload,
+            filename=filename,
+            content_type=content_type,
+            artifact_kind=artifact_kind,
+            metadata=metadata,
+        )
+    except Exception as exc:  # noqa: BLE001 - export persistence should not block direct downloads
+        if isinstance(exc, (PilotAccessError, FileExistsError, FileNotFoundError, ValueError, OSError)):
+            st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = f"项目导出产物保存失败：{exc}"
+            return None
+        raise
+    st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
+        f"已写入项目导出产物：Artifact {persisted.artifact.artifact_id} / Result {persisted.result_record.result_id}"
+    )
+    return persisted
+
+
 def _pilot_project_option_label(option: tuple[Project, ProjectMembership]) -> str:
     project, membership = option
     export_text = "可导出" if membership.can_export_artifacts else "不可导出"
@@ -2393,6 +2438,7 @@ def _pilot_result_artifact_refs(record: StudyResultRecord) -> list[tuple[str, st
         for scenario_id, artifact_id in sorted(record.hourly_detail_artifact_ids.items())
     )
     report_labels = {
+        "chart_html": "图表 HTML 包",
         "load_side_detail": "负荷侧推荐明细",
         "markdown": "Markdown 报告",
         "docx": "Word 报告",
@@ -7740,6 +7786,7 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
 
     hourly = batch_result.hourly_details[selected_id]
     selected_status = _scenario_status_text(summary, selected_id)
+    selected_file_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(selected_id)).strip("._") or "scenario"
     st.markdown(
         f"""
         <div class="gd-export-selected">
@@ -7819,6 +7866,18 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
                     key="export_selected_chart_html_zip",
                     help="包含四季典型日、关键运行日、全年曲线、SOC、电网交换、月度流向、热力图和多方案对比图；每张图附带 meta 说明。",
                 )
+                if _pilot_auth_enabled() and st.button("保存 HTML 图表包到项目历史", key="export_store_chart_html_zip"):
+                    persisted = _persist_pilot_export_artifact_if_enabled(
+                        st,
+                        artifact_key="chart_html",
+                        payload=chart_zip,
+                        filename=f"chart_html_{selected_file_key}.zip",
+                        content_type="application/zip",
+                        artifact_kind=ArtifactKind.CHART_PACKAGE,
+                        metadata={"scenario_id": selected_id},
+                    )
+                    if persisted is not None:
+                        st.success("图表 HTML 包已保存到项目历史。")
             st.markdown(
                 '<div class="gd-export-note">PNG 静态图导出依赖 kaleido 和可用 Chrome/Chromium；HTML ZIP 不依赖该静态图环境。</div>',
                 unsafe_allow_html=True,
@@ -7847,18 +7906,31 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="export_technical_economy_excel",
             )
+            markdown_report = _build_simple_report_markdown(
+                summary=summary,
+                selected_scenario_id=selected_id,
+                economy_summary=economy_summary,
+                single_entity_summary=single_entity_summary,
+            )
             st.download_button(
                 "下载简版 Markdown 报告",
-                data=_build_simple_report_markdown(
-                    summary=summary,
-                    selected_scenario_id=selected_id,
-                    economy_summary=economy_summary,
-                    single_entity_summary=single_entity_summary,
-                ),
+                data=markdown_report,
                 file_name=f"green_direct_report_{selected_id}.md",
                 mime="text/markdown",
                 key="export_simple_markdown_report",
             )
+            if _pilot_auth_enabled() and st.button("保存 Markdown 报告到项目历史", key="export_store_markdown_report"):
+                persisted = _persist_pilot_export_artifact_if_enabled(
+                    st,
+                    artifact_key="markdown",
+                    payload=markdown_report,
+                    filename=f"green_direct_report_{selected_file_key}.md",
+                    content_type="text/markdown",
+                    artifact_kind=ArtifactKind.REPORT,
+                    metadata={"scenario_id": selected_id},
+                )
+                if persisted is not None:
+                    st.success("Markdown 报告已保存到项目历史。")
 
     with st.expander("高级：年度现金流与推荐组合导出", expanded=False):
         st.caption("这里保留经济性复核文件和推荐组合 Excel，避免默认导出页过载。")

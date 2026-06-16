@@ -4091,3 +4091,36 @@ exchange_import_shortfall_energy == 0
 - `python -m compileall -q src scripts tests` 通过；
 - `python -m pytest -q` 通过，293 项通过；
 - `$env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help` 通过。
+
+### 2026-06-16 HTML 图表包与 Markdown 报告 artifact 显式保存
+
+本轮继续补受控公网内测 Route A 的项目级产物闭环。此前技术 summary、经济 summary、年度现金流、推荐输入和推荐 portfolio 已可进入项目历史，但 06 导出页的 HTML 图表包和简版 Markdown 报告仍只是当前浏览器里的下载按钮。对内测用户来说，这会让“下载过什么、当时报告方案是什么、后续如何复核”缺少审计线索。
+
+本轮判断：
+- 不自动保存所有下载按钮产物，避免用户临时下载一次就放大存储压力；
+- 先做显式“保存到项目历史”，让有导出权限且有项目 Job 提交权限的用户主动留痕；
+- HTML 图表包和 Markdown 报告体量和用途最适合作为第一片，PNG/Excel/批量包和完整报告后续再做；
+- 导出保存必须走项目级 Job、artifact hash/size/retention 和 `STORE_ARTIFACT` 审计，不直接写 session 缓存或仓库目录；
+- 该能力不改变图表生成口径、经济性 V1 口径、推荐 V1 排序口径或 V0.1 技术调度口径。
+
+本轮实现：
+- 新增 `PersistedExportArtifact` 和 `persist_export_artifact()`，按 `ArtifactKind.CHART_PACKAGE` / `ArtifactKind.REPORT` 登记 `chart_export` / `report_export` 同步 Job；
+- 保存 payload 时记录 `sha256`、`size_bytes`、`retention_policy` 和元数据，默认 7 天过期；
+- 06 导出页在启用内部试用登录时，HTML 图表包和 Markdown 报告区域分别显示“保存到项目历史”按钮；
+- 保存动作使用安全文件名片段，不直接信任 `scenario_id` 作为存储路径；
+- 历史结果产物列表新增“图表 HTML 包”标签，下载仍走 `PilotAccessService.read_artifact_payload()` 和 `can_export_artifacts` 授权；
+- 上线审计矩阵、内部 pilot 架构、软件接口总览、TODO、handoff 和上线前质量审查记录已同步为“第一片已完成，剩余 PNG/Excel/批量包、完整报告和后台 worker 仍待做”。
+
+边界说明：
+- 当前保存动作仍是 Streamlit 同步动作，不是真正后台 worker；
+- 当前只覆盖 HTML 图表包和 Markdown 简报，不覆盖 PNG ZIP、技术经济 Excel、批量技术包、年度现金流单方案 Excel 或推荐组合 Excel；
+- 当前内存态 `st.download_button` 下载尝试本身仍未全部写下载审计，已落盘 artifact 的下载才走统一后端授权与审计；
+- 不可导出用户仍会被 06 导出页拦截；有导出权限但无项目 Job 提交权限的 viewer 不能保存导出产物到项目历史。
+
+验证：
+- `python -m pytest tests/test_pilot_study_persistence.py::test_persist_export_artifact_writes_report_and_chart_package tests/test_pilot_study_persistence.py::test_persist_export_artifact_rejects_viewer tests/test_ui_import.py::test_pilot_history_artifact_refs_and_download_use_access_service -q` 通过，3 项通过；
+- `python -m pytest tests/test_pilot_study_persistence.py tests/test_result_store.py tests/test_pilot_backend_models.py tests/test_ui_import.py::test_pilot_history_artifact_refs_and_download_use_access_service tests/test_ui_import.py::test_pilot_economy_and_recommendation_helpers_persist_refs_and_dedupe -q` 通过，28 项通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `python -m pytest -q` 通过，295 项通过；
+- `$env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help` 通过；
+- `git diff --check` 无实际空白错误，仅提示 Windows 换行转换。

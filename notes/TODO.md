@@ -70,7 +70,7 @@
 - 性能基准脚本已新增第一版：`scripts/benchmark_internal_pilot_performance.py`，可对完整明细保留、summary-first 和经济性 summary-only 进行可重复耗时/内存记录。
 - 服务层已新增 `LocalJobStore`，支持本地 JSON 任务提交、读取、项目/研究列表、状态筛选、进度更新、成功/失败/取消状态持久化，暂未包含 worker 调度、认证、管理员页面或数据库锁。
 - 服务层已新增 `PilotAccessService`，把项目角色权限、可见项目列表、任务提交/取消、产物读取和审计日志统一成可测试服务门面，暂未包含 worker 调度、数据库事务或并发锁。
-- 技术仿真完成后已能在启用内部试用登录和当前项目时登记项目级同步 `Job`，并把 `technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord` 写入 `LocalResultStore`；经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio 和按需补算的单方案逐小时明细也已接入第一阶段项目级写入；图表包、报告和导出产物仍待迁移。
+- 技术仿真完成后已能在启用内部试用登录和当前项目时登记项目级同步 `Job`，并把 `technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord` 写入 `LocalResultStore`；经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio、按需补算的单方案逐小时明细、HTML 图表包和 Markdown 报告也已接入第一阶段项目级写入；PNG/Excel/批量包、完整报告和导出后台任务化仍待迁移。
 - Streamlit 欢迎页已新增“项目任务与结果”面板，可查看当前项目任务数、已保存结果数、最近任务和最近结果索引；已落盘的技术 summary、经济 summary、年度现金流、推荐席位输入、推荐 portfolio/detail 等 artifact 可加载下载；技术 summary 已支持 summary-only 恢复到当前会话，并保留已有 hourly artifact 和 input artifact 索引用于后续图表/报告入口加载或补算；同一 `study_id` 的技术 summary 已恢复后，经济结果可恢复 summary、已保存年度现金流和推荐席位输入，推荐 portfolio 可 portfolio-only 恢复到当前会话，但不恢复推荐视角选择或重新排序工作台状态；完整历史结果恢复、删除、标记和后台任务状态页仍待实现。
 - Streamlit 欢迎页“项目任务与结果”面板已新增第一版“排队/运行中任务”区，可筛出当前项目活动任务，并按项目角色允许 analyst 取消自己任务、admin 取消项目任务；取消动作仍通过 `PilotAccessService.cancel_job()` 做后端权限校验和审计。该入口只是任务状态控制面板第一步，还不是真正 worker 级资源中断、重试或排队系统。
 
@@ -79,7 +79,7 @@
 - 大批量模式继续补 worker 级后台进度/取消闭环、性能基准记录和完整任务状态页；当前前台预计耗时与大任务确认已是第一版粗略护栏，后续可用服务器实测数据校准。
 - 把当前同步单方案逐小时明细补算继续升级为项目级后台任务；历史 summary-only 恢复后的 input artifact 补算已可用第一版，但还没有 worker 级进度、取消、重试和排队。
 - 用户选择代表方案、图表方案或导出方案后，已有项目级 hourly artifact 已可优先加载；下一步是没有 artifact 时提交后台按需补算任务。
-- 下一阶段把完整历史结果恢复/删除/标记、推荐视角选择与重新排序工作台状态、图表/报告导出也提交为项目级 `Job`，并把对应 hourly/chart/report artifacts 写入 `ResultStore`；summary-only 经济运行如需后补年度现金流，应作为按需 Job 生成。
+- 下一阶段把完整历史结果恢复/删除/标记、推荐视角选择与重新排序工作台状态、PNG/Excel/批量包、完整报告导出也提交为项目级后台 `Job`，并把对应 hourly/chart/report/export artifacts 写入 `ResultStore`；summary-only 经济运行如需后补年度现金流，应作为按需 Job 生成。
 - 技术仿真优先评估 `ProcessPoolExecutor` / 后台任务队列，按方案块并行，保持 `scenario_id`、warning、error 和顺序稳定。
 - 经济性测算优先做 DataFrame/NumPy 批量化，完整年度现金流可先只对报告方案或推荐组合生成。
 - 后续再评估 Numba、编译化调度内核或更高性能的数据结构。
@@ -94,8 +94,8 @@
 - 后台 PNG 任务和下载缓存按 Streamlit 会话隔离；
 - 先用受控内网/VPN/反向代理做内部试用；
 - 如果开放公网访问，只按“受控公网内测 Route A”推进：关闭开放注册，用户由管理员创建或邀请，保留不接真实电力控制系统的边界说明；
-- 继续收口导出授权：已完成 membership 级 `can_export_artifacts` 第一版，下一步需要让未来 API、图表/报告项目级 artifacts、反向代理下载路径和数据库适配全部复用同一后端策略；
-- 继续补文件安全和留存策略：已完成上传类型/大小第一层门禁、hash 记录、技术三曲线 input artifact、基于 input artifact 的跨会话明细补算、artifact payload 到期清理和按需 hourly artifact 第一版；下一步让价格曲线、现金流、图表包和报告存在仓库外受控目录，并补定时清理、关键 Run 保留和恢复策略；
+- 继续收口导出授权：已完成 membership 级 `can_export_artifacts` 第一版，HTML 图表包和 Markdown 报告显式保存会走项目 Job 权限；下一步需要让未来 API、PNG/Excel/批量导出包、反向代理下载路径和数据库适配全部复用同一后端策略；
+- 继续补文件安全和留存策略：已完成上传类型/大小第一层门禁、hash 记录、技术三曲线 input artifact、基于 input artifact 的跨会话明细补算、artifact payload 到期清理、按需 hourly artifact、HTML 图表包和 Markdown 报告第一版；下一步让价格曲线、剩余现金流、PNG/Excel/批量包和完整报告存在仓库外受控目录，并补定时清理、关键 Run 保留和恢复策略；
 - 继续补部署材料：已完成 `.env.example`、内部试用 runbook、pilot store 备份/恢复脚本、Dockerfile、docker-compose、`README_DEPLOY.md` 和 `SECURITY.md` 第一版；下一步在目标服务器实机演练 Docker build/up、HTTPS 反向代理、日志轮转、健康检查、监控告警和恢复演练；
 - 下一阶段把 `pilot_backend` 模型、`LocalPilotRegistry`、`LocalPilotAuth`、`LocalPilotAdminService`、`LocalJobStore`、`LocalResultStore` 和 `PilotAccessService` 接入轻量 SQLite/Postgres、完整后台任务状态页和正式项目结果存储；
 - 下一阶段把技术仿真、经济性测算和图表导出提交为项目级 `Job`，并把产物写入 `ResultStore`；

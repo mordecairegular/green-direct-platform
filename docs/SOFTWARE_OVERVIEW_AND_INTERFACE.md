@@ -997,7 +997,7 @@ python -m pytest
 
 `JobArtifact` 已包含 `retention_policy`、`expires_at` 和 `purged_at`。过期清理只删除 payload 文件，保留 `artifact.json`、`storage_uri`、`sha256`、`size_bytes`、过期时间和清理时间，便于继续展示历史索引和审计线索；`read_artifact_payload()` 遇到已清理产物会返回明确错误。
 
-`LocalResultStore` 目前已接入技术仿真 summary/config、经济性 summary、推荐席位输入、已保留年度现金流、推荐 portfolio 的第一阶段写入和最小结果索引读取，并支持 artifact payload 留存清理第一版；但仍不是正式数据库或对象存储。后续接入时，图表包、报告和完整历史结果恢复应逐步写入该 store 或其数据库/对象存储替代实现。
+`LocalResultStore` 目前已接入技术仿真 summary/config、经济性 summary、推荐席位输入、已保留年度现金流、推荐 portfolio、HTML 图表包和 Markdown 报告的第一阶段写入和最小结果索引读取，并支持 artifact payload 留存清理第一版；但仍不是正式数据库或对象存储。后续接入时，PNG/Excel/批量导出包、完整报告和完整历史结果恢复应逐步写入该 store 或其数据库/对象存储替代实现。
 
 `src/green_direct/services/upload_policy.py` 已提供第一版上传安全门禁：
 
@@ -1183,6 +1183,12 @@ RecommendationStudyResult
 -> Job(job_type="recommendation")
 -> recommendation_portfolio.csv / recommendation_load_side_detail.csv
 -> StudyResultRecord(result_id="recommendation_result_<job_id>")
+
+Explicit export artifact
+-> persist_export_artifact()
+-> Job(job_type="chart_export" or "report_export")
+-> chart_html_<scenario_id>.zip / green_direct_report_<scenario_id>.md
+-> StudyResultRecord(result_id="export_result_<job_id>")
 ```
 
 当前写入内容：
@@ -1197,6 +1203,9 @@ RecommendationStudyResult
 - `power_annual_cashflows.zip` / `single_entity_annual_cashflows.zip`：当前运行实际保留的年度现金流，每个方案一个 CSV；若经济性以 summary-only 方式运行且未保留现金流，则不会生成这些 artifact；
 - `Job(job_type="recommendation")`：记录推荐组合写入；
 - `recommendation_portfolio.csv` / `recommendation_load_side_detail.csv`：推荐组合和负荷侧可成交收益明细；
+- `Job(job_type="chart_export")` / `Job(job_type="report_export")`：记录用户显式保存的导出产物；
+- `chart_html_<scenario_id>.zip`：所选方案 HTML 图表包，保存为 `ArtifactKind.CHART_PACKAGE`；
+- `green_direct_report_<scenario_id>.md`：所选方案简版 Markdown 报告，保存为 `ArtifactKind.REPORT`；
 - `StudyResult.result_store_refs`：在 UI 会话内保存技术、经济、推荐的 job/result/artifact 引用，供后续结果页、导出页和缓存层迁移使用。
 
 当前读取入口：
@@ -1206,7 +1215,7 @@ RecommendationStudyResult
 
 边界：
 - 这仍是 Streamlit 进程内同步写入，不是真正后台 worker；
-- 当前不持久化全量逐小时明细、图表包或报告；当前会话内补算出的单方案 `hourly_detail` 已可在有项目结果索引时写入 `ResultStore`，技术 summary 恢复也会带回 input artifact 索引，并可在三条 input artifact 未过期且快照含 `curve_columns` 时跨会话重新补算缺失明细；经济性结果可恢复 summary、已保存的年度现金流和 `recommendation_inputs.json`，但 summary-only 经济运行不会凭空恢复未保留的现金流；推荐 portfolio 可 portfolio-only 恢复，但不包含推荐视角选择或重新排序工作台状态；
+- 当前不持久化全量逐小时明细、PNG/Excel/批量导出包或完整报告；当前会话内补算出的单方案 `hourly_detail` 已可在有项目结果索引时写入 `ResultStore`，导出页已可显式保存所选方案 HTML 图表包和简版 Markdown 报告；技术 summary 恢复也会带回 input artifact 索引，并可在三条 input artifact 未过期且快照含 `curve_columns` 时跨会话重新补算缺失明细；经济性结果可恢复 summary、已保存的年度现金流和 `recommendation_inputs.json`，但 summary-only 经济运行不会凭空恢复未保留的现金流；推荐 portfolio 可 portfolio-only 恢复，但不包含推荐视角选择或重新排序工作台状态；
 - 当前结果面板支持技术 summary-only 恢复、经济 summary-only 恢复、推荐 portfolio-only 恢复、已有 hourly artifact 加载和活动任务取消入口，但不恢复完整历史 `StudyResult`，不删除或标记结果，也不做跨项目搜索；取消入口只更新任务状态元数据，不代表已有后台 worker 级中断能力；
 - `technical_input_fingerprint()` 目前基于 `config_snapshot` 生成稳定 sha256，用于追踪输入配置；原始上传曲线本身由 input curve artifact 的 `sha256` 和 `size_bytes` 记录；
 - `economic_input_fingerprint()` 基于经济参数、价格模式和 summary 形状生成；`recommendation_result_fingerprint()` 基于推荐结果表生成，用于 UI 内去重；

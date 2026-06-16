@@ -570,11 +570,12 @@ def test_pilot_history_artifact_refs_and_download_use_access_service(tmp_path):
         study_id="study_1",
         created_by_job_id="job_1",
         technical_summary_artifact_id=artifact.artifact_id,
-        report_artifact_ids={"markdown": "brief_report"},
+        report_artifact_ids={"markdown": "brief_report", "chart_html": "chart_html_zip"},
     )
 
     assert app._pilot_result_artifact_refs(record) == [
         ("技术汇总", "technical_summary"),
+        ("图表 HTML 包", "chart_html_zip"),
         ("Markdown 报告", "brief_report"),
     ]
 
