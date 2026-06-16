@@ -252,7 +252,13 @@ def _render_checks(checks: list[dict[str, str]]) -> None:
         "Render deploys only after linked GitHub checks pass",
     )
     disk = service.get("disk") or {}
+    _check(disk.get("name") == "green-direct-pilot-store", checks, "render:disk-name", "Render persistent disk has the pilot store name")
     _check(disk.get("mountPath") == "/data", checks, "render:disk", "Render persistent disk mounts at /data")
+    try:
+        disk_size_gb = int(disk.get("sizeGB"))
+    except (TypeError, ValueError):
+        disk_size_gb = 0
+    _check(disk_size_gb >= 10, checks, "render:disk-size", "Render persistent disk is at least 10 GB")
     env = {item["key"]: str(item["value"]) for item in service.get("envVars", [])}
     for key, expected in RENDER_REQUIRED_ENV.items():
         _check(env.get(key) == expected, checks, f"render:env:{key}", f"{key} defaults to {expected}")

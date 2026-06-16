@@ -74,6 +74,9 @@ def test_render_blueprint_targets_pilot_branch_after_checks_pass():
     assert service["numInstances"] == 1
     assert service["autoDeployTrigger"] == "checksPass"
     assert service["healthCheckPath"] == "/_stcore/health"
+    assert service["disk"]["name"] == "green-direct-pilot-store"
+    assert service["disk"]["mountPath"] == "/data"
+    assert service["disk"]["sizeGB"] >= 10
     env = {item["key"]: str(item["value"]) for item in service["envVars"]}
     assert env["GREEN_DIRECT_MAX_UPLOAD_MB"] == "20"
     assert env["STREAMLIT_SERVER_ADDRESS"] == "0.0.0.0"
@@ -138,6 +141,8 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     assert "render:branch" in check_names
     assert "render:auto-deploy" in check_names
     assert "render:instances" in check_names
+    assert "render:disk-name" in check_names
+    assert "render:disk-size" in check_names
     assert "compose:volume" in check_names
     assert "compose:env:GREEN_DIRECT_MAX_UPLOAD_MB" in check_names
     assert "compose:env:STREAMLIT_SERVER_HEADLESS" in check_names

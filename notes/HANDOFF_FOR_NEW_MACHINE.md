@@ -99,6 +99,7 @@
 - `python scripts\preflight_internal_pilot_deploy.py --pilot-store-dir .runtime\preflight_doctor_smoke --json` 已通过，`failed_count=0`，包含 `pilot-store:*` 检查；
 - `python scripts\preflight_internal_pilot_deploy.py --json` 已通过，`failed_count=0`；当前静态 preflight 包含 Docker/Compose/Render Web 与 worker 关键环境变量、`git-tracked:*` 推送源安全检查，已确认 tracked file count=330，未发现私有 `.env`、本地运行状态、pickle/database/log/压缩包或超过 95 MiB 的文件；
 - 首次发布作战单已新增 bootstrap 后备份/恢复演练：Render Shell 走临时 tar 包恢复到空目录并运行 `pilot-admin doctor`，自有 Windows/本地环境走 `scripts/backup_pilot_store.ps1` 和 `scripts/restore_pilot_store.ps1`；`preflight_internal_pilot_deploy.py` 已把内部部署 runbook 与备份/恢复脚本纳入 REQUIRED_FILES，移动网络验收清单也要求备份保存到 Git 仓库外受控位置且恢复目录 doctor 通过；
+- Render Blueprint 静态门槛已锁定 persistent disk 名称 `green-direct-pilot-store`、挂载路径 `/data` 和容量至少 10GB；`preflight_internal_pilot_deploy.py --json` 会输出 `render:disk-name` 与 `render:disk-size` 检查；
 - `python -m pytest tests\test_deployment_artifacts.py -q` 已通过，11 项通过，覆盖首次发布作战单、Render 分支、GitHub Actions 质量门和部署 preflight；
 - `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 最近一次按预期失败，唯一失败项是 `git:sync`：本地 `codex/UI` 跟踪 `origin/codex/UI`，ahead 128、behind 0，工作树干净。该命令现在还会核对当前分支和 upstream 是否匹配 `render.yaml` 的部署分支；部署前应重新运行该命令获取实时状态；
 - 当前 `origin` 为 `https://github.com/mordecairegular/green-direct-platform.git`；

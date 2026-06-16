@@ -5889,3 +5889,20 @@ profile / benchmark：
 - 这不等于已经完成真实 Render 备份；真实发布时仍要在目标 Web Service Shell 或平台备份能力中执行一次，并把备份保存到 Git 仓库外受控位置；
 - 当前 Render Docker 镜像不包含仓库 `scripts/`，所以云端首发作战单不能假设能直接运行 PowerShell 脚本；
 - 长期正式化仍应迁移到数据库/对象存储和更成熟的备份策略。
+
+### 2026-06-17 Render 持久盘名称和容量纳入部署 preflight
+
+本轮继续收紧首次公网内测的静态质量门。当前 Route A 仍依赖 Render persistent disk + `/data/pilot_store` 保存账号、项目、任务、结果、artifact 和审计日志；此前 preflight 已检查存在 persistent disk 并挂载到 `/data`，但没有锁定磁盘名称和容量。若 Render Blueprint 后续被误改为无名/错误名称磁盘或过小容量，应用仍可能启动，却会在真实试用时暴露留存和恢复风险。
+
+调整：
+- `preflight_internal_pilot_deploy.py` 新增 `render:disk-name` 检查，要求 Render disk 名称为 `green-direct-pilot-store`；
+- 新增 `render:disk-size` 检查，要求 Render persistent disk 至少 `10GB`；
+- `tests/test_deployment_artifacts.py` 锁定 `render.yaml` 的 disk name、mount path、sizeGB 和新增 preflight check 名称。
+
+验证：
+- `python -m pytest tests\test_deployment_artifacts.py -q` 通过，11 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`，包含 `render:disk-name` 和 `render:disk-size`。
+
+边界：
+- 这是 Blueprint 静态门槛，不替代 Render 控制台里对实际磁盘创建、计费套餐、区域、快照/备份能力和可用容量的人工确认；
+- 真实发布仍需在 Web Service Shell 运行 `pilot-admin doctor --store-dir /data/pilot_store --json` 并完成备份/恢复演练。
