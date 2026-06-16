@@ -5781,3 +5781,28 @@ profile / benchmark：
 - 不改变 V0.1 BESS 充放电顺序、SOC 能量滚动、功率/容量约束、上网/下网限制或 summary 字段；
 - 保留逐小时明细时仍生成 `hour_case`、`soc_start`、`soc_end` 和完整 hourly ledger；
 - 后续若继续瘦身，应优先考虑更紧凑的 summary accumulator 或编译化 dispatch 内核，而不是改变调度口径。
+
+### 2026-06-17 GitHub + Render + Cloudflare 作为移动网络内测首发路线
+
+用户明确目标是让其他同事在移动网络下试用，并询问是否可以把项目放到 GitHub 后用 Vercel `Import Git Repository` 快速部署。
+
+决策：
+- 采纳“先放到 GitHub 私有仓库”的方向；GitHub 是代码源、审查、质量门、回滚和托管平台导入入口；
+- 不采纳把当前 Streamlit 应用直接部署到 Vercel 作为首发主机；
+- 当前首发路线继续采用 `GitHub private repository -> Render Blueprint / Docker Web Service -> Render persistent disk /data -> Cloudflare DNS/HTTPS/Access -> 应用内 pilot auth`；
+- Vercel 保留为未来 Next.js/React 前端重构后的候选平台，不作为当前 Streamlit 长进程 + 本地 pilot store 形态的低成本路径；
+- Cloudflare 的首发角色是域名、HTTPS、Zero Trust Access 和公网入口第一层门禁，不承载当前 Python 计算应用本体。
+
+原因：
+- 当前项目入口是 `streamlit run src/green_direct/ui/app.py`，需要持续运行的 Python Web 进程；
+- 内部试用依赖 `/data/pilot_store` 保存账号、项目、任务、结果、artifact 和审计日志，需要持久盘或后续数据库/对象存储；
+- 当前测算和导出依赖 Python 运行时、Chromium/Kaleido、项目级 artifact 和可能较长的同步计算；
+- 仓库已经具备 `Dockerfile`、`render.yaml`、GitHub Actions 质量门、部署 preflight、移动网络试用清单和首次发布作战单，Render 路线改动最小。
+
+文档同步：
+- `docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md` 增加平台角色矩阵，明确 GitHub、Render、Cloudflare、Vercel、Cloudflare Pages/Workers 和 Streamlit Community Cloud 在当前阶段的边界；
+- `notes/HANDOFF_FOR_NEW_MACHINE.md` 更新最新 checkpoint、测试结果和 `--require-git-sync` 事实，避免下一位 agent 继续引用旧部署状态。
+
+边界：
+- 该决策不等于已经完成公网部署；真实发布仍需用户授权 push、等待 GitHub Actions、Render Blueprint 实机部署、Web Service Shell `pilot-admin doctor/bootstrap`、Cloudflare Access 配置和手机 4G/5G 验收；
+- 若后续需要多实例 Web、独立 worker、正式队列或更强审计备份，应先推进数据库/对象存储和后台 worker 架构，不应在当前 file store 形态上直接水平扩容。

@@ -89,13 +89,14 @@
 - `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`：UI 提升提示词已明确要求先做当前运行截图/浏览器审查，再选择一个可验收小切片；首轮 UI 提升优先考虑窄屏/手机可用性或 03 经济性首屏节奏，不要让 Claude Code 一次性“美化全部六页”。
 
 2026-06-17 当前部署前事实状态：
-- 最新本地 checkpoint 为 `725f465 chore(deploy): lock pilot runtime env checks`；此前连续部署/性能 checkpoint 包括 `abe7936 fix(deploy): align streamlit upload limit`、`83e28d9 chore(deploy): check tracked files before pilot push` 和 `869ccc3 perf(core): specialize bess dispatch hot path`；
-- `python -m pytest -q` 最近一次全量结果为 `387 passed`；
+- 最新部署路线文档 checkpoint 为本节所在提交 `docs(pilot): clarify github render launch route`；最新代码/性能 checkpoint 为 `511c0d4 perf(core): skip bess hour case in summaries`；此前连续部署/性能 checkpoint 包括 `725f465 chore(deploy): lock pilot runtime env checks`、`68d43f8 docs(pilot): sharpen claudecode launch prompts`、`345f3a9 perf(economy): fast path temporary replacement irr dips` 和 `b28d4c5 perf(core): skip redundant bess output clamps`；
+- `python -m pytest -q` 最近一次全量结果为 `392 passed`；
+- `python -m pytest tests\test_bess_dispatch.py tests\test_single_scenario.py tests\test_batch_runner.py -q` 最近一次针对 BESS summary-only hot path 结果为 `68 passed`；
 - `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 已通过，`failed_count=0`，包含 `smoke:streamlit`；
 - `python scripts\preflight_internal_pilot_deploy.py --pilot-store-dir .runtime\preflight_doctor_smoke --json` 已通过，`failed_count=0`，包含 `pilot-store:*` 检查；
 - `python scripts\preflight_internal_pilot_deploy.py --json` 已通过，`failed_count=0`；当前静态 preflight 包含 Docker/Compose/Render Web 与 worker 关键环境变量、`git-tracked:*` 推送源安全检查，已确认 tracked file count=330，未发现私有 `.env`、本地运行状态、pickle/database/log/压缩包或超过 95 MiB 的文件；
 - `python -m pytest tests\test_deployment_artifacts.py -q` 已通过，11 项通过，覆盖首次发布作战单、Render 分支、GitHub Actions 质量门和部署 preflight；
-- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 按预期失败，当前关键失败项是 `git:sync`：本地 `codex/UI` 跟踪 `origin/codex/UI`，仍领先 upstream；在 `725f465` 后曾显示 ahead 119、behind 0。本地有未提交改动时也会额外失败 `git:clean`。该命令现在还会核对当前分支和 upstream 是否匹配 `render.yaml` 的部署分支；部署前应重新运行该命令获取实时状态；
+- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 最近一次按预期失败，唯一失败项是 `git:sync`：本地 `codex/UI` 跟踪 `origin/codex/UI`，ahead 124、behind 0，工作树干净。该命令现在还会核对当前分支和 upstream 是否匹配 `render.yaml` 的部署分支；部署前应重新运行该命令获取实时状态；
 - 当前 `origin` 为 `https://github.com/mordecairegular/green-direct-platform.git`；
 - 因此下一步不是继续改 Vercel 适配，而是经用户确认后推送当前分支到私有 GitHub，等待 GitHub Actions 质量门通过，再按 Render/Cloudflare checklist 做真实部署演练。
 

@@ -37,6 +37,17 @@ Browser
 
 Cloudflare 的最佳角色：域名、HTTPS、WAF/基础防护、Zero Trust Access、访问日志入口。不要让 Cloudflare Workers/Pages 承载当前 Python 计算应用本体。
 
+平台角色矩阵：
+
+| 平台 / 能力 | 当前内测定位 | 是否作为首发主机 | 说明 |
+|---|---|---|---|
+| GitHub private repository | 代码源、审查、回滚、质量门触发 | 否 | 必须先做，后续托管平台都从这里拉取代码。 |
+| Render Blueprint / Docker Web Service | 当前 Streamlit 应用主机 | 是 | 与现有 `Dockerfile`、`render.yaml`、persistent disk 和 health check 最匹配。 |
+| Cloudflare DNS / HTTPS / Access | 公网入口和第一层访问控制 | 否 | 放在 Render 前面做域名、HTTPS 和邀请制门禁。 |
+| Vercel Import Git Repository | 未来 Next.js 前端候选 | 否 | 当前应用不是静态前端或短生命周期 API，且需要持久项目库和长运行 Python Web 进程。 |
+| Cloudflare Pages / Workers | 未来轻前端或边缘入口候选 | 否 | 不承载当前 Streamlit + Python 计算本体。 |
+| Streamlit Community Cloud | 公开 demo / 非敏感样例候选 | 暂不建议 | 快速但运行时、持久化、权限和数据留存边界不如 Docker Web Service 清晰。 |
+
 当前仓库已有最小后台 worker loop，但 `render.yaml` 仍只创建 Web Service。原因是本地 file store 版依赖 `/data/pilot_store`，不应在 Render 上直接再建一个独立 Worker Service 并假设它能共享同一个服务磁盘。若要拆成 Web + Worker 两个托管服务，优先把项目库迁移到 Postgres/SQLite 托管盘方案和对象存储；若部署在自有 VM / Docker Compose，可用同一命名卷启动可选 `green-direct-worker` profile。
 
 如果目标只是让同事在手机或移动网络下先试用，请优先按 `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md` 执行首次发布，再用 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 做发给同事前验收；本文保留更完整的平台判断和架构边界。
