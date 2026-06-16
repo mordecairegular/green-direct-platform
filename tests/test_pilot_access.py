@@ -239,6 +239,29 @@ def test_archived_project_blocks_new_jobs_but_still_allows_view(tmp_path):
         service.submit_job(actor_user_id="analyst", job=_job("job_2"))
 
 
+def test_platform_admin_can_list_jobs_across_projects_for_operations(tmp_path):
+    service = _service(tmp_path)
+    service.registry.save_user(User("ops", "ops@example.local", "Ops", is_platform_admin=True))
+    service.registry.save_user(User("analyst", "analyst@example.local", "Analyst"))
+    project = service.create_project(
+        actor_user_id="ops",
+        project=Project("project_1", "Internal pilot project"),
+    )
+    service.grant_project_role(
+        actor_user_id="ops",
+        project_id=project.project_id,
+        user_id="analyst",
+        role=ProjectRole.ANALYST,
+    )
+    service.submit_job(actor_user_id="analyst", job=_job("job_1"))
+
+    jobs = service.list_jobs_for_platform_admin(actor_user_id="ops", statuses=[JobStatus.QUEUED])
+
+    assert [job.job_id for job in jobs] == ["job_1"]
+    with pytest.raises(PilotAccessError, match="platform operations"):
+        service.list_jobs_for_platform_admin(actor_user_id="analyst", statuses=[JobStatus.QUEUED])
+
+
 def test_cancel_job_allows_owner_or_admin_only(tmp_path):
     service = _service(tmp_path)
     _create_project_with_members(service)

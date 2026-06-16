@@ -4874,3 +4874,26 @@ benchmark：
 
 验证：
 - 文档事实校准，不改变代码或计算口径；后续运行 `python scripts\preflight_internal_pilot_deploy.py --json` 和 `git diff --check` 复核。
+
+### 2026-06-16 平台管理页手动处理 queued job
+
+Render 单 Web Service 首次公网试用时，不应直接把本地 file store 版拆成另一个独立 Worker Service。为避免管理员必须进入 Shell 才能处理按需明细/现金流补算，本轮在平台管理页新增“任务运维”入口。
+
+实现：
+- `PilotAccessService.list_jobs_for_platform_admin()` 允许平台管理员按状态和项目范围查看 job；
+- 平台管理页新增“任务运维”tab，展示活动任务、可手动处理的 queued job 数和运行中任务数；
+- “处理一个排队任务”按钮复用 `execute_next_worker_job()`，默认只处理 `technical_study/hourly_detail` 和 `economic_study/annual_cashflow`；
+- worker id 默认形如 `streamlit-admin-worker-<actor>`，可通过 `GREEN_DIRECT_ADMIN_WORKER_ID` 覆盖前缀。
+
+边界：
+- 按钮在当前 Streamlit Web 进程内执行一个任务，适合首次内测排障、小任务补算和 Render 单服务过渡期；
+- 这不是自动守护进程、正式队列、重试、限流、资源隔离或 worker 级取消；较重任务仍应迁移到数据库/对象存储 + 独立 worker 架构。
+
+验证：
+- `python -m pytest tests/test_pilot_access.py::test_platform_admin_can_list_jobs_across_projects_for_operations tests/test_ui_import.py::test_platform_admin_worker_once_uses_supported_scope_and_reports_result tests/test_ui_import.py::test_platform_admin_worker_once_reports_idle_queue -q` 通过，3 项通过；
+- `python -m pytest tests/test_ui_import.py::test_streamlit_platform_admin_can_create_user tests/test_ui_import.py::test_streamlit_non_admin_does_not_show_platform_admin_entry -q` 通过，2 项通过；
+- `python -m pytest tests/test_pilot_access.py tests/test_ui_import.py::test_platform_admin_worker_once_uses_supported_scope_and_reports_result tests/test_ui_import.py::test_platform_admin_worker_once_reports_idle_queue tests/test_ui_import.py::test_streamlit_platform_admin_can_create_user tests/test_ui_import.py::test_streamlit_non_admin_does_not_show_platform_admin_entry -q` 通过，25 项通过；
+- `python -m compileall -q src\green_direct\services\pilot_access.py src\green_direct\ui\app.py tests\test_pilot_access.py tests\test_ui_import.py` 通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `git diff --check` 通过；
+- `python -m pytest -q` 通过，350 项通过。

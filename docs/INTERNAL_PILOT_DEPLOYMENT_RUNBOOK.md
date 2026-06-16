@@ -221,6 +221,8 @@ python -m green_direct.cli pilot-admin run-worker-once `
 
 `run-worker-once` 会认领一个 matching queued job。对 `technical_study/hourly_detail`，它读取 `job_payload`、`technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，补算单方案逐小时明细，写回 `ArtifactKind.HOURLY_DETAIL`；对 `economic_study/annual_cashflow`，它读取 `technical_summary`、`recommendation_inputs` 和经济 summary artifact，为所选方案写回电源侧/同一主体 `ArtifactKind.ANNUAL_CASHFLOW`。当前年度现金流 worker 仅支持固定价/网页组价经济性结果，逐时价格曲线结果需等价格曲线 artifact 化后再补；全量技术仿真、全量经济性测算、推荐、图表包或报告导出仍未后台化。
 
+如果当前部署只有一个 Streamlit Web Service，平台管理员也可以在“平台管理 -> 任务运维”点击“处理一个排队任务”。该按钮复用与 `run-worker-once` 相同的受支持任务执行链路，但运行在当前 Web 进程内，只适合首次内测排障和小任务补算，不是自动守护进程。
+
 完成管理员 bootstrap 后，也可以启动最小轮询 worker，让它持续认领受支持的 queued job：
 
 ```powershell
@@ -316,7 +318,7 @@ python -m green_direct.cli pilot-admin list-audit-events `
 
 ## 14. 仍未完成的生产化事项
 
-- 正式队列、worker 级取消、重试和限流；当前仅有活动任务取消元数据、stale running 置失败运维入口、按需 hourly detail 的 queued job 入口，以及最小 `run-worker-loop` 轮询 worker；
+- 正式队列、worker 级取消、重试和限流；当前仅有活动任务取消元数据、stale running 置失败运维入口、按需 hourly detail / annual cashflow 的 queued job 入口，平台管理页手动处理一个排队任务，以及最小 `run-worker-loop` 轮询 worker；
 - SQLite/Postgres 或对象存储适配；
 - 原始上传文件保存、留存和清理；
 - 完整历史结果恢复、跨项目搜索和报告版本管理；结果索引标记/置顶和软删除已有第一版；

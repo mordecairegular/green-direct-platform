@@ -283,6 +283,20 @@ class PilotAccessService:
         self.require_project_view(actor_user_id=actor_user_id, project_id=project_id)
         return self.job_store.list_project_jobs(project_id, statuses=statuses)
 
+    def list_jobs_for_platform_admin(
+        self,
+        *,
+        actor_user_id: str,
+        project_id: str | None = None,
+        statuses: Iterable[JobStatus | str] | None = None,
+    ) -> list[Job]:
+        """List jobs for platform operations after checking platform-admin rights."""
+
+        self._platform_admin(actor_user_id)
+        if project_id is not None:
+            self._project(project_id, require_active=False)
+        return self.job_store.list_jobs(project_id=project_id, statuses=statuses)
+
     def load_job(self, *, actor_user_id: str, project_id: str, study_id: str, job_id: str) -> Job:
         """Load a job visible to an active project member."""
 

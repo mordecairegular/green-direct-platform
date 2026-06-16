@@ -44,7 +44,7 @@ GitHub private repository
 7. 部署完成后，访问 Render 默认域名。
 8. 若显示应用登录页，说明公网入口已通。
 
-当前 `render.yaml` 只创建 Web Service。按需逐小时明细和固定价/网页组价年度现金流后台任务已有 `run-worker-loop`，但本地 file store 版在 Render 上不应简单拆成另一个独立 Worker Service 共享 `/data/pilot_store`；该类持久盘绑定在服务侧，正式拆分 worker 前应先迁移到数据库/对象存储，或改用同一主机/Compose 共享卷方案。第一次移动网络试用可先保留同步补算 fallback，必要时由管理员在同一服务环境里执行 `run-worker-once`。
+当前 `render.yaml` 只创建 Web Service。按需逐小时明细和固定价/网页组价年度现金流后台任务已有 `run-worker-loop`，但本地 file store 版在 Render 上不应简单拆成另一个独立 Worker Service 共享 `/data/pilot_store`；该类持久盘绑定在服务侧，正式拆分 worker 前应先迁移到数据库/对象存储，或改用同一主机/Compose 共享卷方案。第一次移动网络试用可先保留同步补算 fallback；必要时平台管理员可在应用内“平台管理 -> 任务运维”手动处理一个排队任务，也可在同一服务环境里执行 `run-worker-once`。
 
 ## 4. 初始化管理员
 
@@ -95,7 +95,7 @@ Cloudflare Access 是公网入口第一层门禁；应用内账号是第二层�
 - 普通用户看不到其他人的项目；
 - 创建项目、运行小样例、重启服务后项目仍存在；
 - 审计日志能看到登录、项目、下载、artifact 操作；
-- 如测试后台逐小时明细或年度现金流补算，确认 queued job 会出现在欢迎页任务面板，并由 `run-worker-once` 或 `run-worker-loop` 处理完成；
+- 如测试后台逐小时明细或年度现金流补算，确认 queued job 会出现在欢迎页任务面板，并由平台管理页“任务运维”、`run-worker-once` 或 `run-worker-loop` 处理完成；
 - `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0`；
 - `GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD=1000`、`GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT=20` 已按内测资源配置确认；
 - 数据目录不是 Git 仓库目录。

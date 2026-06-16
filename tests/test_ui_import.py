@@ -1457,6 +1457,54 @@ def test_streamlit_non_admin_does_not_show_platform_admin_entry(tmp_path, monkey
     assert not any(button.label == "Admin  平台管理" for button in app_test.button)
 
 
+def test_platform_admin_worker_once_uses_supported_scope_and_reports_result(monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import JobStatus, JobType
+
+    captured = {}
+    monkeypatch.setenv(app.PILOT_ADMIN_WORKER_ID_ENV, "ui-worker")
+    monkeypatch.setattr(app, "_pilot_access_service", lambda: "access-service")
+
+    job = SimpleNamespace(
+        project_id="project_1",
+        study_id="study_1",
+        job_id="job_1",
+        job_type=JobType.TECHNICAL_STUDY,
+        status=JobStatus.SUCCEEDED,
+    )
+    result = SimpleNamespace(
+        job=job,
+        artifact=SimpleNamespace(artifact_id="hourly_detail_S0001"),
+        message="Stored hourly detail artifact",
+        succeeded=True,
+    )
+
+    def fake_execute_next_worker_job(**kwargs):
+        captured.update(kwargs)
+        return result
+
+    monkeypatch.setattr(app, "execute_next_worker_job", fake_execute_next_worker_job)
+
+    message = app._run_platform_admin_worker_once(actor_user_id="admin@example.local", project_id="project_1")
+
+    assert captured["access_service"] == "access-service"
+    assert captured["actor_user_id"] == "admin@example.local"
+    assert captured["worker_id"] == "ui-worker-admin-example.local"
+    assert captured["project_id"] == "project_1"
+    assert captured["job_types"] == app.SUPPORTED_PILOT_MANUAL_WORKER_JOB_TYPES
+    assert "已处理任务" in message
+    assert "hourly_detail_S0001" in message
+
+
+def test_platform_admin_worker_once_reports_idle_queue(monkeypatch):
+    import green_direct.ui.app as app
+
+    monkeypatch.setattr(app, "_pilot_access_service", lambda: "access-service")
+    monkeypatch.setattr(app, "execute_next_worker_job", lambda **kwargs: None)
+
+    assert app._run_platform_admin_worker_once(actor_user_id="admin", project_id=None) == "暂无可处理的排队任务。"
+
+
 def test_curve_display_tooltip_shows_input_curve_metrics():
     from green_direct.ui.app import _curve_display_tooltip
 

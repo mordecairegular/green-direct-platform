@@ -78,6 +78,7 @@ from green_direct.services import (
     UploadPolicy,
     UploadValidationError,
     build_recommendation_study,
+    execute_next_worker_job,
     filter_uploads,
     inspect_upload,
     persist_economic_study_result,
@@ -170,6 +171,8 @@ PILOT_LOGIN_NAME_KEY = "_pilot_auth_login_name"
 PILOT_IS_PLATFORM_ADMIN_KEY = "_pilot_auth_is_platform_admin"
 PILOT_LOGIN_NOTICE_KEY = "_pilot_auth_notice"
 PILOT_ADMIN_NOTICE_KEY = "_pilot_admin_notice"
+PILOT_ADMIN_WORKER_ID_ENV = "GREEN_DIRECT_ADMIN_WORKER_ID"
+PILOT_ADMIN_DEFAULT_WORKER_ID = "streamlit-admin-worker"
 PILOT_ACTIVE_PROJECT_ID_KEY = "_pilot_active_project_id"
 PILOT_ACTIVE_PROJECT_NAME_KEY = "_pilot_active_project_name"
 PILOT_ACTIVE_PROJECT_ROLE_KEY = "_pilot_active_project_role"
@@ -181,6 +184,7 @@ PILOT_HISTORY_ARTIFACT_DOWNLOADS_KEY = "_pilot_history_artifact_downloads"
 TECHNICAL_STUDY_INPUT_KEY = "_technical_study_input"
 PLATFORM_ADMIN_PAGE = "平台管理"
 ACTIVE_PILOT_JOB_STATUSES = {JobStatus.QUEUED, JobStatus.RUNNING}
+SUPPORTED_PILOT_MANUAL_WORKER_JOB_TYPES = (JobType.TECHNICAL_STUDY, JobType.ECONOMIC_STUDY)
 PILOT_JOB_STALE_AFTER_SECONDS = 60 * 60
 CHART_PNG_DOCX_SESSION_ID_KEY = "_chart_png_docx_session_id"
 _CHART_PNG_DOCX_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="green-direct-png")
@@ -3494,6 +3498,128 @@ def _platform_admin_membership_frame(
     )
 
 
+def _platform_admin_job_frame(
+    jobs: list[Job],
+    *,
+    projects_by_id: dict[str, Project],
+    limit: int = 50,
+) -> pd.DataFrame:
+    sorted_jobs = sorted(jobs, key=lambda job: (job.queued_at, job.project_id, job.study_id, job.job_id), reverse=True)
+    rows = []
+    for job in sorted_jobs[:limit]:
+        project = projects_by_id.get(job.project_id)
+        rows.append(
+            {
+                "project_id": job.project_id,
+                "项目": project.name if project is not None else job.project_id,
+                "job_id": job.job_id,
+                "study_id": job.study_id,
+                "类型": job.job_type.value,
+                "状态": job.status.value,
+                "进度": _pilot_job_progress_text(job),
+                "发起人": job.requested_by_user_id,
+                "worker": job.worker_id or "",
+                "排队": _pilot_datetime_text(job.queued_at),
+                "开始": _pilot_datetime_text(job.started_at),
+                "最后心跳": _pilot_datetime_text(job.last_heartbeat_at),
+                "完成": _pilot_datetime_text(job.finished_at),
+                "说明": job.error_message or job.progress_message or "",
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _platform_admin_worker_id(actor_user_id: str) -> str:
+    configured = os.environ.get(PILOT_ADMIN_WORKER_ID_ENV, "").strip()
+    base = configured or PILOT_ADMIN_DEFAULT_WORKER_ID
+    actor_key = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(actor_user_id)).strip("-") or "admin"
+    return f"{base}-{actor_key}"
+
+
+def _run_platform_admin_worker_once(
+    *,
+    actor_user_id: str,
+    project_id: str | None,
+) -> str:
+    result = execute_next_worker_job(
+        access_service=_pilot_access_service(),
+        actor_user_id=actor_user_id,
+        worker_id=_platform_admin_worker_id(actor_user_id),
+        project_id=project_id,
+        job_types=SUPPORTED_PILOT_MANUAL_WORKER_JOB_TYPES,
+    )
+    if result is None:
+        return "暂无可处理的排队任务。"
+
+    job = result.job
+    status_text = "成功" if result.succeeded else "失败"
+    artifact_text = f"；产物：{result.artifact.artifact_id}" if result.artifact is not None else ""
+    message_text = f"；{result.message}" if result.message else ""
+    return (
+        f"已处理任务：{job.project_id} / {job.study_id} / {job.job_id} "
+        f"（{job.job_type.value}，{status_text}）{artifact_text}{message_text}"
+    )
+
+
+def _render_platform_admin_worker_ops(
+    st,
+    *,
+    actor_user_id: str,
+    projects: list[Project],
+) -> None:
+    access = _pilot_access_service()
+    active_projects = [project for project in projects if project.status.value == "active"]
+    projects_by_id = {project.project_id: project for project in projects}
+    project_options = ["__all__"] + [project.project_id for project in active_projects]
+    selected_scope = st.selectbox(
+        "任务范围",
+        project_options,
+        format_func=lambda value: "全部有效项目" if value == "__all__" else projects_by_id[str(value)].name,
+        key="pilot_admin_worker_project_scope",
+    )
+    project_id = None if selected_scope == "__all__" else str(selected_scope)
+
+    try:
+        active_jobs = access.list_jobs_for_platform_admin(
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            statuses=ACTIVE_PILOT_JOB_STATUSES,
+        )
+    except Exception as exc:  # noqa: BLE001 - admin page should render permission/storage errors
+        _handle_platform_admin_error(st, exc)
+        return
+
+    supported_queued = [
+        job
+        for job in active_jobs
+        if job.status == JobStatus.QUEUED and job.job_type in SUPPORTED_PILOT_MANUAL_WORKER_JOB_TYPES
+    ]
+    running_count = sum(1 for job in active_jobs if job.status == JobStatus.RUNNING)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("活动任务", len(active_jobs))
+    c2.metric("可手动处理排队任务", len(supported_queued))
+    c3.metric("运行中", running_count)
+
+    if active_jobs:
+        st.dataframe(_platform_admin_job_frame(active_jobs, projects_by_id=projects_by_id), width="stretch", hide_index=True)
+    else:
+        st.info("当前范围内没有排队或运行中的任务。")
+
+    st.caption(
+        "手动处理会在当前 Streamlit Web 进程内认领并执行一个受支持的 queued job，"
+        "适合 Render 单服务试用期排障；它不是正式队列、自动守护进程或 worker 级取消机制。"
+    )
+    if st.button("处理一个排队任务", key="pilot_admin_run_worker_once", disabled=not supported_queued):
+        try:
+            st.session_state[PILOT_ADMIN_NOTICE_KEY] = _run_platform_admin_worker_once(
+                actor_user_id=actor_user_id,
+                project_id=project_id,
+            )
+            st.rerun()
+        except Exception as exc:  # noqa: BLE001
+            _handle_platform_admin_error(st, exc)
+
+
 def _handle_platform_admin_error(st, exc: Exception) -> None:
     if isinstance(exc, (PilotAdminError, PilotAccessError, PilotAuthError, FileExistsError, FileNotFoundError, ValueError)):
         st.error(str(exc))
@@ -3539,8 +3665,8 @@ def _render_platform_admin_page(st) -> None:
 
     st.dataframe(_platform_admin_user_frame(users), width="stretch", hide_index=True)
 
-    create_tab, password_tab, status_tab, project_tab, session_tab = st.tabs(
-        ["创建账号", "重置密码", "权限和停用", "项目和成员", "会话"]
+    create_tab, password_tab, status_tab, project_tab, worker_tab, session_tab = st.tabs(
+        ["创建账号", "重置密码", "权限和停用", "项目和成员", "任务运维", "会话"]
     )
 
     with create_tab:
@@ -3721,6 +3847,9 @@ def _render_platform_admin_page(st) -> None:
                         st.rerun()
                     except Exception as exc:  # noqa: BLE001
                         _handle_platform_admin_error(st, exc)
+
+    with worker_tab:
+        _render_platform_admin_worker_ops(st, actor_user_id=actor_user_id, projects=projects)
 
     with session_tab:
         if not user_ids:
