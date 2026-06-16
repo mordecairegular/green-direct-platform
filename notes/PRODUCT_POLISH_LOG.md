@@ -5476,3 +5476,32 @@ profile / benchmark：
 - 这是提示词/交接质量提升，不改变 Streamlit UI 代码、计算口径、经济性口径或推荐排序；
 - 后续真正 UI 改造仍应先完成上线 review/debug P0/P1 判断，再选一个小切片落地；
 - UI 提升不能替代 Render/Cloudflare 真实移动网络部署演练。
+
+### 2026-06-17 无储能 retained hourly detail 数组化
+
+本轮继续推进大方案池性能优化。上一轮只覆盖“无储能 + summary-only”，但 summary-first 大任务仍会为前 N 个或用户指定的代表方案保留逐小时明细；如果这些代表方案是无储能方案，旧路径仍会每小时调用一次 dispatch helper，再逐列填充数组。无储能方案没有 SOC 滚动状态，可以安全地用数组一次性构造 hourly ledger。
+
+实现：
+- 抽出 `_no_bess_dispatch_arrays()`，统一计算无储能场景的光伏/风电正负出力、站用电、直供、下网、上网、弃电、年上网比例 cap、交换功率限额和缺口；
+- `retain_hourly_detail=False` 继续复用这些数组生成 summary；
+- `retain_hourly_detail=True` 时新增 `_run_no_bess_hourly_detail()`，用同一组数组构造 `HOURLY_LEDGER_COLUMNS`，再调用 `calculate_summary()`；
+- 新增 `_no_bess_hour_case_values()`，保持无储能 hour_case 与 `dispatch_hour_values_with_limits()` 一致；
+- 新增测试用原始 dispatch helper 逐小时生成参考结果，再 monkeypatch `single_scenario_simulator.dispatch_hour_values_with_limits` 为失败函数，确认无储能 full-detail 快路径不调用逐小时 dispatch 且关键 ledger 字段一致。
+
+边界：
+- 只覆盖无储能方案；有储能方案仍逐小时滚动 SOC；
+- 不改变完整 hourly ledger 字段、summary 字段、V0.1 调度口径、经济性 V1 或推荐排序；
+- 混合方案池收益取决于 retained hourly detail 中无储能方案占比；有储能方案仍是主要热路径。
+
+小基准：
+- 无储能、保留 20 个明细样本：`python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 6 --wind-count 6 --bess-power-count 1 --durations 0 --skip-full-retention --json`，技术 summary-first 约从上一轮记录的 0.3967s 到约 0.1809s；
+- 无储能、不保留明细样本：同参数加 `--retain-detail-count 0`，本轮复跑约 0.0703s；
+- 混合样本：`--pv-count 6 --wind-count 6 --bess-power-count 3 --durations 0,2 --skip-full-retention --json`，本轮两次技术 summary-first 约 1.8396s 与 1.4289s，存在运行噪声；该样本仍主要受有储能方案逐小时 SOC 路径影响。
+
+验证：
+- `python -m pytest tests\test_single_scenario.py -q` 通过，35 项通过；
+- `python -m pytest tests\test_batch_runner.py tests\test_study_runner.py tests\test_pilot_worker.py -q` 通过，33 项通过；
+- `python -m compileall -q src\green_direct\core\single_scenario_simulator.py tests\test_single_scenario.py` 通过；
+- `python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 4 --wind-count 4 --bess-power-count 2 --durations 0,2 --skip-full-retention --json` 通过，30 个方案技术 summary-first 约 0.4586s，经济性 summary-only 约 0.0915s；
+- `python -m pytest -q` 通过，381 项通过；
+- `git diff --check` 通过，仅有 Windows 换行转换提示。

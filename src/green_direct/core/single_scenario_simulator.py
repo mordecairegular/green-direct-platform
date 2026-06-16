@@ -210,8 +210,65 @@ def _run_no_bess_summary_only(
 ) -> dict[str, object]:
     """Vectorized summary-only path for scenarios with no SOC state."""
 
-    pv_power_values = pv_pu_values * scenario.pv_capacity
-    wind_power_values = wind_pu_values * scenario.wind_capacity
+    values = _no_bess_dispatch_arrays(
+        load_values=load_values,
+        pv_pu_values=pv_pu_values,
+        wind_pu_values=wind_pu_values,
+        pv_capacity=scenario.pv_capacity,
+        wind_capacity=scenario.wind_capacity,
+        policy=policy,
+        dt_hours=dt_hours,
+        annual_export_cap=annual_export_cap,
+        export_limit_energy=export_limit_energy,
+        exchange_limit_energy=exchange_limit_energy,
+    )
+
+    return calculate_summary_from_values(
+        scenario,
+        bess,
+        policy,
+        total_load_energy=float(values["load_energy"].sum()),
+        total_renewable_generation=total_renewable_generation,
+        pv_station_use_energy=float(values["pv_station_use_power"].sum() * dt_hours),
+        wind_station_use_energy=float(values["wind_station_use_power"].sum() * dt_hours),
+        direct_self_use_energy=float(values["direct_self_use"].sum()),
+        bess_discharge_to_load=0.0,
+        grid_import_energy=float(values["grid_import"].sum()),
+        grid_export_energy=float(values["grid_export"].sum()),
+        curtail_energy=float(values["curtail"].sum()),
+        curtail_due_to_export_cap_energy=float(values["curtail_due_to_export_cap"].sum()),
+        curtail_due_to_exchange_limit_energy=float(values["curtail_due_to_exchange_limit"].sum()),
+        exchange_import_shortfall_energy=float(values["exchange_import_shortfall"].sum()),
+        bess_charge_energy=0.0,
+        final_bess_energy=0.0,
+        initial_bess_energy=0.0,
+        max_grid_import_power=(
+            float(values["grid_import"].max() * dt_inverse) if len(values["grid_import"]) else 0.0
+        ),
+        max_grid_export_power=(
+            float(values["grid_export"].max() * dt_inverse) if len(values["grid_export"]) else 0.0
+        ),
+        final_soc=0.0,
+    )
+
+
+def _no_bess_dispatch_arrays(
+    *,
+    load_values: np.ndarray,
+    pv_pu_values: np.ndarray,
+    wind_pu_values: np.ndarray,
+    pv_capacity: float,
+    wind_capacity: float,
+    policy: PolicyParams,
+    dt_hours: float,
+    annual_export_cap: float | None,
+    export_limit_energy: float,
+    exchange_limit_energy: float,
+) -> dict[str, np.ndarray]:
+    """Return no-BESS dispatch arrays for summary and ledger construction."""
+
+    pv_power_values = pv_pu_values * pv_capacity
+    wind_power_values = wind_pu_values * wind_capacity
     pv_generation_values = np.maximum(pv_power_values, 0.0)
     wind_generation_values = np.maximum(wind_power_values, 0.0)
     renewable_generation_values = pv_generation_values + wind_generation_values
@@ -252,29 +309,105 @@ def _run_no_bess_summary_only(
     )
     exchange_import_shortfall_values = deficit_values - grid_import_values
 
-    return calculate_summary_from_values(
-        scenario,
-        bess,
-        policy,
-        total_load_energy=float(load_energy_values.sum()),
-        total_renewable_generation=total_renewable_generation,
-        pv_station_use_energy=float(pv_station_use_values.sum() * dt_hours),
-        wind_station_use_energy=float(wind_station_use_values.sum() * dt_hours),
-        direct_self_use_energy=float(direct_self_use_values.sum()),
-        bess_discharge_to_load=0.0,
-        grid_import_energy=float(grid_import_values.sum()),
-        grid_export_energy=float(grid_export_values.sum()),
-        curtail_energy=float(curtail_values.sum()),
-        curtail_due_to_export_cap_energy=float(curtail_due_to_export_cap_values.sum()),
-        curtail_due_to_exchange_limit_energy=float(curtail_due_to_exchange_limit_values.sum()),
-        exchange_import_shortfall_energy=float(exchange_import_shortfall_values.sum()),
-        bess_charge_energy=0.0,
-        final_bess_energy=0.0,
-        initial_bess_energy=0.0,
-        max_grid_import_power=float(grid_import_values.max() * dt_inverse) if len(grid_import_values) else 0.0,
-        max_grid_export_power=float(grid_export_values.max() * dt_inverse) if len(grid_export_values) else 0.0,
-        final_soc=0.0,
+    return {
+        "load_energy": load_energy_values,
+        "pv_power": pv_power_values,
+        "wind_power": wind_power_values,
+        "pv_generation_power": pv_generation_values,
+        "wind_generation_power": wind_generation_values,
+        "renewable_generation_power": renewable_generation_values,
+        "pv_station_use_power": pv_station_use_values,
+        "wind_station_use_power": wind_station_use_values,
+        "station_use_power": station_use_values,
+        "renewable_power": renewable_power_values,
+        "direct_self_use": direct_self_use_values,
+        "grid_import": grid_import_values,
+        "grid_export": grid_export_values,
+        "curtail": curtail_values,
+        "curtail_due_to_export_cap": curtail_due_to_export_cap_values,
+        "curtail_due_to_exchange_limit": curtail_due_to_exchange_limit_values,
+        "exchange_import_shortfall": exchange_import_shortfall_values,
+        "surplus": surplus_values,
+        "surplus_mask": surplus_mask,
+        "renewable_energy": renewable_energy_values,
+    }
+
+
+def _no_bess_hour_case_values(values: dict[str, np.ndarray]) -> np.ndarray:
+    hour_case_values = np.full(len(values["load_energy"]), "GEN_SHORT_GRID_IMPORT", dtype=object)
+    surplus_mask = values["surplus_mask"].astype(bool)
+    balanced_mask = surplus_mask & (np.abs(values["surplus"]) <= 1e-12)
+    direct_export_mask = surplus_mask & ~balanced_mask & (values["grid_export"] > 0) & (values["curtail"] == 0)
+    surplus_curtail_mask = surplus_mask & ~balanced_mask & ~direct_export_mask
+    no_renewable_mask = ~surplus_mask & (values["renewable_energy"] == 0)
+
+    hour_case_values[balanced_mask] = "GEN_BALANCED"
+    hour_case_values[direct_export_mask] = "GEN_SURPLUS_DIRECT_EXPORT"
+    hour_case_values[surplus_curtail_mask] = "GEN_SURPLUS_CURTAIL"
+    hour_case_values[no_renewable_mask] = "NO_RENEWABLE_GRID_IMPORT"
+    return hour_case_values
+
+
+def _run_no_bess_hourly_detail(
+    *,
+    timestamps: np.ndarray,
+    load_values: np.ndarray,
+    pv_pu_values: np.ndarray,
+    wind_pu_values: np.ndarray,
+    scenario: Scenario,
+    policy: PolicyParams,
+    dt_hours: float,
+    dt_inverse: float,
+    annual_export_cap: float | None,
+    export_limit_energy: float,
+    exchange_limit_energy: float,
+) -> pd.DataFrame:
+    """Vectorized hourly ledger path for scenarios with no SOC state."""
+
+    values = _no_bess_dispatch_arrays(
+        load_values=load_values,
+        pv_pu_values=pv_pu_values,
+        wind_pu_values=wind_pu_values,
+        pv_capacity=scenario.pv_capacity,
+        wind_capacity=scenario.wind_capacity,
+        policy=policy,
+        dt_hours=dt_hours,
+        annual_export_cap=annual_export_cap,
+        export_limit_energy=export_limit_energy,
+        exchange_limit_energy=exchange_limit_energy,
     )
+    n = len(load_values)
+    data: dict[str, object] = {
+        "scenario_id": np.full(n, scenario.scenario_id, dtype=object),
+        "timestamp": timestamps,
+        "hour_index": np.arange(n),
+        "load_power": load_values.copy(),
+        "pv_power": values["pv_power"],
+        "wind_power": values["wind_power"],
+        "pv_generation_power": values["pv_generation_power"],
+        "wind_generation_power": values["wind_generation_power"],
+        "renewable_generation_power": values["renewable_generation_power"],
+        "pv_station_use_power": values["pv_station_use_power"],
+        "wind_station_use_power": values["wind_station_use_power"],
+        "station_use_power": values["station_use_power"],
+        "renewable_power": values["renewable_power"],
+        "direct_self_use_power": values["direct_self_use"] * dt_inverse,
+        "bess_charge_power": np.zeros(n),
+        "bess_discharge_power": np.zeros(n),
+        "grid_import_power": values["grid_import"] * dt_inverse,
+        "grid_export_power": values["grid_export"] * dt_inverse,
+        "curtail_power": values["curtail"] * dt_inverse,
+        "curtail_due_to_export_cap_power": values["curtail_due_to_export_cap"] * dt_inverse,
+        "curtail_due_to_exchange_limit_power": values["curtail_due_to_exchange_limit"] * dt_inverse,
+        "exchange_import_shortfall_power": values["exchange_import_shortfall"] * dt_inverse,
+        "soc_start": np.zeros(n),
+        "soc_end": np.zeros(n),
+        "bess_energy_start": np.zeros(n),
+        "bess_energy_end": np.zeros(n),
+        "hour_case": _no_bess_hour_case_values(values),
+    }
+    _zero_close_hourly_arrays(data)
+    return pd.DataFrame(data, columns=HOURLY_LEDGER_COLUMNS)
 
 
 def run_single_scenario(
@@ -377,6 +510,31 @@ def run_single_scenario(
             warnings=[],
             diagnostics=diagnostics,
         )
+
+    if not has_bess and retain_hourly_detail:
+        hourly = _run_no_bess_hourly_detail(
+            timestamps=timestamps,
+            load_values=load_values,
+            pv_pu_values=pv_pu_values,
+            wind_pu_values=wind_pu_values,
+            scenario=scenario,
+            policy=policy,
+            dt_hours=dt_hours,
+            dt_inverse=dt_inverse,
+            annual_export_cap=annual_export_cap,
+            export_limit_energy=export_limit_energy,
+            exchange_limit_energy=exchange_limit_energy,
+        )
+        summary = calculate_summary(
+            hourly,
+            scenario,
+            bess,
+            policy,
+            initial_bess_energy=initial_bess_energy,
+            dt_hours=dt_hours,
+        )
+        summary["dispatch_strategy"] = dispatch_strategy.value
+        return ScenarioResult(summary=summary, hourly_detail=hourly, warnings=[], diagnostics=diagnostics)
 
     cumulative_export = 0.0
     data: dict[str, object] | None = None

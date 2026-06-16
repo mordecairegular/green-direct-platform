@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from green_direct.core.bess_dispatch import DispatchStrategy
+from green_direct.core.bess_dispatch import DispatchStrategy, dispatch_hour_values_with_limits
 from green_direct.core.single_scenario_simulator import (
     HOURLY_LEDGER_COLUMNS,
     collect_single_scenario_input_diagnostics,
@@ -226,6 +226,97 @@ def test_no_bess_summary_only_fast_path_matches_full_hourly_summary(monkeypatch)
             assert actual == pytest.approx(expected), key
         else:
             assert actual == expected, key
+
+
+def test_no_bess_hourly_detail_fast_path_matches_dispatch_reference(monkeypatch):
+    curves = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2020-01-01", periods=6, freq="h"),
+            "load_power": [10, 0, 20, 5, 8, 0],
+            "pv_pu": [2.0, 3.0, 0.0, -0.2, 0.5, 4.0],
+            "wind_pu": [0.0, 1.0, 0.0, 0.4, -0.1, 0.0],
+        }
+    )
+    scenario = Scenario("S_NO_BESS_DETAIL", pv_capacity=10, wind_capacity=5, bess_power=0, bess_energy=0)
+    policy_params = PolicyParams(allow_export=True, export_rate_max=0.25, grid_exchange_power_limit=15)
+    annual_export_cap = (
+        (
+            scenario.pv_capacity * curves["pv_pu"].clip(lower=0).sum()
+            + scenario.wind_capacity * curves["wind_pu"].clip(lower=0).sum()
+        )
+        * policy_params.export_rate_max
+    )
+    cumulative_export = 0.0
+    expected: dict[str, list[float | str]] = {
+        "direct_self_use_power": [],
+        "grid_import_power": [],
+        "grid_export_power": [],
+        "curtail_power": [],
+        "curtail_due_to_export_cap_power": [],
+        "curtail_due_to_exchange_limit_power": [],
+        "exchange_import_shortfall_power": [],
+        "hour_case": [],
+    }
+    for row in curves.itertuples(index=False):
+        pv_power = float(row.pv_pu) * scenario.pv_capacity
+        wind_power = float(row.wind_pu) * scenario.wind_capacity
+        renewable_generation = max(pv_power, 0.0) + max(wind_power, 0.0)
+        station_use = max(-pv_power, 0.0) + max(-wind_power, 0.0)
+        net_renewable = renewable_generation - station_use
+        renewable_energy = max(net_renewable, 0.0)
+        station_use_deficit = max(-net_renewable, 0.0)
+        (
+            direct_self_use,
+            _bess_charge,
+            _bess_discharge,
+            grid_import,
+            grid_export,
+            curtail,
+            curtail_due_to_export_cap,
+            curtail_due_to_exchange_limit,
+            exchange_import_shortfall,
+            _bess_energy_end,
+            hour_case,
+        ) = dispatch_hour_values_with_limits(
+            load_energy=float(row.load_power) + station_use_deficit,
+            renewable_energy=renewable_energy,
+            has_bess=False,
+            bess_power_energy_limit=0.0,
+            bess_energy_start=0.0,
+            bess_soc_min_energy=0.0,
+            bess_soc_max_energy=0.0,
+            eta_charge=1.0,
+            eta_discharge=1.0,
+            allow_export=policy_params.allow_export,
+            export_limit_energy=float("inf"),
+            exchange_limit_energy=policy_params.grid_exchange_power_limit,
+            remaining_export_cap=annual_export_cap - cumulative_export,
+        )
+        cumulative_export += grid_export
+        expected["direct_self_use_power"].append(direct_self_use)
+        expected["grid_import_power"].append(grid_import)
+        expected["grid_export_power"].append(grid_export)
+        expected["curtail_power"].append(curtail)
+        expected["curtail_due_to_export_cap_power"].append(curtail_due_to_export_cap)
+        expected["curtail_due_to_exchange_limit_power"].append(curtail_due_to_exchange_limit)
+        expected["exchange_import_shortfall_power"].append(exchange_import_shortfall)
+        expected["hour_case"].append(hour_case)
+
+    def fail_dispatch(*args, **kwargs):
+        raise AssertionError("No-BESS full-detail path should not call per-hour dispatch")
+
+    monkeypatch.setattr(
+        "green_direct.core.single_scenario_simulator.dispatch_hour_values_with_limits",
+        fail_dispatch,
+    )
+    result = run_single_scenario(curves, scenario, policy_params=policy_params)
+
+    assert list(result.hourly_detail.columns) == HOURLY_LEDGER_COLUMNS
+    for column, values in expected.items():
+        if column == "hour_case":
+            assert result.hourly_detail[column].tolist() == values
+        else:
+            assert result.hourly_detail[column].tolist() == pytest.approx(values)
 
 
 def test_case_11_load_side_self_use_consistency():
