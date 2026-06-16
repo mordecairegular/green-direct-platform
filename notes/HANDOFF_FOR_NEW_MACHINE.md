@@ -86,7 +86,9 @@
 
 2026-06-16 当前部署前事实状态：
 - `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 已通过，`failed_count=0`，包含 `smoke:streamlit`；
-- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 按预期失败，唯一失败项是 `git:sync`：本地 `codex/UI` 尚未推到 upstream；最近一次检查为 ahead>0、behind 0，具体提交数以重新运行该命令为准；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 已通过，`failed_count=0`；
+- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 按预期失败，唯一失败项是 `git:sync`：本地 `codex/UI` 跟踪 `origin/codex/UI`，最近一次检查为 ahead=91、behind=0；
+- 当前 `origin` 为 `https://github.com/mordecairegular/green-direct-platform.git`；
 - 因此下一步不是继续改 Vercel 适配，而是经用户确认后推送当前分支到私有 GitHub，等待 GitHub Actions 质量门通过，再按 Render/Cloudflare checklist 做真实部署演练。
 
 若用户提出 Vercel、Cloudflare Pages/Workers 等成熟平台，请先区分平台角色：当前 Streamlit 长进程 + pilot store 形态不适合直接部署到 serverless/edge runtime；短期公网内测推荐 Render/Fly/Railway/Cloud Run 等容器服务托管应用本体，Cloudflare 负责域名、HTTPS 和 Access 门禁。若要改架构，优先把本地 store 换成数据库/对象存储和后台 worker，再考虑前端重写。

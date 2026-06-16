@@ -5099,3 +5099,28 @@ benchmark：
 - `python -m pytest -q` 通过，360 项通过；
 - `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
 - `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 通过，`failed_count=0`，包含 `smoke:streamlit`。
+
+### 2026-06-16 GitHub 到 Render 的移动网络试用路径确认
+
+本轮继续对齐用户最核心问题：如何让其他同事在移动网络下试用工具，以及 Vercel / Cloudflare / GitHub Import 该如何分工。
+
+确认：
+- 当前 `origin` 已指向 GitHub 仓库 `https://github.com/mordecairegular/green-direct-platform.git`；
+- 当前本地分支为 `codex/UI`，跟踪 `origin/codex/UI`，最近一次检查为 ahead=91、behind=0；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，说明本地 Docker、Render、默认环境变量、持久盘路径和部署文件门槛已满足；
+- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 按预期失败，唯一失败项是 `git:sync`，说明 Render/GitHub 还拿不到这 91 个本地 checkpoint。
+
+决策：
+- GitHub 是正确的版本与自动部署入口；
+- 当前 Streamlit 长进程 + 本地 pilot store 不适合直接部署到 Vercel Functions 或 Cloudflare Pages/Workers；
+- 短期移动网络试用路线仍是 GitHub private repository -> Render Blueprint/Docker Web Service/persistent disk -> Cloudflare DNS/HTTPS/Access -> 应用内账号；
+- Vercel 只作为未来 Next.js/React 前端拆分后的候选前端托管平台，不作为第一次公网试用的主机。
+
+文档更新：
+- `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 新增“当前最短路径”，把推 GitHub、等 Actions、Render Blueprint、管理员初始化、Cloudflare Access 和手机验收串成 7 步；
+- `docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md` 新增当前执行状态；
+- `notes/HANDOFF_FOR_NEW_MACHINE.md` 记录当前 remote、ahead/behind 和下一步。
+
+边界：
+- 本轮不推送 GitHub，不创建 Render 服务，不配置 Cloudflare；
+- 这些操作需要用户确认账号、仓库权限、套餐/持久盘、域名和内测邮箱名单。

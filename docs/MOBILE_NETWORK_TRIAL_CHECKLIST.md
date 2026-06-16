@@ -4,6 +4,20 @@
 
 目标：让内部同事不在同一局域网、只用手机或移动网络，也能访问并试用绿电直连测算工具。
 
+## 0. 当前最短路径
+
+当前仓库已经配置了 GitHub 远端、Docker 部署文件、Render Blueprint、部署 preflight、Streamlit smoke 和 GitHub Actions 质量门。要让同事用移动网络试用，下一步不是把 Streamlit 改成 Vercel 应用，而是：
+
+1. 经项目负责人确认后，把本地 `codex/UI` 分支推送到 GitHub 私有仓库。
+2. 等 GitHub Actions `Internal Pilot Quality Gate` 跑通。
+3. 在 Render 选择 Blueprint / Import Git Repository，导入同一个 GitHub 仓库和分支。
+4. 确认 Render 创建的是 Docker Web Service，并挂载 `/data` persistent disk。
+5. 在 Render Web Service Shell 初始化平台管理员，再登录应用创建 3-5 个首批内测账号。
+6. 把 Render 自定义域名接入 Cloudflare DNS / HTTPS / Access，只放行内测邮箱。
+7. 用手机 4G/5G 完成第 6 节验收后，再把链接发给真实同事。
+
+如果未来把前台改成 Next.js/React，Vercel 可以成为前端托管平台；但当前第一版公网试用仍以 Render 承载 Streamlit/Docker 应用本体，Cloudflare 做入口门禁。
+
 ## 1. 推荐路径
 
 ```text
