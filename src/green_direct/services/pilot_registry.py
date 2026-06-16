@@ -113,6 +113,11 @@ class LocalPilotRegistry:
         disabled = replace(user, status=UserStatus.DISABLED)
         return self.save_user(disabled, overwrite=True)
 
+    def enable_user(self, user_id: str) -> User:
+        user = self.load_user(user_id)
+        enabled = replace(user, status=UserStatus.ACTIVE)
+        return self.save_user(enabled, overwrite=True)
+
     def save_project(self, project: Project, *, overwrite: bool = False) -> Project:
         path = self._project_path(project.project_id)
         if path.exists() and not overwrite:

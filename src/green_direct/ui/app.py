@@ -3840,7 +3840,7 @@ def _render_platform_admin_page(st) -> None:
                 f"{selected_user.display_name} / {selected_user.login_name} / "
                 f"{selected_user.status.value} / 平台管理员={'是' if selected_user.is_platform_admin else '否'}"
             )
-            grant_col, revoke_col, disable_col = st.columns(3)
+            grant_col, revoke_col, disable_col, enable_col = st.columns(4)
             with grant_col:
                 if st.button("授予平台管理员", key="pilot_admin_grant_admin", disabled=selected_user.is_platform_admin):
                     try:
@@ -3874,6 +3874,14 @@ def _render_platform_admin_page(st) -> None:
                             st.session_state[PILOT_LOGIN_NOTICE_KEY] = "当前账号已停用，请使用其他账号登录。"
                         else:
                             st.session_state[PILOT_ADMIN_NOTICE_KEY] = f"已停用账号：{selected_user_id}"
+                        st.rerun()
+                    except Exception as exc:  # noqa: BLE001
+                        _handle_platform_admin_error(st, exc)
+            with enable_col:
+                if st.button("恢复账号", key="pilot_admin_enable_user", disabled=selected_user.is_active):
+                    try:
+                        enabled = admin_service.enable_user(actor_user_id=actor_user_id, user_id=selected_user_id)
+                        st.session_state[PILOT_ADMIN_NOTICE_KEY] = f"已恢复账号：{enabled.user_id}"
                         st.rerun()
                     except Exception as exc:  # noqa: BLE001
                         _handle_platform_admin_error(st, exc)

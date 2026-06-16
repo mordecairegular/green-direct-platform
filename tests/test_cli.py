@@ -108,6 +108,20 @@ def test_cli_pilot_admin_bootstrap_create_reset_disable_user(tmp_path, monkeypat
     ) == 0
     assert LocalPilotRegistry(tmp_path).load_user("analyst").is_active is False
 
+    assert main(
+        [
+            "pilot-admin",
+            "enable-user",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--user-id",
+            "analyst",
+        ]
+    ) == 0
+    assert "Enabled user: analyst" in capsys.readouterr().out
+    assert LocalPilotRegistry(tmp_path).load_user("analyst").is_active is True
+
 
 def test_cli_pilot_admin_grant_revoke_and_list_sessions(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("ADMIN_PASSWORD", "admin-password")

@@ -143,6 +143,28 @@ def test_disable_user_revokes_active_sessions_and_audits(tmp_path):
     )
 
 
+def test_platform_admin_can_reactivate_disabled_user_and_audit(tmp_path):
+    service = _admin_service(tmp_path)
+    service.bootstrap_platform_admin(user=User("admin", "admin@example.local", "Admin"), password="admin-password")
+    service.create_user(
+        actor_user_id="admin",
+        user=User("analyst", "analyst@example.local", "Analyst"),
+        initial_password="analyst-password",
+    )
+    service.disable_user(actor_user_id="admin", user_id="analyst")
+
+    enabled = service.enable_user(actor_user_id="admin", user_id="analyst")
+
+    assert enabled.status == UserStatus.ACTIVE
+    assert service.auth.login(login_name="analyst@example.local", password="analyst-password").user_id == "analyst"
+    assert any(
+        event.action == AuditAction.UPDATE_USER
+        and event.target_id == "analyst"
+        and event.metadata.get("status") == UserStatus.ACTIVE.value
+        for event in service.result_store.read_audit_log()
+    )
+
+
 def test_platform_admin_can_manage_project_memberships_without_project_admin_role(tmp_path):
     service = _admin_service(tmp_path)
     service.bootstrap_platform_admin(user=User("platform_admin", "admin@example.local", "Admin"), password="admin-password")

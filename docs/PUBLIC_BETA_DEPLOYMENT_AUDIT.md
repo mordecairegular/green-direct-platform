@@ -10,7 +10,7 @@
 
 已具备：
 
-- 可选登录门禁、平台管理员 bootstrap、账号创建/停用/重置密码；
+- 可选登录门禁、平台管理员 bootstrap、账号创建/停用/恢复/重置密码；
 - 项目、项目成员和 `can_export_artifacts` 第一版授权位；
 - 本地 `PilotAccessService` 权限/审计门面；
 - 本地 `ResultStore`、`JobStore`、artifact 元数据、过期 payload 清理、结果索引标记/置顶和软删除；
@@ -39,7 +39,7 @@
 | 要求 | 当前状态 | 证据 | 风险 | 下一步 |
 |---|---|---|---|---|
 | 只有登录用户可以上传和计算 | 部分满足 | `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后未登录用户只能看到登录表单 | 默认开发模式仍不启用登录；公网部署必须强制启用 | 部署 runbook 和容器入口强制设置 pilot auth |
-| 管理员创建/停用用户、创建/归档项目、维护项目成员和查看审计 | 第一版满足 | `LocalPilotAdminService`、`pilot-admin` 用户/项目/成员/审计命令、Streamlit 平台管理页可创建/归档项目、维护成员并只读查看审计日志 | 仍是本地文件版账号后台和最小审计查看入口 | 后续迁移 SQLite/Postgres 或统一身份，并补正式审计后台 |
+| 管理员创建/停用/恢复用户、创建/归档项目、维护项目成员和查看审计 | 第一版满足 | `LocalPilotAdminService`、`pilot-admin` 用户/项目/成员/审计命令、Streamlit 平台管理页可创建/归档项目、维护成员并只读查看审计日志 | 仍是本地文件版账号后台和最小审计查看入口 | 后续迁移 SQLite/Postgres 或统一身份，并补正式审计后台 |
 | 用户只能访问授权项目 | 第一版满足 | `PilotAccessService.list_accessible_projects()` 和项目工作区门禁 | 未来 API/下载入口必须复用同一门面 | 禁止 UI 直接绕过 `PilotAccessService` |
 | 不可导出用户不能导出 | 第一版满足 | `ProjectMembership.can_export_artifacts`、`read_artifact_payload()` 下载审计；当前 06 页临时下载走 `record_transient_export_download()`；网页查看走 `read_artifact_payload_for_view()` | 仍需保证未来 API、反向代理下载和对象存储签名 URL 不绕过服务门面 | 所有下载/导出统一走后端授权服务 |
 | 上传文件类型/大小限制 | 第一版满足 | `UploadPolicy`，默认 20MB，CSV/XLSX/XLSM 白名单；技术三曲线随技术结果写入 `ArtifactKind.INPUT_CURVE` | 价格曲线、schema 报告和原始输入清理调度仍未闭环 | 增加 schema 报告、定时清理和关键 Run 保留 |

@@ -5036,10 +5036,35 @@ benchmark：
 
 结果：
 - `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 通过，`failed_count=0`，包含部署文件、Docker/compose/Render 环境、安全默认值、持久盘、`.dockerignore` 和 `smoke:streamlit` 检查；
-- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 按预期失败，唯一失败项是 `git:sync`：当前 `codex/UI` 相对 `origin/codex/UI` ahead 88、behind 0；
+- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 按预期失败，唯一失败项是 `git:sync`：本地 `codex/UI` 尚未推到 upstream；最近一次检查为 ahead>0、behind 0，具体提交数以重新运行该命令为准；
 - 这说明本地部署入口与健康检查可用，但 GitHub/Render 尚拿不到这 88 个本地提交。
 
 下一步：
 - 经用户确认后推送 `codex/UI` 到私有 GitHub；
 - 等 GitHub Actions `Internal Pilot Quality Gate` 通过，首次部署或重要回滚前手动触发并勾选 `run_smoke`；
 - 再按 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 执行 Render Blueprint、平台管理员初始化、Cloudflare Access 和手机移动网络访问验收。
+
+### 2026-06-16 平台管理恢复停用账号
+
+本轮继续补内部 10-20 人试用所需的后台账号控制闭环。此前平台管理员已经可以创建账号、重置密码、授予/撤销平台管理员和停用账号；但如果内测期间误停用同事账号，Web 管理页和 CLI 都没有恢复入口，只能直接改本地 JSON 或重建账号。对非程序员管理员来说，这会变成真实运维风险。
+
+实现：
+- `LocalPilotRegistry` 新增 `enable_user()`，把用户状态恢复为 `active`；
+- `LocalPilotAdminService.enable_user()` 复用平台管理员校验，并写 `UPDATE_USER` 审计；
+- `pilot-admin enable-user` 新增服务器侧应急入口；
+- Streamlit “平台管理 -> 权限和停用”新增“恢复账号”按钮，只在所选账号已停用时可用；
+- README、部署 runbook、软件接口总览、受控公网审计矩阵、TODO 和 handoff 已同步。
+
+边界：
+- 恢复账号不会绕过平台管理员权限；
+- 恢复账号不会创建新密码，仍可配合“重置密码”使用；
+- 这不改变 V0.1 技术仿真、经济性 V1 或推荐排序口径。
+
+验证：
+- `python -m pytest tests/test_pilot_admin.py::test_platform_admin_can_reactivate_disabled_user_and_audit tests/test_cli.py::test_cli_pilot_admin_bootstrap_create_reset_disable_user tests/test_ui_import.py::test_streamlit_platform_admin_can_reactivate_user -q` 通过，3 项通过；
+- `python -m compileall -q src\green_direct\services\pilot_registry.py src\green_direct\services\pilot_admin.py src\green_direct\cli.py src\green_direct\ui\app.py tests\test_pilot_admin.py tests\test_cli.py tests\test_ui_import.py` 通过；
+- `python -m pytest tests/test_pilot_admin.py tests/test_cli.py::test_cli_pilot_admin_bootstrap_create_reset_disable_user tests/test_ui_import.py::test_streamlit_platform_admin_can_create_user tests/test_ui_import.py::test_streamlit_platform_admin_can_reactivate_user tests/test_ui_import.py::test_streamlit_platform_admin_can_create_and_archive_project tests/test_ui_import.py::test_streamlit_non_admin_does_not_show_platform_admin_entry -q` 通过，18 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `git diff --check` 通过，仅有 Windows 换行转换提示；
+- `python -m pytest -q` 通过，359 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 通过，`failed_count=0`，包含 `smoke:streamlit`。

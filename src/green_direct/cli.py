@@ -161,6 +161,16 @@ def _cmd_disable_user(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_enable_user(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    user = services.admin.enable_user(
+        actor_user_id=args.actor_user_id,
+        user_id=args.user_id,
+    )
+    print(f"Enabled user: {user.user_id}")
+    return 0
+
+
 def _cmd_set_platform_admin(args: argparse.Namespace) -> int:
     services = _pilot_services(args.store_dir)
     user = services.admin.set_platform_admin(
@@ -605,6 +615,12 @@ def build_parser() -> argparse.ArgumentParser:
     _add_actor_arg(disable_user)
     disable_user.add_argument("--user-id", required=True)
     disable_user.set_defaults(func=_cmd_disable_user)
+
+    enable_user = pilot_admin_sub.add_parser("enable-user", help="Reactivate a disabled user.")
+    _add_common_store_arg(enable_user)
+    _add_actor_arg(enable_user)
+    enable_user.add_argument("--user-id", required=True)
+    enable_user.set_defaults(func=_cmd_enable_user)
 
     grant_admin = pilot_admin_sub.add_parser("grant-platform-admin", help="Grant platform-admin status.")
     _add_common_store_arg(grant_admin)

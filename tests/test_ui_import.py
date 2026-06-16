@@ -1424,6 +1424,45 @@ def test_streamlit_platform_admin_can_create_user(tmp_path, monkeypatch):
     assert created.is_platform_admin is False
 
 
+def test_streamlit_platform_admin_can_reactivate_user(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import User
+    from green_direct.services import LocalPilotAdminService, LocalPilotAuth, LocalPilotRegistry, LocalResultStore
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+
+    registry = LocalPilotRegistry(tmp_path)
+    result_store = LocalResultStore(tmp_path)
+    auth = LocalPilotAuth(tmp_path, registry=registry, result_store=result_store)
+    admin = LocalPilotAdminService(registry=registry, auth=auth, result_store=result_store)
+    admin.bootstrap_platform_admin(
+        user=User("admin", "admin@example.local", "Admin", is_platform_admin=True),
+        password="admin-password",
+    )
+    admin.create_user(
+        actor_user_id="admin",
+        user=User("analyst", "analyst@example.local", "Analyst"),
+        initial_password="analyst-password",
+    )
+    admin.disable_user(actor_user_id="admin", user_id="analyst")
+
+    app_test = AppTest.from_file("src/green_direct/ui/app.py")
+    app_test.run(timeout=10)
+    app_test.text_input[0].input("admin@example.local")
+    app_test.text_input[1].input("admin-password")
+    app_test.button[0].click().run(timeout=10)
+
+    next(button for button in app_test.button if button.label == "Admin  平台管理").click().run(timeout=10)
+    next(select for select in app_test.selectbox if select.key == "pilot_admin_status_user_id").select("analyst").run(timeout=10)
+    enable_button = next(button for button in app_test.button if button.key == "pilot_admin_enable_user")
+    assert enable_button.disabled is False
+    enable_button.click().run(timeout=10)
+
+    assert LocalPilotRegistry(tmp_path).load_user("analyst").is_active is True
+
+
 def test_streamlit_platform_admin_can_create_and_archive_project(tmp_path, monkeypatch):
     import green_direct.ui.app as app
     from green_direct.models.pilot_backend import ProjectRole, ProjectStatus, User

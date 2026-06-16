@@ -77,7 +77,7 @@ python -m green_direct.cli pilot-admin bootstrap `
     --password-env GREEN_DIRECT_ADMIN_PASSWORD
 ```
 
-之后可在 Streamlit 的“平台管理”页创建试用账号、重置密码、停用用户、授予/撤销平台管理员，并维护项目成员和导出权限。应至少保留两个活跃平台管理员，避免单点锁死。
+之后可在 Streamlit 的“平台管理”页创建试用账号、重置密码、停用/恢复用户、授予/撤销平台管理员，并维护项目成员和导出权限。应至少保留两个活跃平台管理员，避免单点锁死。
 
 CLI 也可作为 Web 管理页不可用时的服务器侧应急入口：
 
@@ -311,7 +311,7 @@ python -m green_direct.cli pilot-admin list-audit-events `
 - 普通用户必须选择或创建项目后才进入六步工作流；
 - Demo 技术仿真、经济性测算、方案推荐能跑通；
 - 禁止导出的项目成员不能下载历史 artifact 或 06 页导出文件；
-- `pilot-admin list-users`、`list-projects`、`list-project-members`、`list-audit-events`、`list-jobs`、`claim-next-job`、`heartbeat-job`、`complete-worker-job`、`fail-worker-job`、`run-worker-once`、`run-worker-loop`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
+- `pilot-admin list-users`、`enable-user`、`list-projects`、`list-project-members`、`list-audit-events`、`list-jobs`、`claim-next-job`、`heartbeat-job`、`complete-worker-job`、`fail-worker-job`、`run-worker-once`、`run-worker-loop`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
 - 新运行日志不包含明文密码、明文 token、原始曲线内容。
 
 ## 13. 回滚

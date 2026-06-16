@@ -187,6 +187,19 @@ class LocalPilotAdminService:
         )
         return disabled
 
+    def enable_user(self, *, actor_user_id: str, user_id: str) -> User:
+        """Reactivate a disabled user after checking platform-admin permission."""
+
+        actor = self._platform_admin(actor_user_id)
+        enabled = self.registry.enable_user(user_id)
+        self._audit(
+            actor_user_id=actor.user_id,
+            action=AuditAction.UPDATE_USER,
+            target_user_id=user_id,
+            metadata={"status": enabled.status.value},
+        )
+        return enabled
+
     def list_users(self, *, actor_user_id: str, active_only: bool = False) -> list[User]:
         """List users after checking platform-admin permission."""
 

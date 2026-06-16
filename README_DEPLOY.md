@@ -176,7 +176,7 @@ docker compose --profile worker up -d green-direct-worker
 
 - 创建用户；
 - 重置密码；
-- 停用用户；
+- 停用/恢复用户；
 - 授予/撤销平台管理员；
 - 创建/归档项目；
 - 维护项目成员角色；
