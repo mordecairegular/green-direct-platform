@@ -29,6 +29,8 @@ Browser
 
 Cloudflare 的最佳角色：域名、HTTPS、WAF/基础防护、Zero Trust Access、访问日志入口。不要让 Cloudflare Workers/Pages 承载当前 Python 计算应用本体。
 
+如果目标只是让同事在手机或移动网络下先试用，请优先按 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 执行；本文保留更完整的平台判断和架构边界。
+
 ## 2. 为什么先选 Render
 
 Render 对当前仓库的改动最小：
@@ -76,6 +78,7 @@ Vercel 可以作为未来正式化后的前端托管平台：例如将前端改�
    - `GREEN_DIRECT_PILOT_STORE_DIR=/data/pilot_store`
    - `GREEN_DIRECT_MAX_UPLOAD_MB=20`
    - `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN=20000`
+   - `PORT=8503`，或使用平台默认端口；Docker 启动命令会优先读取 `PORT`
 5. 确认 persistent disk 挂载：
    - mount path: `/data`
    - app store: `/data/pilot_store`

@@ -4592,6 +4592,8 @@ exchange_import_shortfall_energy == 0
 本轮实现：
 - 新增 `render.yaml`，作为 Render Blueprint 的第一版入口；
 - 新增 `docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md`，给出 Render + persistent disk + Cloudflare Access 的推荐路线，并列出 Fly.io、Railway、Cloud Run 等替代平台边界；
+- 新增 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md`，把“让同事在手机/移动网络下试用”拆成 GitHub、Render、Cloudflare Access、账号创建和发链接前验收清单；
+- 调整 `Dockerfile` 和 `docker-compose.yml`，让容器默认 8503 端口，但启动命令和 healthcheck 可跟随托管平台注入的 `PORT`；
 - 更新 `README_DEPLOY.md`、`docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md` 和 `notes/HANDOFF_FOR_NEW_MACHINE.md`，把公网测试从“自建服务器优先”调整为“托管平台优先，Cloudflare 做入口”。
 
 边界说明：

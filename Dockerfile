@@ -10,6 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     GREEN_DIRECT_PILOT_STORE_DIR=/data/pilot_store \
     GREEN_DIRECT_MAX_UPLOAD_MB=20 \
     GREEN_DIRECT_MAX_SCENARIOS_PER_RUN=20000 \
+    PORT=8503 \
     STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
     STREAMLIT_SERVER_PORT=8503 \
     STREAMLIT_SERVER_HEADLESS=true \
@@ -43,6 +44,6 @@ USER appuser
 EXPOSE 8503
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8503/_stcore/health', timeout=3).read()"
+    CMD python -c "import os, urllib.request; port = os.environ.get('PORT') or os.environ.get('STREAMLIT_SERVER_PORT', '8503'); urllib.request.urlopen(f'http://127.0.0.1:{port}/_stcore/health', timeout=3).read()"
 
-CMD ["python", "-m", "streamlit", "run", "src/green_direct/ui/app.py", "--server.address=0.0.0.0", "--server.port=8503", "--server.headless=true", "--browser.gatherUsageStats=false"]
+CMD ["sh", "-c", "exec python -m streamlit run src/green_direct/ui/app.py --server.address=${STREAMLIT_SERVER_ADDRESS:-0.0.0.0} --server.port=${PORT:-${STREAMLIT_SERVER_PORT:-8503}} --server.headless=${STREAMLIT_SERVER_HEADLESS:-true} --browser.gatherUsageStats=${STREAMLIT_BROWSER_GATHER_USAGE_STATS:-false}"]

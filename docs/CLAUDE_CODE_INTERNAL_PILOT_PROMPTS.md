@@ -245,6 +245,7 @@ python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/tes
 - README_DEPLOY.md
 - render.yaml
 - docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md
+- docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md
 - docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md
 - SECURITY.md
 - Dockerfile

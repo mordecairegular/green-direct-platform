@@ -76,6 +76,8 @@ Cloudflare DNS / HTTPS / Access
 
 仓库已提供 `render.yaml`，可在 Render 中用 Blueprint 创建服务。详细步骤见 `docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md`。
 
+如果目标是让同事用手机或移动网络尽快试用，请直接按 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 执行。
+
 ## 3. 默认安全设置
 
 `docker-compose.yml` 默认设置：
@@ -86,6 +88,7 @@ GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0
 GREEN_DIRECT_PILOT_STORE_DIR=/data/pilot_store
 GREEN_DIRECT_MAX_UPLOAD_MB=20
 GREEN_DIRECT_MAX_SCENARIOS_PER_RUN=20000
+PORT=8503
 ```
 
 含义：
@@ -95,6 +98,7 @@ GREEN_DIRECT_MAX_SCENARIOS_PER_RUN=20000
 - 账号、会话、项目、任务、结果、artifact 和审计日志写入容器外 volume；
 - 上传文件默认单文件 20MB 上限。
 - 技术仿真默认单次最多 20,000 个候选方案，超过时前台会阻止启动，后端 `run_batch()` 也会拒绝执行。
+- 容器默认监听 8503；托管平台如注入 `PORT`，Docker 启动命令会优先使用平台端口。
 
 ## 4. 数据卷
 

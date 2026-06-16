@@ -22,7 +22,7 @@
 - 欢迎页项目任务与结果面板、项目 admin 结果索引标记/隐藏入口，以及排队/运行中任务的最小查看和取消入口；
 - `.env.example`、内部部署 runbook、pilot store 备份/恢复脚本。
 - Dockerfile、docker-compose.yml、README_DEPLOY.md、SECURITY.md 第一版。
-- 托管平台公网测试路线第一版：`render.yaml` 和 `docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md`，推荐 Render/Fly/Railway/Cloud Run 承载 Docker 应用，Cloudflare 负责 DNS/HTTPS/Access；不建议用 Vercel 或 Cloudflare Pages/Workers 直接承载当前 Streamlit 计算应用。
+- 托管平台公网测试路线第一版：`render.yaml`、`docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md` 和 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md`，推荐 Render/Fly/Railway/Cloud Run 承载 Docker 应用，Cloudflare 负责 DNS/HTTPS/Access；不建议用 Vercel 或 Cloudflare Pages/Workers 直接承载当前 Streamlit 计算应用。
 
 仍未达到公网内测 Route A：
 
