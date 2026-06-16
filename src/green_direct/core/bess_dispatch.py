@@ -49,6 +49,7 @@ def dispatch_bess_hour_values_with_limits(
     exchange_limit_energy: float,
     has_exchange_limit: bool | None = None,
     remaining_export_cap: float | None = None,
+    clamp_outputs: bool = True,
 ) -> DispatchStepValues:
     """Dispatch one BESS time step with precomputed scenario limits."""
 
@@ -119,6 +120,21 @@ def dispatch_bess_hour_values_with_limits(
             hour_case = "GEN_SHORT_BESS_DISCHARGE"
         else:
             hour_case = "GEN_SHORT_GRID_IMPORT"
+
+    if not clamp_outputs:
+        return (
+            direct_self_use,
+            bess_charge,
+            bess_discharge,
+            grid_import,
+            grid_export,
+            curtail,
+            curtail_due_to_export_cap,
+            curtail_due_to_exchange_limit,
+            exchange_import_shortfall,
+            bess_energy_end,
+            hour_case,
+        )
 
     return (
         max(direct_self_use, 0.0),

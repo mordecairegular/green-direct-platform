@@ -5741,3 +5741,23 @@ profile / benchmark：
 边界：
 - 不改变经济性 V1 现金流字段、税费、折旧、储能更换年份、NPV/FIRR 定义或推荐排序口径；
 - 这只是 FIRR 求解路径瘦身，后续仍需继续推进后台 Job、价格曲线 artifact 化、数据库/对象存储和更大规模经济性批量化。
+
+### 2026-06-17 含储能技术仿真热路径跳过冗余输出夹紧
+
+本轮继续推进方案遍历技术仿真性能。8760 小时、87 方案、summary-first、无常驻逐小时明细的 cProfile 显示，含储能场景主要热点仍在 `dispatch_bess_hour_values_with_limits()`，其中大量时间消耗在每小时返回前对 10 个数值字段执行通用 `max(..., 0.0)` 防御性夹紧。
+
+实现：
+- `dispatch_bess_hour_values_with_limits()` 新增 `clamp_outputs` 参数，默认 `True`，public helper 和现有调用保持防御性输出夹紧；
+- `run_single_scenario()` 的批量 BESS hot path 在已验证非负负荷、曲线派生值非负、BESS 限额预计算完成的条件下传入 `clamp_outputs=False`；
+- 新增测试确认 BESS summary-only hot path 传入 `clamp_outputs=False`，现有 public helper 一致性和 golden dispatch 测试继续覆盖口径。
+
+验证与反馈环：
+- `python -m pytest tests\test_bess_dispatch.py tests\test_single_scenario.py tests\test_batch_runner.py -q` 通过，66 项通过；
+- 同一 8760 小时、87 方案 summary-first cProfile：函数调用数约从 8,650,495 降到 3,569,695，总耗时约从 2.192s 降到 1.286s；
+- 直接计时同一技术样本三次约为 0.7771s、0.7312s、0.7529s；
+- `benchmark_internal_pilot_performance.py` 带 `tracemalloc` 的小样本单次仍有噪声，后续性能结论应优先参考同参数 profile 或多次直接计时。
+
+边界：
+- 不改变 V0.1 BESS 充放电顺序、SOC 滚动、功率/容量约束、上网/下网限制、hour_case 或 summary 字段；
+- public dispatch helper 默认仍保留输出夹紧，只有批量 simulator 内部 hot path 跳过冗余夹紧；
+- 后续仍需继续推进后台 Job、worker 级取消/重试和更大规模并行/编译化内核评估。

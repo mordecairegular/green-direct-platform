@@ -39,6 +39,7 @@
 - 批量 summary-only 热路径已复用共享空 hourly ledger，避免未保留逐小时明细的每个方案都新建一个空 pandas DataFrame；公开单方案默认调用仍返回带列名的空表。
 - 有储能场景已把光伏/风电出力、正负出力拆分、站用电、净可用绿电、调度负荷和逐小时电量等与 SOC 无关的数组移到循环外预计算；逐小时循环内仍保留同一套 BESS SOC 滚动和 dispatch helper，不改变 V0.1 调度口径。
 - 批量技术仿真已复用 `PreparedCurveData`，同一批次只从输入 `DataFrame` 提取一次 timestamp、负荷、光伏和风电数组；每个方案复用这些数组，避免重复 DataFrame 取列和 `to_numpy()` 转换。
+- 含储能批量 hot path 已跳过 `dispatch_bess_hour_values_with_limits()` 的最终防御性输出夹紧：public dispatch helper 默认仍保留 `max(..., 0.0)` 语义，批量 simulator 在已验证非负输入和预计算限额条件下传入 `clamp_outputs=False`，避免每小时重复执行一组冗余 `max()`。
 
 ## 2. 新增基准脚本
 
@@ -151,7 +152,7 @@ python scripts\benchmark_internal_pilot_performance.py --json
 - 同一组输入下经济性 summary 与优化前一致；
 - 年度现金流保留策略不影响推荐排序。
 - 后续可继续把更多 DataFrame/NumPy 批量计算和价格曲线聚合放进共享上下文，避免每个方案重复解析同一组输入。
-- 已减少单方案热路径里的 `DispatchStep` 对象创建：`dispatch_hour_values_with_limits()` 与 `dispatch_hour_with_limits()` 保持同一计算逻辑，现有 golden/批量一致性测试用于证明口径不变；已将批量 runner 不消费的逐方案 diagnostics 变为可跳过，并把 hourly numeric cleanup 前移到 numpy 数组；无储能 summary-only 和无储能 retained hourly detail 场景已走 NumPy 快路径；有储能场景已把与 SOC 无关的曲线派生量移出逐小时循环，批量入口已复用同一份曲线数组；有储能热路径新增 `dispatch_bess_hour_values_with_limits()`，绕过通用 `has_bess` 分支，并在未配置电网交换功率限制时跳过 `min(..., inf)` 型计算。后续可继续评估有储能 summary-only 的更紧凑累加结构、dispatch 内核瘦身或编译化内核。
+- 已减少单方案热路径里的 `DispatchStep` 对象创建：`dispatch_hour_values_with_limits()` 与 `dispatch_hour_with_limits()` 保持同一计算逻辑，现有 golden/批量一致性测试用于证明口径不变；已将批量 runner 不消费的逐方案 diagnostics 变为可跳过，并把 hourly numeric cleanup 前移到 numpy 数组；无储能 summary-only 和无储能 retained hourly detail 场景已走 NumPy 快路径；有储能场景已把与 SOC 无关的曲线派生量移出逐小时循环，批量入口已复用同一份曲线数组；有储能热路径新增 `dispatch_bess_hour_values_with_limits()`，绕过通用 `has_bess` 分支，并在未配置电网交换功率限制时跳过 `min(..., inf)` 型计算；批量 hot path 还会跳过 public helper 的最终防御性输出夹紧，减少每小时冗余 `max()` 调用。后续可继续评估有储能 summary-only 的更紧凑累加结构、dispatch 内核瘦身或编译化内核。
 
 ## 4. 不做的事
 

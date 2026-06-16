@@ -402,6 +402,40 @@ def test_bess_summary_only_uses_bess_specific_values_helper(monkeypatch):
             assert actual == expected_value, key
 
 
+def test_bess_hot_path_skips_redundant_output_clamps(monkeypatch):
+    import green_direct.core.single_scenario_simulator as simulator
+
+    curves = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2020-01-01", periods=5, freq="h"),
+            "load_power": [10, 20, 12, 5, 18],
+            "pv_pu": [2.0, 0.2, 1.5, 0.0, 0.1],
+            "wind_pu": [0.0, 0.1, 0.5, 0.0, 0.0],
+        }
+    )
+    scenario = Scenario("S_BESS_NO_CLAMP", pv_capacity=10, wind_capacity=5, bess_power=4, bess_energy=12)
+    bess_params = BessParams(soc_initial=0.5, soc_min=0.1, soc_max=0.9, eta_charge=0.95, eta_discharge=0.9)
+    original_dispatch = simulator.dispatch_bess_hour_values_with_limits
+    observed_flags: list[bool | None] = []
+
+    def record_clamp_flag(*args, **kwargs):
+        observed_flags.append(kwargs.get("clamp_outputs"))
+        return original_dispatch(*args, **kwargs)
+
+    monkeypatch.setattr(simulator, "dispatch_bess_hour_values_with_limits", record_clamp_flag)
+
+    result = run_single_scenario(
+        curves,
+        scenario,
+        bess_params=bess_params,
+        retain_hourly_detail=False,
+    )
+
+    assert result.hourly_detail.empty
+    assert observed_flags
+    assert set(observed_flags) == {False}
+
+
 def test_case_11_load_side_self_use_consistency():
     result = _run(
         [10, 20, 10],

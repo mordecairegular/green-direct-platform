@@ -669,6 +669,7 @@ def run_single_scenario(
             remaining_export_cap=remaining_cap,
             exchange_limit_energy=exchange_limit_energy,
             has_exchange_limit=has_exchange_limit,
+            clamp_outputs=False,
         )
         bess_energy = step_bess_energy_end
         soc = bess_energy / scenario_bess_energy
