@@ -146,6 +146,7 @@ def main(argv: list[str] | None = None) -> int:
             f"--server.port={args.port}",
             "--server.headless=true",
             "--browser.gatherUsageStats=false",
+            f"--server.maxUploadSize={env['GREEN_DIRECT_MAX_UPLOAD_MB']}",
         ]
         with stdout_path.open("w", encoding="utf-8") as stdout_file, stderr_path.open(
             "w", encoding="utf-8"

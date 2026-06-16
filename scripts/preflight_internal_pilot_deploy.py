@@ -149,6 +149,7 @@ def _dockerfile_checks(checks: list[dict[str, str]]) -> None:
         "USER appuser",
         "_stcore/health",
         "--server.port=${PORT",
+        "--server.maxUploadSize=${STREAMLIT_SERVER_MAX_UPLOAD_SIZE:-${GREEN_DIRECT_MAX_UPLOAD_MB:-20}}",
     )
     for needle in expected:
         _check(needle in text, checks, f"dockerfile:{needle}", f"Dockerfile contains {needle}")

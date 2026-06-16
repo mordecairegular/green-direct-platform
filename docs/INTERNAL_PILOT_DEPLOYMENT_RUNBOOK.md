@@ -136,12 +136,14 @@ $env:PYTHONPATH = "src"
 $env:GREEN_DIRECT_ENABLE_PILOT_AUTH = "1"
 $env:GREEN_DIRECT_PILOT_STORE_DIR = "D:\GreenDirectPilot\pilot_store"
 $env:GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT = "0"
+$env:GREEN_DIRECT_MAX_UPLOAD_MB = "20"
 
 python -m streamlit run src/green_direct/ui/app.py `
     --server.address=127.0.0.1 `
     --server.port=8503 `
     --server.headless=true `
-    --browser.gatherUsageStats=false
+    --browser.gatherUsageStats=false `
+    --server.maxUploadSize=$env:GREEN_DIRECT_MAX_UPLOAD_MB
 ```
 
 如果必须在内网网卡上直接监听，应通过防火墙、VPN 或网关限制访问来源。公网域名访问必须使用 HTTPS 反向代理，并继续保持应用侧登录门禁。

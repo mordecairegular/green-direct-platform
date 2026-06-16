@@ -5671,3 +5671,22 @@ profile / benchmark：
 边界：
 - 这不是完整 secret scanning 或数据脱敏审计；它是 GitHub 推送前的快速硬闸；
 - 高度敏感样例资料是否应留在私有仓库，仍需要项目负责人做业务判断。
+
+### 2026-06-17 移动端冒烟发现上传大小提示口径不一致
+
+本轮做公网内测前的移动宽度 UI 冒烟：桌面首页可渲染，手机宽度 `390 x 844` 下首页和 02 方案仿真页均无横向溢出，控制台无 warning/error，首页“开始方案仿真”可跳转到 02 页。Browser 插件可导航但截图和 viewport override 在本次会话不可用，因此用 Playwright CLI 做手机宽度 fallback 验证。
+
+发现：
+- 02 页 Streamlit 文件上传控件显示 `200MB per file`；
+- 应用上传策略、部署环境变量和安全文档默认都是 `GREEN_DIRECT_MAX_UPLOAD_MB=20`；
+- 这会导致同事以为可上传 200MB，实际超过 20MB 后被应用策略拒绝。
+
+修复：
+- Docker CMD、smoke 脚本和本地启动器都显式传入 `--server.maxUploadSize`；
+- 默认值来自同一个 `GREEN_DIRECT_MAX_UPLOAD_MB`，Docker 也允许用 `STREAMLIT_SERVER_MAX_UPLOAD_SIZE` 覆盖；
+- 部署 runbook 的手工 Streamlit 命令同步该参数；
+- preflight 和部署测试锁定 Dockerfile 参数。
+
+边界：
+- 这不改变上传文件业务校验、允许后缀或上传元数据记录；
+- 当前只修正启动/部署口径，让前端控件提示、Streamlit server 限制和应用策略默认一致。

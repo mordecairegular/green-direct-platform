@@ -43,6 +43,7 @@ def test_dockerfile_defaults_to_safe_server_mode():
     assert "streamlit" in dockerfile
     assert "_stcore/health" in dockerfile
     assert "USER appuser" in dockerfile
+    assert "--server.maxUploadSize=${STREAMLIT_SERVER_MAX_UPLOAD_SIZE:-${GREEN_DIRECT_MAX_UPLOAD_MB:-20}}" in dockerfile
 
 
 def test_dockerignore_excludes_local_state_and_secrets():
@@ -117,6 +118,7 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     assert "render:instances" in check_names
     assert "compose:volume" in check_names
     assert "dockerfile:PORT=8503" in check_names
+    assert "dockerfile:--server.maxUploadSize=${STREAMLIT_SERVER_MAX_UPLOAD_SIZE:-${GREEN_DIRECT_MAX_UPLOAD_MB:-20}}" in check_names
     assert "git-tracked:env-files" in check_names
     assert "git-tracked:local-state" in check_names
     assert "git-tracked:secret-payloads" in check_names

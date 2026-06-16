@@ -48,4 +48,4 @@ EXPOSE 8503
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD python -c "import os, urllib.request; port = os.environ.get('PORT') or os.environ.get('STREAMLIT_SERVER_PORT', '8503'); urllib.request.urlopen(f'http://127.0.0.1:{port}/_stcore/health', timeout=3).read()"
 
-CMD ["sh", "-c", "exec python -m streamlit run src/green_direct/ui/app.py --server.address=${STREAMLIT_SERVER_ADDRESS:-0.0.0.0} --server.port=${PORT:-${STREAMLIT_SERVER_PORT:-8503}} --server.headless=${STREAMLIT_SERVER_HEADLESS:-true} --browser.gatherUsageStats=${STREAMLIT_BROWSER_GATHER_USAGE_STATS:-false}"]
+CMD ["sh", "-c", "exec python -m streamlit run src/green_direct/ui/app.py --server.address=${STREAMLIT_SERVER_ADDRESS:-0.0.0.0} --server.port=${PORT:-${STREAMLIT_SERVER_PORT:-8503}} --server.headless=${STREAMLIT_SERVER_HEADLESS:-true} --browser.gatherUsageStats=${STREAMLIT_BROWSER_GATHER_USAGE_STATS:-false} --server.maxUploadSize=${STREAMLIT_SERVER_MAX_UPLOAD_SIZE:-${GREEN_DIRECT_MAX_UPLOAD_MB:-20}}"]

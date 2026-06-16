@@ -104,6 +104,7 @@ python scripts\preflight_internal_pilot_deploy.py --run-smoke
 ```
 
 preflight 会检查部署文件、GitHub Actions 质量门、Docker/Render 安全默认值、`.dockerignore`、持久盘路径、Git 已跟踪文件是否夹带私有 `.env` / 本地运行状态 / 数据库日志压缩包 / 超大文件，以及可选 Streamlit smoke。
+Docker 和本地启动器会把 Streamlit `server.maxUploadSize` 与 `GREEN_DIRECT_MAX_UPLOAD_MB` 对齐，避免上传控件显示 200MB、应用策略却按 20MB 拒绝的口径不一致。
 
 如果是在本地服务器或自有 VM 上已经准备好真实试用 store，也可以把 store doctor 纳入同一条 preflight：
 
