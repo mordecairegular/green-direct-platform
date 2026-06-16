@@ -3,6 +3,7 @@ from dataclasses import astuple
 import pytest
 
 from green_direct.core.bess_dispatch import (
+    dispatch_bess_hour_summary_values_with_limits,
     dispatch_bess_hour_values_with_limits,
     dispatch_hour,
     dispatch_hour_values_with_limits,
@@ -262,3 +263,45 @@ def test_bess_specific_no_exchange_limit_matches_infinite_exchange_limit():
     assert explicit_no_limit == inferred_no_limit
     assert explicit_no_limit[7] == 0.0
     assert explicit_no_limit[8] == 0.0
+
+
+@pytest.mark.parametrize(
+    "common",
+    [
+        {
+            "load_energy": 18,
+            "renewable_energy": 35,
+            "bess_power_energy_limit": 4,
+            "bess_energy_start": 8,
+            "bess_soc_min_energy": 2,
+            "bess_soc_max_energy": 18,
+            "eta_charge": 0.95,
+            "eta_discharge": 0.9,
+            "allow_export": True,
+            "export_limit_energy": 6,
+            "exchange_limit_energy": 5,
+            "has_exchange_limit": True,
+            "remaining_export_cap": 4,
+        },
+        {
+            "load_energy": 22,
+            "renewable_energy": 10,
+            "bess_power_energy_limit": 5,
+            "bess_energy_start": 7,
+            "bess_soc_min_energy": 2,
+            "bess_soc_max_energy": 18,
+            "eta_charge": 0.95,
+            "eta_discharge": 0.9,
+            "allow_export": True,
+            "export_limit_energy": float("inf"),
+            "exchange_limit_energy": float("inf"),
+            "has_exchange_limit": False,
+            "remaining_export_cap": None,
+        },
+    ],
+)
+def test_bess_summary_values_match_bess_values_without_hour_case(common):
+    values = dispatch_bess_hour_values_with_limits(**common, clamp_outputs=False)
+    summary_values = dispatch_bess_hour_summary_values_with_limits(**common)
+
+    assert summary_values == values[:-1]

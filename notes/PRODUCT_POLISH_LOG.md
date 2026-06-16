@@ -5761,3 +5761,23 @@ profile / benchmark：
 - 不改变 V0.1 BESS 充放电顺序、SOC 滚动、功率/容量约束、上网/下网限制、hour_case 或 summary 字段；
 - public dispatch helper 默认仍保留输出夹紧，只有批量 simulator 内部 hot path 跳过冗余夹紧；
 - 后续仍需继续推进后台 Job、worker 级取消/重试和更大规模并行/编译化内核评估。
+
+### 2026-06-17 含储能 summary-only 跳过 hour_case 和逐小时 SOC 文本路径
+
+本轮继续沿同一条技术仿真 hot path 推进。上一个 checkpoint 后，summary-first 批量测算仍在每小时调用 BESS helper 并计算 `hour_case` 字符串，同时每小时更新/夹紧 `soc`，但 summary-only 结果并不保留逐小时明细，也不会读取 `hour_case`、`soc_start` 或 `soc_end`。
+
+实现：
+- 新增 `dispatch_bess_hour_summary_values_with_limits()`，只返回 summary 累加所需的 10 个数值，不生成 `hour_case`；
+- `run_single_scenario()` 在 `retain_hourly_detail=False` 且有储能时走 summary values helper；保留逐小时明细时仍走原 `dispatch_bess_hour_values_with_limits()`，小时账本和 `hour_case` 不变；
+- summary-only 不再逐小时计算/夹紧 `soc_start` / `soc_end`，循环结束后只根据最终 `bess_energy` 计算一次 `final_soc`；
+- 新增测试锁定 summary values helper 与原 BESS helper 的前 10 个数值一致，并确认 summary-only hot path 不调用带 `hour_case` 的 helper。
+
+验证与反馈环：
+- `python -m pytest tests\test_bess_dispatch.py tests\test_single_scenario.py tests\test_batch_runner.py -q` 通过，68 项通过；
+- 同一 8760 小时、87 方案 summary-first cProfile：函数调用数约从 3,569,695 降到 2,553,651，总耗时约从 1.286s 降到 1.084s；
+- 直接计时同一技术样本三次约为 0.5883s、0.6203s、0.8428s。
+
+边界：
+- 不改变 V0.1 BESS 充放电顺序、SOC 能量滚动、功率/容量约束、上网/下网限制或 summary 字段；
+- 保留逐小时明细时仍生成 `hour_case`、`soc_start`、`soc_end` 和完整 hourly ledger；
+- 后续若继续瘦身，应优先考虑更紧凑的 summary accumulator 或编译化 dispatch 内核，而不是改变调度口径。

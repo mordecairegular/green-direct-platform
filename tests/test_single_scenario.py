@@ -402,7 +402,7 @@ def test_bess_summary_only_uses_bess_specific_values_helper(monkeypatch):
             assert actual == expected_value, key
 
 
-def test_bess_hot_path_skips_redundant_output_clamps(monkeypatch):
+def test_bess_summary_only_hot_path_skips_hour_case_dispatch(monkeypatch):
     import green_direct.core.single_scenario_simulator as simulator
 
     curves = pd.DataFrame(
@@ -415,14 +415,19 @@ def test_bess_hot_path_skips_redundant_output_clamps(monkeypatch):
     )
     scenario = Scenario("S_BESS_NO_CLAMP", pv_capacity=10, wind_capacity=5, bess_power=4, bess_energy=12)
     bess_params = BessParams(soc_initial=0.5, soc_min=0.1, soc_max=0.9, eta_charge=0.95, eta_discharge=0.9)
-    original_dispatch = simulator.dispatch_bess_hour_values_with_limits
-    observed_flags: list[bool | None] = []
+    original_summary_dispatch = simulator.dispatch_bess_hour_summary_values_with_limits
+    observed_summary_calls = 0
 
-    def record_clamp_flag(*args, **kwargs):
-        observed_flags.append(kwargs.get("clamp_outputs"))
-        return original_dispatch(*args, **kwargs)
+    def fail_hour_case_dispatch(*args, **kwargs):
+        raise AssertionError("BESS summary-only hot path should not calculate hour_case text")
 
-    monkeypatch.setattr(simulator, "dispatch_bess_hour_values_with_limits", record_clamp_flag)
+    def record_summary_dispatch(*args, **kwargs):
+        nonlocal observed_summary_calls
+        observed_summary_calls += 1
+        return original_summary_dispatch(*args, **kwargs)
+
+    monkeypatch.setattr(simulator, "dispatch_bess_hour_values_with_limits", fail_hour_case_dispatch)
+    monkeypatch.setattr(simulator, "dispatch_bess_hour_summary_values_with_limits", record_summary_dispatch)
 
     result = run_single_scenario(
         curves,
@@ -432,8 +437,7 @@ def test_bess_hot_path_skips_redundant_output_clamps(monkeypatch):
     )
 
     assert result.hourly_detail.empty
-    assert observed_flags
-    assert set(observed_flags) == {False}
+    assert observed_summary_calls == len(curves)
 
 
 def test_case_11_load_side_self_use_consistency():

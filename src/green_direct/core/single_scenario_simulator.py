@@ -9,6 +9,7 @@ import pandas as pd
 
 from green_direct.core.bess_dispatch import (
     DispatchStrategy,
+    dispatch_bess_hour_summary_values_with_limits,
     dispatch_bess_hour_values_with_limits,
     dispatch_hour_values_with_limits,
     normalize_dispatch_strategy,
@@ -637,43 +638,72 @@ def run_single_scenario(
         load_energy = float(load_energy_values[idx])
         renewable_energy = float(renewable_energy_values[idx])
         dispatch_load_energy = float(dispatch_load_energy_values[idx])
-        soc_start = soc
         bess_energy_start = bess_energy
         remaining_cap = None
         if annual_export_cap is not None:
             remaining_cap = annual_export_cap - cumulative_export
 
-        (
-            direct_self_use,
-            step_bess_charge,
-            step_bess_discharge,
-            step_grid_import,
-            step_grid_export,
-            step_curtail,
-            step_curtail_due_to_export_cap,
-            step_curtail_due_to_exchange_limit,
-            step_exchange_import_shortfall,
-            step_bess_energy_end,
-            step_hour_case,
-        ) = dispatch_bess_hour_values_with_limits(
-            load_energy=dispatch_load_energy,
-            renewable_energy=renewable_energy,
-            bess_power_energy_limit=bess_power_energy_limit,
-            bess_energy_start=bess_energy_start,
-            bess_soc_min_energy=bess_soc_min_energy,
-            bess_soc_max_energy=bess_soc_max_energy,
-            eta_charge=eta_charge,
-            eta_discharge=eta_discharge,
-            allow_export=allow_export,
-            export_limit_energy=export_limit_energy,
-            remaining_export_cap=remaining_cap,
-            exchange_limit_energy=exchange_limit_energy,
-            has_exchange_limit=has_exchange_limit,
-            clamp_outputs=False,
-        )
+        if data is None:
+            (
+                direct_self_use,
+                step_bess_charge,
+                step_bess_discharge,
+                step_grid_import,
+                step_grid_export,
+                step_curtail,
+                step_curtail_due_to_export_cap,
+                step_curtail_due_to_exchange_limit,
+                step_exchange_import_shortfall,
+                step_bess_energy_end,
+            ) = dispatch_bess_hour_summary_values_with_limits(
+                load_energy=dispatch_load_energy,
+                renewable_energy=renewable_energy,
+                bess_power_energy_limit=bess_power_energy_limit,
+                bess_energy_start=bess_energy_start,
+                bess_soc_min_energy=bess_soc_min_energy,
+                bess_soc_max_energy=bess_soc_max_energy,
+                eta_charge=eta_charge,
+                eta_discharge=eta_discharge,
+                allow_export=allow_export,
+                export_limit_energy=export_limit_energy,
+                remaining_export_cap=remaining_cap,
+                exchange_limit_energy=exchange_limit_energy,
+                has_exchange_limit=has_exchange_limit,
+            )
+        else:
+            soc_start = soc
+            (
+                direct_self_use,
+                step_bess_charge,
+                step_bess_discharge,
+                step_grid_import,
+                step_grid_export,
+                step_curtail,
+                step_curtail_due_to_export_cap,
+                step_curtail_due_to_exchange_limit,
+                step_exchange_import_shortfall,
+                step_bess_energy_end,
+                step_hour_case,
+            ) = dispatch_bess_hour_values_with_limits(
+                load_energy=dispatch_load_energy,
+                renewable_energy=renewable_energy,
+                bess_power_energy_limit=bess_power_energy_limit,
+                bess_energy_start=bess_energy_start,
+                bess_soc_min_energy=bess_soc_min_energy,
+                bess_soc_max_energy=bess_soc_max_energy,
+                eta_charge=eta_charge,
+                eta_discharge=eta_discharge,
+                allow_export=allow_export,
+                export_limit_energy=export_limit_energy,
+                remaining_export_cap=remaining_cap,
+                exchange_limit_energy=exchange_limit_energy,
+                has_exchange_limit=has_exchange_limit,
+                clamp_outputs=False,
+            )
         bess_energy = step_bess_energy_end
-        soc = bess_energy / scenario_bess_energy
-        soc = min(max(soc, bess.soc_min - 1e-12), bess.soc_max + 1e-12)
+        if data is not None:
+            soc = bess_energy / scenario_bess_energy
+            soc = min(max(soc, bess.soc_min - 1e-12), bess.soc_max + 1e-12)
         cumulative_export += step_grid_export
 
         if data is None:
@@ -718,6 +748,8 @@ def run_single_scenario(
         )
     else:
         hourly = _empty_hourly_detail(shared=_share_empty_hourly_detail)
+        final_soc = bess_energy / scenario_bess_energy
+        final_soc = min(max(final_soc, bess.soc_min - 1e-12), bess.soc_max + 1e-12)
         summary = calculate_summary_from_values(
             scenario,
             bess,
@@ -739,7 +771,7 @@ def run_single_scenario(
             initial_bess_energy=initial_bess_energy,
             max_grid_import_power=max_grid_import_power,
             max_grid_export_power=max_grid_export_power,
-            final_soc=soc,
+            final_soc=final_soc,
         )
     summary["dispatch_strategy"] = dispatch_strategy.value
     return ScenarioResult(summary=summary, hourly_detail=hourly, warnings=[], diagnostics=diagnostics)
