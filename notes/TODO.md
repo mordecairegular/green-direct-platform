@@ -44,7 +44,7 @@
 - 技术批量入口已支持 `PerformanceParams.parallel_workers`，02 页高级性能区已可配置并行进程数，默认 1。
 - 并行技术仿真已改为按方案块提交给 `ProcessPoolExecutor`，减少大方案池下单方案 task 调度开销，结果顺序仍按原 `scenario_id` 聚合。
 - 技术批量入口已支持 `PerformanceParams.max_scenarios_per_run`，容器和 UI 默认读取 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN=20000`；超限时 02 页会阻止开始测算，`run_batch()` 后端也会拒绝执行。
-- 方案数预估已改为 count-only 路径，`run_batch()` 会在生成完整方案对象前先做硬上限拒绝；`generate_scenarios()` 也已预计算容量轴和储能组合，减少大方案池枚举固定开销。
+- 方案数预估已改为轴计数路径，不展开光伏容量轴 × 风电容量轴；`run_batch()` 会在生成完整方案对象前先做硬上限拒绝；`generate_scenarios()` 也已预计算容量轴和储能组合，减少大方案池枚举固定开销。
 - 02 页已新增计算前工作量提示：按方案数、小时数、明细保留策略和并行进程数给出粗略耗时区间；超过方案数提醒阈值时需勾选大批量同步测算确认，才允许点击“开始测算”。
 - 02 页已接入第一版大批量汇总优先模式：方案数超过提醒阈值时，只常驻方案汇总和前 N 个方案逐小时明细，N 由“大批量保留明细数”控制。
 - 技术仿真已新增 summary-only 执行路径：未保留逐小时明细的方案仍逐小时滚动同一 dispatch/SOC 逻辑并累计 summary，但不构造完整 `hourly_detail` DataFrame。

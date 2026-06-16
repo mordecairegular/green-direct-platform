@@ -1,6 +1,7 @@
 import pandas as pd
 
 import green_direct.batch.batch_runner as batch_runner
+import green_direct.batch.scenario_generator as scenario_generator
 from green_direct.batch.batch_runner import run_batch
 from green_direct.batch.scenario_generator import RangeSpec, ScenarioGrid, generate_scenarios
 from green_direct.models.params import PerformanceParams, PolicyParams
@@ -60,6 +61,33 @@ def test_estimate_scenario_count_matches_generated_scenarios():
     }
 
     assert batch_runner.estimate_scenario_count(grid) == len(generate_scenarios(grid))
+
+
+def test_count_scenarios_matches_generated_scenarios_for_signed_ranges():
+    grid = {
+        "pv_capacity": {"start": -1, "end": 1, "step": 1},
+        "wind_capacity": {"start": -1, "end": 1, "step": 1},
+        "bess_power": {"start": -1, "end": 1, "step": 1},
+        "bess_duration_hours": [0, 2],
+    }
+
+    assert scenario_generator.count_scenarios(grid) == len(generate_scenarios(grid))
+
+
+def test_count_scenarios_does_not_expand_capacity_axes(monkeypatch):
+    grid = {
+        "pv_capacity": {"start": 0, "end": 999_999, "step": 1},
+        "wind_capacity": {"start": 0, "end": 999_999, "step": 1},
+        "bess_power": {"start": 0, "end": 1, "step": 1},
+        "bess_duration_hours": [0, 2],
+    }
+
+    def fail_values_from_range(spec):
+        raise AssertionError("count_scenarios should not expand capacity axes")
+
+    monkeypatch.setattr(scenario_generator, "values_from_range", fail_values_from_range)
+
+    assert scenario_generator.count_scenarios(grid) == 1_999_999_999_998
 
 
 def test_batch_runner_collects_summary_and_hourly_details():

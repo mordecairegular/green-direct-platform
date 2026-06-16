@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from green_direct.models.scenario import Scenario
@@ -34,6 +35,55 @@ def values_from_range(spec: RangeSpec) -> list[float]:
         values.append(round(current, 10))
         current += spec.step
     return values
+
+
+def _range_value_count(spec: RangeSpec) -> int:
+    if spec.step <= 0:
+        raise ValueError("容量范围步长必须大于 0。")
+    if spec.end < spec.start:
+        raise ValueError("容量范围结束值不能小于起始值。")
+    tolerance = spec.step * 1e-9
+    return int(math.floor((spec.end - spec.start + tolerance) / spec.step)) + 1
+
+
+def _rounded_range_value(spec: RangeSpec, index: int) -> float:
+    return round(spec.start + spec.step * index, 10)
+
+
+def _first_range_index_ge(spec: RangeSpec, total: int, threshold: float) -> int:
+    low = 0
+    high = total
+    while low < high:
+        mid = (low + high) // 2
+        if _rounded_range_value(spec, mid) >= threshold:
+            high = mid
+        else:
+            low = mid + 1
+    return low
+
+
+def _first_range_index_gt(spec: RangeSpec, total: int, threshold: float) -> int:
+    low = 0
+    high = total
+    while low < high:
+        mid = (low + high) // 2
+        if _rounded_range_value(spec, mid) > threshold:
+            high = mid
+        else:
+            low = mid + 1
+    return low
+
+
+def _range_sign_counts(spec: RangeSpec) -> tuple[int, int, int]:
+    """Return (negative, zero, positive) counts for values_from_range(spec)."""
+
+    total = _range_value_count(spec)
+    first_zero_or_positive = _first_range_index_ge(spec, total, 0.0)
+    first_positive = _first_range_index_gt(spec, total, 0.0)
+    negative_count = first_zero_or_positive
+    zero_count = first_positive - first_zero_or_positive
+    positive_count = total - first_positive
+    return negative_count, zero_count, positive_count
 
 
 def parse_range_spec(raw: dict | RangeSpec) -> RangeSpec:
@@ -70,19 +120,34 @@ def _bess_power_duration_pairs(grid: ScenarioGrid) -> list[tuple[float, float]]:
     return pairs
 
 
+def _bess_power_duration_pair_count(grid: ScenarioGrid) -> int:
+    negative_power_count, zero_power_count, positive_power_count = _range_sign_counts(grid.bess_power)
+    duration_zero_count = 0
+    duration_positive_count = 0
+    for duration in grid.bess_duration_hours:
+        if duration < 0:
+            raise ValueError("储能时长不能小于 0。")
+        if duration == 0:
+            duration_zero_count += 1
+        else:
+            duration_positive_count += 1
+    return (
+        negative_power_count * (duration_zero_count + duration_positive_count)
+        + zero_power_count * duration_zero_count
+        + positive_power_count * duration_positive_count
+    )
+
+
 def count_scenarios(raw_grid: dict | ScenarioGrid) -> int:
     """Count candidate scenarios without materialising Scenario objects."""
 
     grid = parse_scenario_grid(raw_grid)
-    pv_values = values_from_range(grid.pv_capacity)
-    wind_values = values_from_range(grid.wind_capacity)
-    renewable_pair_count = sum(
-        1
-        for pv_capacity in pv_values
-        for wind_capacity in wind_values
-        if pv_capacity > 0 or wind_capacity > 0
-    )
-    return renewable_pair_count * len(_bess_power_duration_pairs(grid))
+    pv_negative, pv_zero, pv_positive = _range_sign_counts(grid.pv_capacity)
+    wind_negative, wind_zero, wind_positive = _range_sign_counts(grid.wind_capacity)
+    pv_total = pv_negative + pv_zero + pv_positive
+    wind_total = wind_negative + wind_zero + wind_positive
+    renewable_pair_count = pv_total * wind_total - (pv_negative + pv_zero) * (wind_negative + wind_zero)
+    return renewable_pair_count * _bess_power_duration_pair_count(grid)
 
 
 def generate_scenarios(raw_grid: dict | ScenarioGrid, *, scenario_prefix: str = "S") -> list[Scenario]:
