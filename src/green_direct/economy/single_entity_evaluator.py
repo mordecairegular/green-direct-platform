@@ -11,7 +11,7 @@ from green_direct.economy.economic_evaluator import (
     _calculate_irr,
     _calculate_payback,
     _discount_factors,
-    _other_revenue_for_year,
+    _other_revenue_schedule,
     _override_value,
     _replacement_operation_years,
     _scenario_id,
@@ -143,6 +143,7 @@ def evaluate_single_entity_pre_tax_economy(
     )
 
     replacement_years = _replacement_operation_years(summary_map, economic_params)
+    replacement_year_set = set(replacement_years)
     first_replacement_year = replacement_years[0] if replacement_years else None
     bess_replacement_cash_outflow_with_vat = (
         bess_capex_with_vat * economic_params.bess_replacement_cost_ratio
@@ -150,6 +151,10 @@ def evaluate_single_entity_pre_tax_economy(
     bess_replacement_basis = _bess_replacement_basis(
         bess_replacement_cash_outflow_with_vat,
         economic_params,
+    )
+    other_revenue_by_year = _other_revenue_schedule(
+        economic_params.other_operating_revenues,
+        int(economic_params.operation_years),
     )
 
     rows: list[dict[str, Any]] | None = [] if retain_annual_cashflow else None
@@ -187,13 +192,10 @@ def evaluate_single_entity_pre_tax_economy(
     )
 
     for operation_year in range(1, economic_params.operation_years + 1):
-        _, other_revenue_without_vat, _ = _other_revenue_for_year(
-            economic_params.other_operating_revenues,
-            operation_year,
-        )
-        replacement_basis = bess_replacement_basis if operation_year in replacement_years else 0.0
+        _, other_revenue_without_vat, _ = other_revenue_by_year[operation_year]
+        replacement_basis = bess_replacement_basis if operation_year in replacement_year_set else 0.0
         replacement_cash_outflow = (
-            bess_replacement_cash_outflow_with_vat if operation_year in replacement_years else 0.0
+            bess_replacement_cash_outflow_with_vat if operation_year in replacement_year_set else 0.0
         )
         pre_tax_net_cash_flow = (
             self_use_saving

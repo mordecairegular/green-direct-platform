@@ -81,6 +81,19 @@ def _other_revenue_for_year(
     return revenue_with_vat, revenue_without_vat, output_vat
 
 
+@lru_cache(maxsize=128)
+def _other_revenue_schedule(
+    items: tuple[OtherOperatingRevenueItem, ...],
+    operation_years: int,
+) -> tuple[tuple[float, float, float], ...]:
+    """Cache annual other-revenue amounts shared by all scenarios in one economy run."""
+
+    safe_years = max(0, int(operation_years))
+    return ((0.0, 0.0, 0.0),) + tuple(
+        _other_revenue_for_year(items, year) for year in range(1, safe_years + 1)
+    )
+
+
 def _replacement_cycle_interval_years(summary: Mapping[str, Any], params: EconomicParams) -> float:
     replacement_year = _value(summary, "replacement_year", math.inf)
     if math.isfinite(replacement_year) and replacement_year > 0:
@@ -354,6 +367,7 @@ def evaluate_scenario_economy(
     )
 
     replacement_years = _replacement_operation_years(summary_map, economic_params)
+    replacement_year_set = set(replacement_years)
     first_replacement_year = replacement_years[0] if replacement_years else None
     bess_replacement_cash_outflow = bess_capex_with_vat * economic_params.bess_replacement_cost_ratio
     bess_replacement_depreciation_basis, _ = split_amount_with_vat(
@@ -361,6 +375,49 @@ def evaluate_scenario_economy(
         economic_params.bess_replacement_input_vat_rate,
         deductible_or_taxable=economic_params.bess_replacement_input_vat_deductible,
     )
+    _, bess_replacement_input_vat = split_amount_with_vat(
+        bess_replacement_cash_outflow,
+        economic_params.bess_replacement_input_vat_rate,
+        deductible_or_taxable=economic_params.bess_replacement_input_vat_deductible,
+    )
+    other_revenue_by_year = _other_revenue_schedule(
+        economic_params.other_operating_revenues,
+        int(economic_params.operation_years),
+    )
+    grid_export_revenue_with_vat = _override_value(
+        summary_map,
+        "grid_export_revenue_with_vat_override",
+        grid_export_energy * economic_params.grid_export_price_with_vat,
+    )
+    self_use_revenue_with_vat = _override_value(
+        summary_map,
+        "self_use_revenue_with_vat_override",
+        self_use_energy * economic_params.self_use_price_with_vat,
+    )
+    grid_export_revenue_without_vat, grid_export_output_vat = split_amount_with_vat(
+        grid_export_revenue_with_vat,
+        economic_params.output_vat_rate,
+    )
+    self_use_revenue_without_vat, self_use_output_vat = split_amount_with_vat(
+        self_use_revenue_with_vat,
+        economic_params.output_vat_rate,
+    )
+    wind_om_cost_with_vat = wind_capacity * economic_params.wind_om_cost_per_kw_year
+    pv_om_cost_with_vat = pv_capacity * economic_params.pv_om_cost_per_kw_year
+    bess_om_cost_with_vat = bess_power * economic_params.bess_om_cost_per_kw_year
+    other_operating_cost_with_vat = economic_params.other_operating_cost_with_vat
+    operating_cost_with_vat = (
+        wind_om_cost_with_vat
+        + pv_om_cost_with_vat
+        + bess_om_cost_with_vat
+        + other_operating_cost_with_vat
+    )
+    operating_cost_without_vat = operating_cost_with_vat
+    wind_depreciation_annual = wind_depreciation_basis / 20
+    pv_depreciation_annual = pv_depreciation_basis / 20
+    bess_depreciation_annual = bess_depreciation_basis / 20
+    dedicated_connection_line_depreciation_annual = dedicated_connection_line_depreciation_basis / 20
+    other_fixed_asset_depreciation_annual = other_depreciation_basis / 20
 
     rows: list[dict[str, Any]] | None = [] if retain_annual_cashflow else None
     years: list[int] = []
@@ -425,28 +482,7 @@ def evaluate_scenario_economy(
     vat_credit_begin = construction_input_vat
 
     for operation_year in range(1, economic_params.operation_years + 1):
-        grid_export_revenue_with_vat = _override_value(
-            summary_map,
-            "grid_export_revenue_with_vat_override",
-            grid_export_energy * economic_params.grid_export_price_with_vat,
-        )
-        self_use_revenue_with_vat = _override_value(
-            summary_map,
-            "self_use_revenue_with_vat_override",
-            self_use_energy * economic_params.self_use_price_with_vat,
-        )
-        grid_export_revenue_without_vat, grid_export_output_vat = split_amount_with_vat(
-            grid_export_revenue_with_vat,
-            economic_params.output_vat_rate,
-        )
-        self_use_revenue_without_vat, self_use_output_vat = split_amount_with_vat(
-            self_use_revenue_with_vat,
-            economic_params.output_vat_rate,
-        )
-        other_revenue_with_vat, other_revenue_without_vat, other_output_vat = _other_revenue_for_year(
-            economic_params.other_operating_revenues,
-            operation_year,
-        )
+        other_revenue_with_vat, other_revenue_without_vat, other_output_vat = other_revenue_by_year[operation_year]
         operating_revenue_with_vat = (
             grid_export_revenue_with_vat + self_use_revenue_with_vat + other_revenue_with_vat
         )
@@ -455,29 +491,12 @@ def evaluate_scenario_economy(
         )
         output_vat = grid_export_output_vat + self_use_output_vat + other_output_vat
 
-        wind_om_cost_with_vat = wind_capacity * economic_params.wind_om_cost_per_kw_year
-        pv_om_cost_with_vat = pv_capacity * economic_params.pv_om_cost_per_kw_year
-        bess_om_cost_with_vat = bess_power * economic_params.bess_om_cost_per_kw_year
-        other_operating_cost_with_vat = economic_params.other_operating_cost_with_vat
-        operating_cost_with_vat = (
-            wind_om_cost_with_vat
-            + pv_om_cost_with_vat
-            + bess_om_cost_with_vat
-            + other_operating_cost_with_vat
-        )
         if operation_year == 1:
             first_operation_revenue_with_vat = operating_revenue_with_vat
             first_operation_cost_with_vat = operating_cost_with_vat
-        operating_cost_without_vat = operating_cost_with_vat
 
-        replacement_cash_outflow = (
-            bess_replacement_cash_outflow if operation_year in replacement_years else 0.0
-        )
-        _, replacement_input_vat = split_amount_with_vat(
-            replacement_cash_outflow,
-            economic_params.bess_replacement_input_vat_rate,
-            deductible_or_taxable=economic_params.bess_replacement_input_vat_deductible,
-        )
+        replacement_cash_outflow = bess_replacement_cash_outflow if operation_year in replacement_year_set else 0.0
+        replacement_input_vat = bess_replacement_input_vat if operation_year in replacement_year_set else 0.0
         input_vat = replacement_input_vat
         available_vat_credit = vat_credit_begin + input_vat
         vat_payable = max(output_vat - available_vat_credit, 0.0)
@@ -489,11 +508,11 @@ def evaluate_scenario_economy(
         taxes_and_surcharges = urban_maintenance_tax + education_surcharge + local_education_surcharge
 
         if operation_year <= 20:
-            wind_depreciation = wind_depreciation_basis / 20
-            pv_depreciation = pv_depreciation_basis / 20
-            bess_depreciation = bess_depreciation_basis / 20
-            dedicated_connection_line_depreciation = dedicated_connection_line_depreciation_basis / 20
-            other_fixed_asset_depreciation = other_depreciation_basis / 20
+            wind_depreciation = wind_depreciation_annual
+            pv_depreciation = pv_depreciation_annual
+            bess_depreciation = bess_depreciation_annual
+            dedicated_connection_line_depreciation = dedicated_connection_line_depreciation_annual
+            other_fixed_asset_depreciation = other_fixed_asset_depreciation_annual
         else:
             wind_depreciation = 0.0
             pv_depreciation = 0.0

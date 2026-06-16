@@ -4601,3 +4601,23 @@ exchange_import_shortfall_energy == 0
 - 该路线不改变计算口径和代码运行逻辑；
 - 仍需在真实托管平台完成构建、管理员初始化、持久盘重启验证、Cloudflare Access 门禁和备份恢复演练；
 - 本地 JSON store 仍不是长期正式数据库，后续应继续推进 `ResultStore` / `JobStore` 的数据库化和 artifact 对象存储化。
+
+### 2026-06-16 经济性批量评价固定开销优化
+
+本轮继续推进用户关注的“成千上万个方案经济性测算等待时间”问题，选择不改变经济性 V1 口径的固定开销优化。
+
+本轮实现：
+- `OtherOperatingRevenueItem.is_active()` 对 `specific_years` 不再每次构造临时 set；
+- 新增 `_other_revenue_schedule()`，按 `EconomicParams.other_operating_revenues` 和运营年限缓存年度其他经营收入表，电源侧和同一主体经济性评价共用；
+- 电源侧 `evaluate_scenario_economy()` 将同一方案内每年不变的上网/自用收入、VAT 拆分、O&M 和基础折旧预先计算，年度循环只处理会随年份变化的其他收入、VAT 抵扣、替换、折旧、亏损弥补和所得税；
+- 新增测试覆盖 `specific_years` 其他经营收入只在指定年份生效。
+
+边界说明：
+- 不改变技术仿真调度；
+- 不改变经济性 V1 年度现金流字段和计算口径；
+- benchmark 数字受本机负载影响，只作为方向性记录，不作为上线性能承诺。
+
+验证：
+- `pytest tests/test_economy_v1.py tests/test_single_entity_economy.py tests/test_study_runner.py tests/test_performance_benchmark_script.py -q` 通过，43 项通过；
+- `python -m compileall -q src/green_direct/economy tests/test_economy_v1.py scripts/benchmark_internal_pilot_performance.py` 通过；
+- `python scripts/benchmark_internal_pilot_performance.py --hours 168 --pv-count 4 --wind-count 4 --bess-power-count 2 --durations 0,2 --skip-full-retention --json` 通过：30 个方案，技术 summary-first 0.9735 秒，经济性 summary-only 0.1524 秒。

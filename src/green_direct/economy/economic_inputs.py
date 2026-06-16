@@ -27,7 +27,7 @@ class OtherOperatingRevenueItem:
         if self.active_rule == "first_25_years":
             return operation_year <= 25
         if self.active_rule == "specific_years":
-            return operation_year in set(self.specific_years)
+            return operation_year in self.specific_years
         return False
 
 

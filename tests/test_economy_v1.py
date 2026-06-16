@@ -281,6 +281,28 @@ def test_negative_other_operating_revenue_has_no_input_or_output_vat():
     assert year1["input_vat"] == 0
 
 
+def test_other_operating_revenue_specific_years_only_apply_to_selected_years():
+    params = EconomicParams(
+        operation_years=3,
+        construction_input_vat_rate=0.0,
+        other_operating_revenues=(
+            OtherOperatingRevenueItem(
+                name="指定年份收入",
+                amount_with_vat=30.0,
+                vat_rate=0.0,
+                active_rule="specific_years",
+                specific_years=(2,),
+            ),
+        ),
+    )
+    result = evaluate_scenario_economy(_summary(), params)
+    annual = result.annual_cashflow.set_index("year")
+
+    assert annual.loc[1, "other_operating_revenue_with_vat"] == 0
+    assert annual.loc[2, "other_operating_revenue_with_vat"] == 30
+    assert annual.loc[3, "other_operating_revenue_with_vat"] == 0
+
+
 def test_bess_replacement_is_skipped_when_triggered_in_final_operation_year():
     result = evaluate_scenario_economy(
         _summary(bess_energy=10.0, replacement_year=5.0),

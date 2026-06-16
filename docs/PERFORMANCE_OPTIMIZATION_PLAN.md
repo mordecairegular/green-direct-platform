@@ -26,7 +26,8 @@
 - 02 页已新增计算前工作量提示：按方案数、小时数、明细保留策略和并行进程数给出粗略耗时区间；超过方案数提醒阈值时必须勾选大批量同步测算确认，才允许点击“开始测算”；
 - 推荐页、图表页和导出页已支持当前会话内对单方案按需补算逐小时明细；
 - `run_economic_study(..., retain_annual_cashflows=False, annual_cashflow_scenario_ids=...)` 已支持只常驻经济性 summary 或指定方案年度现金流；未保留年度现金流的方案已不再构造完整年度现金流 `DataFrame`，只保留计算 summary 指标所需的现金流数组；
-- 经济性批量评价已减少 `iterrows()`、重复校验、未保留年度现金流表构造和部分 IRR 求解开销。
+- 经济性批量评价已减少 `iterrows()`、重复校验、未保留年度现金流表构造和部分 IRR 求解开销；
+- 经济性批量评价已缓存 `other_operating_revenues` 年度生效表，并把同一方案内每年不变的电源侧收入、VAT 拆分、O&M 和基础折旧移出年度循环，减少大方案池下每方案固定开销；该优化不改变 V1 现金流口径。
 
 ## 2. 新增基准脚本
 
@@ -125,6 +126,7 @@ python scripts\benchmark_internal_pilot_performance.py --json
 
 - 继续把固定年限、折现因子、投资、运维、折旧等计算批量化；
 - 未保留年度现金流的方案不构造年度现金流表；（已完成第一版）
+- 将其他经营收入年度表、电源侧固定收入/成本和基础折旧预处理为可复用上下文；（已完成第一版）
 - 保留 FIRR 精确口径，但对常规单符号变化现金流使用快速路径；
 - 推荐排序只依赖经济性 summary；
 - 只为报告方案、推荐方案或用户指定方案保留完整年度现金流。
@@ -134,6 +136,7 @@ python scripts\benchmark_internal_pilot_performance.py --json
 - `tests/test_economy_v1.py`、`tests/test_single_entity_economy.py` 保持通过；
 - 同一组输入下经济性 summary 与优化前一致；
 - 年度现金流保留策略不影响推荐排序。
+- 后续可继续把更多“全方案共享”的参数 schedule 和价格口径预处理成批量上下文，避免每个方案重复解析同一组输入。
 
 ## 4. 不做的事
 
