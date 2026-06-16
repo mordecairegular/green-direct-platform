@@ -30,6 +30,7 @@ from green_direct.services import (
     persist_hourly_detail_artifact,
     persist_recommendation_study_result,
     persist_technical_study_result,
+    queue_job_with_input_artifact,
     recommendation_result_fingerprint,
     technical_input_fingerprint,
 )
@@ -416,6 +417,148 @@ def test_persist_export_artifact_rejects_viewer(tmp_path):
             filename="green_direct_report_S0001.md",
             content_type="text/markdown",
             artifact_kind=ArtifactKind.REPORT,
+        )
+
+
+def test_queue_job_with_input_artifact_writes_payload_and_queued_job(tmp_path):
+    service = _access_service(tmp_path)
+    service.registry.save_user(User("admin", "admin@example.local", "Admin"))
+    project = service.create_project(
+        actor_user_id="admin",
+        project=Project("project_1", "Internal pilot project"),
+    )
+    service.result_store.store_artifact(
+        artifact_id="technical_summary",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_id="job_source",
+        kind=ArtifactKind.TECHNICAL_SUMMARY,
+        payload="scenario_id\nS0001\n",
+        filename="technical_summary.csv",
+        content_type="text/csv",
+    )
+
+    queued = queue_job_with_input_artifact(
+        access_service=service,
+        actor_user_id="admin",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_type=JobType.TECHNICAL_STUDY,
+        payload={
+            "task": "hourly_detail",
+            "scenario_id": "S0001",
+            "result_id": "technical_result",
+        },
+        input_artifact_ids={"technical_summary": "technical_summary"},
+        job_id="job_hourly_detail_1",
+        progress_total=1,
+        progress_message="hourly detail queued",
+    )
+
+    loaded_job = service.job_store.load_job(project.project_id, "study_1", "job_hourly_detail_1")
+    input_artifact = service.result_store.load_artifact(
+        project.project_id,
+        "study_1",
+        "job_input_job_hourly_detail_1",
+    )
+    payload = json.loads(service.result_store.read_artifact_payload(input_artifact).decode("utf-8"))
+    audit_events = service.result_store.read_audit_log(project.project_id)
+
+    assert queued.job == loaded_job
+    assert queued.input_artifact == input_artifact
+    assert queued.input_fingerprint == loaded_job.input_fingerprint
+    assert loaded_job.status == JobStatus.QUEUED
+    assert loaded_job.job_type == JobType.TECHNICAL_STUDY
+    assert loaded_job.progress_total == 1
+    assert loaded_job.progress_message == "hourly detail queued"
+    assert loaded_job.input_artifact_ids == {
+        "job_payload": "job_input_job_hourly_detail_1",
+        "technical_summary": "technical_summary",
+    }
+    assert input_artifact.kind == ArtifactKind.JOB_INPUT
+    assert input_artifact.retention_policy == ArtifactRetentionPolicy.EXPIRE
+    assert input_artifact.expires_at is not None
+    assert payload == {
+        "task": "hourly_detail",
+        "scenario_id": "S0001",
+        "result_id": "technical_result",
+    }
+    assert any(
+        event.action == AuditAction.STORE_ARTIFACT
+        and event.target_id == input_artifact.artifact_id
+        and event.metadata["kind"] == ArtifactKind.JOB_INPUT.value
+        and event.metadata["referenced_input_artifact_ids"] == {"technical_summary": "technical_summary"}
+        for event in audit_events
+    )
+    assert any(
+        event.action == AuditAction.SUBMIT_JOB
+        and event.job_id == "job_hourly_detail_1"
+        and event.metadata["input_artifact_ids"] == loaded_job.input_artifact_ids
+        for event in audit_events
+    )
+
+
+def test_queue_job_with_input_artifact_rejects_viewer_before_writing_payload(tmp_path):
+    service = _access_service(tmp_path)
+    service.registry.save_user(User("admin", "admin@example.local", "Admin"))
+    service.registry.save_user(User("viewer", "viewer@example.local", "Viewer"))
+    project = service.create_project(
+        actor_user_id="admin",
+        project=Project("project_1", "Internal pilot project"),
+    )
+    service.grant_project_role(
+        actor_user_id="admin",
+        project_id=project.project_id,
+        user_id="viewer",
+        role=ProjectRole.VIEWER,
+    )
+
+    with pytest.raises(PilotAccessError, match="cannot submit jobs"):
+        queue_job_with_input_artifact(
+            access_service=service,
+            actor_user_id="viewer",
+            project_id=project.project_id,
+            study_id="study_1",
+            job_type=JobType.TECHNICAL_STUDY,
+            payload={"task": "hourly_detail", "scenario_id": "S0001"},
+            job_id="job_viewer_payload",
+        )
+
+    assert service.job_store.list_project_jobs(project.project_id) == []
+    with pytest.raises(FileNotFoundError):
+        service.result_store.load_artifact(
+            project.project_id,
+            "study_1",
+            "job_input_job_viewer_payload",
+        )
+
+
+def test_queue_job_with_input_artifact_validates_external_artifacts_before_payload(tmp_path):
+    service = _access_service(tmp_path)
+    service.registry.save_user(User("admin", "admin@example.local", "Admin"))
+    project = service.create_project(
+        actor_user_id="admin",
+        project=Project("project_1", "Internal pilot project"),
+    )
+
+    with pytest.raises(FileNotFoundError):
+        queue_job_with_input_artifact(
+            access_service=service,
+            actor_user_id="admin",
+            project_id=project.project_id,
+            study_id="study_1",
+            job_type=JobType.ECONOMIC_STUDY,
+            payload={"task": "economy", "result_id": "technical_result"},
+            input_artifact_ids={"technical_summary": "missing_summary"},
+            job_id="job_missing_input",
+        )
+
+    assert service.job_store.list_project_jobs(project.project_id) == []
+    with pytest.raises(FileNotFoundError):
+        service.result_store.load_artifact(
+            project.project_id,
+            "study_1",
+            "job_input_job_missing_input",
         )
 
 

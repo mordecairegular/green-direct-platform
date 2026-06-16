@@ -8,6 +8,7 @@ import hashlib
 from io import BytesIO
 import json
 from pathlib import Path
+from typing import Mapping
 from uuid import uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -85,6 +86,15 @@ class PersistedExportArtifact:
     job: Job
     artifact: JobArtifact
     result_record: StudyResultRecord
+    input_fingerprint: str
+
+
+@dataclass(frozen=True)
+class QueuedJobWithInputArtifact:
+    """Queued job plus the persisted JSON payload that a worker can read later."""
+
+    job: Job
+    input_artifact: JobArtifact
     input_fingerprint: str
 
 
@@ -257,6 +267,115 @@ def _audit_stored_artifact(
             target_id=artifact.artifact_id,
             metadata=metadata,
         )
+    )
+
+
+def queue_job_with_input_artifact(
+    *,
+    access_service: PilotAccessService,
+    actor_user_id: str,
+    project_id: str,
+    study_id: str,
+    job_type: JobType | str,
+    payload: Mapping[str, object],
+    input_artifact_ids: Mapping[str, str] | None = None,
+    job_id: str | None = None,
+    payload_input_key: str = "job_payload",
+    retention_days: int = 30,
+    progress_total: int = 0,
+    progress_message: str | None = None,
+) -> QueuedJobWithInputArtifact:
+    """Persist a JSON job payload artifact, then submit a queued job referencing it.
+
+    This creates the handoff contract for a future worker. It intentionally does
+    not start or execute the job inside the Streamlit request process.
+    """
+
+    access_service.require_project_job_submit(actor_user_id=actor_user_id, project_id=project_id)
+    job_type = JobType(job_type)
+    safe_job_id = validate_path_segment(job_id or f"job_{uuid4().hex[:16]}", "job_id")
+    payload_key = str(payload_input_key).strip()
+    if not payload_key:
+        raise ValueError("payload_input_key must not be empty.")
+    payload_mapping = json_value(dict(payload))
+    if not isinstance(payload_mapping, dict) or not payload_mapping:
+        raise ValueError("payload must be a non-empty mapping.")
+
+    external_input_ids = {
+        str(key).strip(): str(value).strip()
+        for key, value in dict(input_artifact_ids or {}).items()
+    }
+    if payload_key in external_input_ids:
+        raise ValueError("payload_input_key conflicts with input_artifact_ids.")
+    for key, artifact_id in external_input_ids.items():
+        if not key:
+            raise ValueError("input_artifact_ids key must not be empty.")
+        if not artifact_id:
+            raise ValueError(f"input_artifact_ids[{key}] must not be empty.")
+        access_service.result_store.load_artifact(project_id, study_id, artifact_id)
+
+    input_fingerprint = _stable_hash(
+        {
+            "job_type": job_type.value,
+            "input_artifact_ids": dict(sorted(external_input_ids.items())),
+            "payload": payload_mapping,
+        }
+    )
+    payload_text = json.dumps(
+        payload_mapping,
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+    )
+    artifact_id = f"job_input_{safe_job_id}"
+    retention_policy, expires_at = _artifact_expiry(retention_days)
+    artifact = access_service.result_store.store_artifact(
+        artifact_id=artifact_id,
+        project_id=project_id,
+        study_id=study_id,
+        job_id=safe_job_id,
+        kind=ArtifactKind.JOB_INPUT,
+        payload=payload_text,
+        filename=f"{artifact_id}.json",
+        content_type="application/json",
+        retention_policy=retention_policy,
+        expires_at=expires_at,
+    )
+    _audit_stored_artifact(
+        access_service=access_service,
+        actor_user_id=actor_user_id,
+        artifact=artifact,
+        metadata={
+            "kind": artifact.kind.value,
+            "job_type": job_type.value,
+            "payload_input_key": payload_key,
+            "retention_policy": artifact.retention_policy.value,
+            "size_bytes": artifact.size_bytes,
+            "referenced_input_artifact_ids": dict(sorted(external_input_ids.items())),
+            "sha256": artifact.sha256,
+        },
+    )
+
+    job = Job(
+        job_id=safe_job_id,
+        project_id=project_id,
+        study_id=study_id,
+        requested_by_user_id=actor_user_id,
+        job_type=job_type,
+        input_fingerprint=input_fingerprint,
+        input_artifact_ids={
+            payload_key: artifact.artifact_id,
+            **external_input_ids,
+        },
+        progress_current=0,
+        progress_total=progress_total,
+        progress_message=progress_message or f"{job_type.value} queued",
+    )
+    submitted = access_service.submit_job(actor_user_id=actor_user_id, job=job)
+    return QueuedJobWithInputArtifact(
+        job=submitted,
+        input_artifact=artifact,
+        input_fingerprint=input_fingerprint,
     )
 
 

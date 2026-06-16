@@ -7,7 +7,7 @@
 允许：
 - 内网、VPN 或受控反向代理后的 Streamlit 服务；
 - 管理员创建账号，试用用户登录后选择项目工作区；
-- 项目级技术 summary、经济 summary、推荐 portfolio 和审计日志写入 `GREEN_DIRECT_PILOT_STORE_DIR`；
+- 项目级技术 summary、经济 summary、推荐 portfolio、后台任务输入 artifact 和审计日志写入 `GREEN_DIRECT_PILOT_STORE_DIR`；
 - 管理员定期备份 store、清理过期 artifact payload。
 
 不允许：

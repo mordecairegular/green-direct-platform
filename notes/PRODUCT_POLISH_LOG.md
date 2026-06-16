@@ -4711,3 +4711,24 @@ benchmark：
 - `python -m compileall -q src\green_direct\models\pilot_backend.py src\green_direct\services\job_store.py src\green_direct\services\pilot_access.py src\green_direct\cli.py tests\test_pilot_backend_models.py tests\test_job_store.py tests\test_pilot_access.py tests\test_cli.py` 通过；
 - `pytest -q` 通过，329 项通过；
 - `git diff --check` 没有实际空白错误，仅有 Windows 换行转换提示。
+
+### 2026-06-16 Job 输入 payload artifact 入队闭环
+
+本轮继续把后台 worker 化向前推一小步：上一轮 job 已能引用已有 artifact，但还缺少“把一次任务请求自己的输入参数先保存成 artifact，再把该 artifact 挂到 queued job”的通用入口。若没有这一层，后续按需逐小时明细、经济性补算、图表/报告导出仍容易依赖 Streamlit `session_state` 或把请求 payload 塞进 job JSON。
+
+本轮实现：
+- `ArtifactKind` 新增 `JOB_INPUT = "job_input"`，用于标记 worker 可读取的 JSON 请求 payload；
+- `pilot_study_persistence.py` 新增 `QueuedJobWithInputArtifact` 和 `queue_job_with_input_artifact()`；
+- 该 helper 会先校验项目提交权限和外部 `input_artifact_ids` 是否存在于同一项目/研究，再写入 `job_input_<job_id>.json` artifact，并写 `STORE_ARTIFACT` 审计；
+- 随后提交 queued `Job`，其 `input_artifact_ids` 默认包含 `job_payload -> job_input_<job_id>`，并合并调用方传入的 `technical_summary`、`config_snapshot`、`input_curve_*` 等外部输入引用；
+- `input_fingerprint` 会基于 `job_type`、payload 和外部输入 artifact 引用稳定生成，方便后续去重、缓存或排查；
+- helper 已从 `green_direct.services` 导出，供 Streamlit 后续按需补算入口、CLI worker wrapper 或未来 API 层复用。
+
+边界说明：
+- 这仍不是正式 worker 执行器，只负责把任务输入持久化并提交 queued job；
+- 若写入 payload artifact 后、提交 job 前发生罕见失败，当前本地 JSON store 仍没有数据库事务回滚；主要失败点已通过预校验前置，未来 SQLite/Postgres 适配时应把 payload artifact 元数据和 job 提交纳入事务或补清理任务；
+- 后续按需 hourly detail、summary-only 经济补现金流、图表包和报告导出应优先调用该 helper 入队，再由 worker 读取 `Job.input_artifact_ids` 执行并写回 result/artifact。
+
+验证：
+- `pytest tests/test_pilot_study_persistence.py tests/test_pilot_backend_models.py tests/test_pilot_access.py tests/test_job_store.py -q` 通过，56 项通过；
+- `python -m compileall -q src\green_direct\models\pilot_backend.py src\green_direct\services\pilot_study_persistence.py src\green_direct\services\__init__.py` 通过。

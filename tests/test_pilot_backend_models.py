@@ -71,6 +71,10 @@ def test_user_platform_admin_flag_defaults_false():
     assert admin.is_platform_admin is True
 
 
+def test_artifact_kind_includes_worker_job_input_payload():
+    assert ArtifactKind.JOB_INPUT.value == "job_input"
+
+
 def test_job_lifecycle_keeps_project_scope_and_blocks_invalid_transitions():
     source_map = {"config": "config_snapshot"}
     job = Job(

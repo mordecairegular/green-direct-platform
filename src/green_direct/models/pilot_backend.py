@@ -89,6 +89,7 @@ class JobStatus(str, Enum):
 
 
 class ArtifactKind(str, Enum):
+    JOB_INPUT = "job_input"
     INPUT_CURVE = "input_curve"
     CONFIG_SNAPSHOT = "config_snapshot"
     TECHNICAL_SUMMARY = "technical_summary"

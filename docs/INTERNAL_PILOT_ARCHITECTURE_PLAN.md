@@ -114,6 +114,7 @@ PNG 图表包后台任务也按会话隔离：
 - `ProjectMembership.can_export_artifacts` 已作为第一版独立导出授权位，可表达“可计算、可查看但不可导出”的内部试用成员；
 - `User.is_platform_admin` 已区分平台账号管理员和项目 `admin`，项目 `admin` 只管理项目成员，不能天然创建或停用全站账号；
 - `Job` 已定义排队、运行、成功、失败、取消状态、进度字段、`worker_id`、`last_heartbeat_at`、`input_artifact_ids` 及合法状态转换；`input_artifact_ids` 用于记录后续 worker 执行所需的受控 artifact 引用，不把大输入或原始 payload 直接塞进 job JSON；
+- `ArtifactKind.JOB_INPUT` 已作为 worker 请求 payload 类型；`queue_job_with_input_artifact()` 会先把非空 JSON payload 写入 `ResultStore`，再提交引用该 payload 的 queued job，供后续 worker wrapper 读取；
 - `JobArtifact` 和 `StudyResultRecord` 保留 `project_id` / `study_id` 边界，用于后续 `ResultStore` 和下载文件隔离；
 - `JobArtifact` 已包含 `retention_policy`、`expires_at` 和 `purged_at`，用于表达 payload 长期保留或到期清理状态；
 - 该骨架已被本地认证、最小 Streamlit 登录门禁和项目工作区复用，但仍不包含正式数据库表、任务队列或完整企业 IAM，不代表账户后台已经完整实现。
@@ -169,6 +170,7 @@ PNG 图表包后台任务也按会话隔离：
 - 支持 `start_job()`、`update_job_progress()`、`succeed_job()`、`fail_job()` 和 `cancel_job()`，状态合法性沿用 `Job` 模型，并可保存 `worker_id` / heartbeat 元数据；
 - 支持 `claim_next_queued_job()`，可按项目和任务类型认领最早 queued 任务并转为 running，写入 `worker_id` 和 heartbeat，作为后续 worker 轮询的本地原语；
 - `Job.input_artifact_ids` 会随 job JSON 持久化；`pilot-admin list-jobs` 已显示输入 artifact 数量，便于运维判断某个 queued/running job 是否带了受控输入引用；
+- 任务请求 payload 可通过 `queue_job_with_input_artifact()` 保存为 `job_input_<job_id>.json`，并以默认 `job_payload` key 挂入 `Job.input_artifact_ids`；外部输入如 `technical_summary`、`config_snapshot`、`input_curve_*` 也会在同一映射中保留；
 - 支持 `list_stale_running_jobs()` 和 `fail_stale_running_jobs()`，可把超过阈值未 heartbeat 的 running 任务标记为 failed；`pilot-admin fail-stale-jobs` 会复用该能力并写 `COMPLETE_JOB` 审计；
 - 路径片段使用白名单校验，防止 `project_id`、`study_id`、`job_id` 被拼接成越权路径；
 - 当前实现只持久化任务状态和本地认领原语；JSON 写入已使用原子替换，但仍不包含真正 worker 调度、重试策略、跨进程并发锁或管理员 UI；后续任务队列或数据库实现应沿用同一 `Job` 契约。
@@ -182,6 +184,7 @@ PNG 图表包后台任务也按会话隔离：
 - `update_worker_job_progress()` 已作为平台管理员保护的 worker heartbeat/进度入口，要求 `worker_id` 与 running job 记录一致；
 - `succeed_worker_job()` / `fail_worker_job()` 已作为平台管理员保护的 worker 终态入口，要求 `worker_id` 与 running job 记录一致，并写 `COMPLETE_JOB` 审计；
 - `submit_job()` 已支持并校验 `Job.input_artifact_ids`：若提交的 job 声明了输入 artifact，服务层会要求这些 artifact 已存在于同一 `project_id` / `study_id`，并把引用写入 `SUBMIT_JOB` 审计 metadata；
+- `queue_job_with_input_artifact()` 在 `submit_job()` 前预校验权限和外部 artifact，并写 `STORE_ARTIFACT` 审计；它只提交 queued job，不在 Streamlit 请求内执行计算；
 - `list_accessible_projects()` 已用于 Streamlit 登录后的项目工作区选择，只返回当前用户有有效 membership 的项目；
 - `admin` 可创建/归档项目、授予/停用成员、提交任务、查看任务和产物、取消他人任务；
 - `analyst` 可提交和查看本项目任务，并取消自己提交的任务；
