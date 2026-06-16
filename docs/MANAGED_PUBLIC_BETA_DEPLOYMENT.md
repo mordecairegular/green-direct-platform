@@ -8,7 +8,7 @@
 
 - `origin` 已指向 GitHub 仓库，当前本地分支为 `codex/UI`；
 - 本地部署 preflight 已通过，证明 Docker、Render、默认安全环境变量、持久盘路径和部署文件齐备；
-- `--require-git-sync` 当前仍失败，因为本地分支还领先 upstream，托管平台暂时拿不到这些本地 checkpoint；
+- `--require-git-sync` 当前仍失败，因为本地分支还领先 upstream，托管平台暂时拿不到这些本地 checkpoint；部署前应重新运行该命令获取实时 ahead/behind；
 - 用户确认推送后，才进入 Render/Cloudflare 真实部署演练。
 
 ## 1. 推荐结论

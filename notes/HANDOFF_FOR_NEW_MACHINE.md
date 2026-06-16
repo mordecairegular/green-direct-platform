@@ -87,7 +87,7 @@
 2026-06-16 当前部署前事实状态：
 - `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 已通过，`failed_count=0`，包含 `smoke:streamlit`；
 - `python scripts\preflight_internal_pilot_deploy.py --json` 已通过，`failed_count=0`；
-- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 按预期失败，唯一失败项是 `git:sync`：本地 `codex/UI` 跟踪 `origin/codex/UI`，最近一次检查为 ahead=91、behind=0；
+- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 按预期失败，唯一失败项是 `git:sync`：本地 `codex/UI` 跟踪 `origin/codex/UI`，仍领先 upstream；部署前应重新运行该命令获取实时 ahead/behind；
 - 当前 `origin` 为 `https://github.com/mordecairegular/green-direct-platform.git`；
 - 因此下一步不是继续改 Vercel 适配，而是经用户确认后推送当前分支到私有 GitHub，等待 GitHub Actions 质量门通过，再按 Render/Cloudflare checklist 做真实部署演练。
 

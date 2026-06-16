@@ -5106,9 +5106,9 @@ benchmark：
 
 确认：
 - 当前 `origin` 已指向 GitHub 仓库 `https://github.com/mordecairegular/green-direct-platform.git`；
-- 当前本地分支为 `codex/UI`，跟踪 `origin/codex/UI`，最近一次检查为 ahead=91、behind=0；
+- 当前本地分支为 `codex/UI`，跟踪 `origin/codex/UI`，仍领先 upstream；部署前应重新运行 `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 获取实时 ahead/behind；
 - `python scripts\preflight_internal_pilot_deploy.py --json` 通过，说明本地 Docker、Render、默认环境变量、持久盘路径和部署文件门槛已满足；
-- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 按预期失败，唯一失败项是 `git:sync`，说明 Render/GitHub 还拿不到这 91 个本地 checkpoint。
+- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 按预期失败，唯一失败项是 `git:sync`，说明 Render/GitHub 还拿不到这些本地 checkpoint。
 
 决策：
 - GitHub 是正确的版本与自动部署入口；
