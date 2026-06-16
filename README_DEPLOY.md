@@ -121,7 +121,7 @@ python scripts\preflight_internal_pilot_deploy.py --require-git-sync
 
 该检查会确认当前工作树干净，且当前分支与 upstream 同步，避免 Render 部署到旧提交。
 
-仓库包含 `.github/workflows/internal-pilot-quality.yml`。推送或提交 PR 后，GitHub Actions 会自动运行 compile、部署 preflight 和全量 pytest；手动触发该 workflow 并勾选 `run_smoke` 时，还会启动 Streamlit 做 `/_stcore/health` 冒烟检查。Render 首次部署或重要回滚前，应先确认该质量门通过。
+仓库包含 `.github/workflows/internal-pilot-quality.yml`。推送或提交 PR 后，GitHub Actions 会自动运行 compile、部署 preflight、临时目录版 pilot store doctor 和全量 pytest；手动触发该 workflow 并勾选 `run_smoke` 时，还会启动 Streamlit 做 `/_stcore/health` 冒烟检查。Render 首次部署或重要回滚前，应先确认该质量门通过。
 
 ## 3. 默认安全设置
 

@@ -46,6 +46,9 @@ jobs:
       - name: Run deployment preflight
         run: python scripts/preflight_internal_pilot_deploy.py --json
 
+      - name: Run pilot store doctor preflight
+        run: python scripts/preflight_internal_pilot_deploy.py --pilot-store-dir "$RUNNER_TEMP/green-direct-pilot-store" --json
+
       - name: Run tests
         run: python -m pytest -q
 

@@ -5383,3 +5383,25 @@ profile / benchmark：
 - `python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 4 --wind-count 4 --bess-power-count 2 --durations 0,2 --skip-full-retention --json` 通过，30 个方案，技术 summary-first 0.5672s，经济性 summary-only 0.085s；
 - `python -m pytest -q` 通过，378 项通过；
 - `git diff --check` 通过，仅有 Windows 换行转换提示。
+
+### 2026-06-17 GitHub Actions 纳入 pilot store doctor
+
+本轮继续推进“GitHub 私有仓库 -> 托管平台部署 -> 同事移动网络试用”的质量闸。此前 GitHub Actions 已自动运行 compile、静态部署 preflight 和全量 pytest，但 `pilot store doctor` 只在本地或手工 preflight 中运行。这样推送后 CI 无法显式证明本地文件 store 的基础写入、协作锁和审计 JSONL 检查仍可执行。
+
+实现：
+- `.github/workflows/internal-pilot-quality.yml` 新增 `Run pilot store doctor preflight` 步骤；
+- 该步骤运行 `python scripts/preflight_internal_pilot_deploy.py --pilot-store-dir "$RUNNER_TEMP/green-direct-pilot-store" --json`，只使用 GitHub runner 临时目录，不触碰真实试用数据；
+- `tests/test_deployment_artifacts.py` 锁定 workflow 中的 store doctor preflight 命令；
+- `README_DEPLOY.md`、`docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md` 和 `notes/HANDOFF_FOR_NEW_MACHINE.md` 已同步说明：推送/PR 质量门会自动跑临时目录版 store doctor。
+
+边界：
+- CI 临时目录版 doctor 只能证明 store doctor 代码路径、JSON/payload 写入、协作锁和审计 JSONL 检查可运行；
+- 它不替代目标 Render persistent disk 或自有服务器真实 `GREEN_DIRECT_PILOT_STORE_DIR` 的运行时 doctor；
+- Render Shell 或服务器上线前仍应运行 `python -m green_direct.cli pilot-admin doctor --store-dir /data/pilot_store --json`。
+
+验证：
+- `python -m pytest tests\test_deployment_artifacts.py -q` 通过，9 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --pilot-store-dir <temp> --json` 通过，`failed_count=0`，包含 `pilot-store:*` 检查；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `python -m pytest -q` 通过，378 项通过；
+- `git diff --check` 通过，仅有 Windows 换行转换提示。

@@ -59,6 +59,7 @@ def test_github_actions_quality_gate_exists():
     assert "Internal Pilot Quality Gate" in workflow
     assert "python -m compileall -q src scripts tests" in workflow
     assert "python scripts/preflight_internal_pilot_deploy.py --json" in workflow
+    assert 'python scripts/preflight_internal_pilot_deploy.py --pilot-store-dir "$RUNNER_TEMP/green-direct-pilot-store" --json' in workflow
     assert "python -m pytest -q" in workflow
     assert "python scripts/smoke_streamlit_app.py --timeout-seconds 80" in workflow
 
