@@ -5847,3 +5847,26 @@ profile / benchmark：
 边界：
 - 不改变 V0.1 BESS 调度顺序、SOC 能量滚动、功率/容量约束、年度上网比例 cap、交换功率限制、summary 字段、经济性 V1 或推荐排序；
 - 为了性能，summary-only 现在与完整明细路径各有一套等价循环；后续如果改 BESS 口径，必须同时更新完整明细路径、summary-only 累加器和一致性测试。
+
+### 2026-06-17 经济性 FIRR 候选网格批量化
+
+本轮继续推进用户反复强调的“大方案池经济性测算等待时间”问题。上一个经济性 checkpoint 已为常见储能更换现金流下凹加了 bisection 快路径，但新的 5,000 行 synthetic economic summary profile 显示，剩余主热点仍在 `_calculate_irr()` 的多根 fallback：候选利率网格固定，却在每个方案里逐候选点用 Python 循环调用 `_npv()`、`abs()` 和 `math.isfinite()`。
+
+实现：
+- `economic_evaluator.py` 新增 `_irr_candidate_discount_matrix()`，按现金流长度和候选利率 tuple 缓存折现矩阵；
+- 新增 `_irr_candidate_npvs()`，用 NumPy 一次性计算所有候选利率下的 NPV；
+- 新增 `_irr_candidate_roots()`，用 NumPy 批量识别有限值、近零候选点和相邻符号穿越区间，只对真正穿越的区间继续调用原 `_bisect_irr_root()`；
+- 保留 `_irr_candidate_rates()` 的候选利率集合、唯一根/无根/多根状态语义和最终 bisection 求根精度；
+- 不改变经济性 V1 年度现金流、税费、折旧、储能更换、NPV/FIRR 定义或推荐排序。
+
+验证与反馈环：
+- `python -m pytest tests\test_economy_v1.py tests\test_single_entity_economy.py -q` 通过，32 项通过；
+- `python -m pytest -q` 通过，392 项通过；
+- 5,000 行 synthetic economic summary、`retain_annual_cashflows=False` 的直接计时从本轮前约 `18.3137s / 17.6937s` 降到约 `1.0180s / 1.0392s`；
+- 同一 profile 的函数调用数约从 `56,606,020` 降到 `4,366,020`，cProfile 总耗时约从 `30.446s` 降到 `2.259s`；
+- `_npv()` 调用从约 `17,784,000` 次降到约 `312,000` 次，剩余 `_npv()` 主要来自最终 bisection 求根，不再来自候选网格全量扫描。
+
+边界：
+- 这是 FIRR 求解 fallback 的性能优化，不是经济性口径调整；
+- 候选折现矩阵缓存会随现金流长度和候选利率 tuple 复用，当前 25 年运营期内存开销很小；
+- 后续若继续优化经济性，应优先看批量现金流构造、价格曲线 artifact 化、后台 Job 化和数据库/对象存储，而不是改变 FIRR 计算语义。

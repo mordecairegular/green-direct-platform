@@ -11,6 +11,7 @@ from functools import lru_cache
 import math
 from typing import Any, Iterable, Mapping
 
+import numpy as np
 import pandas as pd
 
 from green_direct.economy.economic_inputs import EconomicParams, OtherOperatingRevenueItem
@@ -260,6 +261,48 @@ def _irr_candidate_rates() -> tuple[float, ...]:
     return tuple(sorted(rates))
 
 
+@lru_cache(maxsize=16)
+def _irr_candidate_discount_matrix(
+    cashflow_count: int,
+    rates: tuple[float, ...],
+) -> tuple[np.ndarray, np.ndarray]:
+    rate_values = np.asarray(rates, dtype=float)
+    year_indexes = np.arange(cashflow_count, dtype=float)
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        discount_values = np.power(1.0 / (1.0 + rate_values[:, None]), year_indexes[None, :])
+    return rate_values, discount_values
+
+
+def _irr_candidate_npvs(cashflows: list[float]) -> tuple[np.ndarray, np.ndarray]:
+    rates = _irr_candidate_rates()
+    rate_values, discount_values = _irr_candidate_discount_matrix(len(cashflows), rates)
+    cashflow_values = np.asarray(cashflows, dtype=float)
+    with np.errstate(invalid="ignore", over="ignore"):
+        npv_values = discount_values @ cashflow_values
+    return rate_values, npv_values
+
+
+def _irr_candidate_roots(cashflows: list[float]) -> list[float]:
+    rate_values, npv_values = _irr_candidate_npvs(cashflows)
+    finite_mask = np.isfinite(npv_values)
+    roots = [float(rate) for rate in rate_values[finite_mask & (np.abs(npv_values) < 1e-7)]]
+
+    left_values = npv_values[:-1]
+    right_values = npv_values[1:]
+    crossing_mask = (
+        finite_mask[:-1]
+        & finite_mask[1:]
+        & (left_values != 0.0)
+        & (right_values != 0.0)
+        & (np.signbit(left_values) != np.signbit(right_values))
+    )
+    for index in np.flatnonzero(crossing_mask):
+        root = _bisect_irr_root(cashflows, float(rate_values[index]), float(rate_values[index + 1]))
+        if root is not None:
+            roots.append(root)
+    return roots
+
+
 def _bisect_irr_root(cashflows: list[float], low: float, high: float) -> float | None:
     low_value = _npv(cashflows, low)
     high_value = _npv(cashflows, high)
@@ -346,28 +389,7 @@ def _calculate_irr(cashflows: list[float]) -> tuple[float | None, str]:
         if root is not None:
             return root, "ok"
 
-    roots: list[float] = []
-    previous: tuple[float, float] | None = None
-    for rate in _irr_candidate_rates():
-        try:
-            value = _npv(cashflows, rate)
-        except (OverflowError, ZeroDivisionError):
-            previous = None
-            continue
-        if not math.isfinite(value):
-            previous = None
-            continue
-        if abs(value) < 1e-7:
-            roots.append(rate)
-        if previous is not None:
-            previous_rate, previous_value = previous
-            if previous_value * value < 0:
-                root = _bisect_irr_root(cashflows, previous_rate, rate)
-                if root is not None:
-                    roots.append(root)
-        previous = (rate, value)
-
-    unique_roots = _deduplicate_roots(roots)
+    unique_roots = _deduplicate_roots(_irr_candidate_roots(cashflows))
     if len(unique_roots) == 1:
         return unique_roots[0], "ok"
     if not unique_roots:

@@ -89,16 +89,17 @@
 - `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`：UI 提升提示词已明确要求先做当前运行截图/浏览器审查，再选择一个可验收小切片；首轮 UI 提升优先考虑窄屏/手机可用性或 03 经济性首屏节奏，不要让 Claude Code 一次性“美化全部六页”。
 
 2026-06-17 当前部署前事实状态：
-- 最新部署路线文档 checkpoint 为 `docs(pilot): clarify github render launch route`；最新代码/性能 checkpoint 提交主题为 `perf(core): inline bess summary accumulation`；此前连续部署/性能 checkpoint 包括 `fd8ca63 perf(core): reduce bess summary dispatch calls`、`511c0d4 perf(core): skip bess hour case in summaries`、`725f465 chore(deploy): lock pilot runtime env checks`、`68d43f8 docs(pilot): sharpen claudecode launch prompts`、`345f3a9 perf(economy): fast path temporary replacement irr dips` 和 `b28d4c5 perf(core): skip redundant bess output clamps`；
+- 最新部署路线文档 checkpoint 为 `docs(pilot): clarify github render launch route`；最新代码/性能 checkpoint 提交主题为 `perf(economy): vectorize irr candidate scan`；此前连续部署/性能 checkpoint 包括 `d6c33d4 perf(core): inline bess summary accumulation`、`fd8ca63 perf(core): reduce bess summary dispatch calls`、`511c0d4 perf(core): skip bess hour case in summaries`、`725f465 chore(deploy): lock pilot runtime env checks`、`68d43f8 docs(pilot): sharpen claudecode launch prompts`、`345f3a9 perf(economy): fast path temporary replacement irr dips` 和 `b28d4c5 perf(core): skip redundant bess output clamps`；
 - `python -m pytest -q` 最近一次全量结果为 `392 passed`；
 - `python -m pytest tests\test_bess_dispatch.py tests\test_single_scenario.py tests\test_batch_runner.py -q` 最近一次针对 BESS summary-only hot path 结果为 `68 passed`；
 - 最近一次 BESS summary-only profile 小切片把 48 个 8760 小时含储能方案、summary-only、无常驻明细的 cProfile 函数调用数约从 2,112,037 降到 430,117，cProfile 总耗时约从 0.753s 降到 0.430s；该优化只减少 `max()` / `min()` 和最大功率维护的 Python 调用，不改变 V0.1 dispatch 口径；
 - 随后一轮把有储能 summary-only 路径内联为 `_run_bess_summary_only()` 累加器，同参数 cProfile 函数调用数约从 430,117 降到 9,733，直接计时约从 0.34s 到 0.20s，带 `tracemalloc` benchmark 约从 15.7857s 到 4.0213s；完整逐小时明细路径仍调用 `dispatch_bess_hour_values_with_limits()`。后续若改 BESS 调度口径，必须同步更新完整明细路径、summary-only 累加器和一致性测试；
+- 最新经济性性能 checkpoint 把 FIRR 多根 fallback 的候选利率扫描改为 NumPy 批量 NPV 与符号穿越区间识别；候选利率列表、唯一根/多根判定和最终 bisection 语义不变。5,000 行 synthetic economic summary、`retain_annual_cashflows=False` 的 `run_economic_study()` 直接计时约从 18.3s 降到 1.0s，cProfile 函数调用数约从 56,606,020 降到 4,366,020；
 - `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 已通过，`failed_count=0`，包含 `smoke:streamlit`；
 - `python scripts\preflight_internal_pilot_deploy.py --pilot-store-dir .runtime\preflight_doctor_smoke --json` 已通过，`failed_count=0`，包含 `pilot-store:*` 检查；
 - `python scripts\preflight_internal_pilot_deploy.py --json` 已通过，`failed_count=0`；当前静态 preflight 包含 Docker/Compose/Render Web 与 worker 关键环境变量、`git-tracked:*` 推送源安全检查，已确认 tracked file count=330，未发现私有 `.env`、本地运行状态、pickle/database/log/压缩包或超过 95 MiB 的文件；
 - `python -m pytest tests\test_deployment_artifacts.py -q` 已通过，11 项通过，覆盖首次发布作战单、Render 分支、GitHub Actions 质量门和部署 preflight；
-- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 最近一次按预期失败，唯一失败项是 `git:sync`：本地 `codex/UI` 跟踪 `origin/codex/UI`，ahead 124、behind 0，工作树干净。该命令现在还会核对当前分支和 upstream 是否匹配 `render.yaml` 的部署分支；部署前应重新运行该命令获取实时状态；
+- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 最近一次按预期失败，唯一失败项是 `git:sync`：本地 `codex/UI` 跟踪 `origin/codex/UI`，ahead 127、behind 0，工作树干净。该命令现在还会核对当前分支和 upstream 是否匹配 `render.yaml` 的部署分支；部署前应重新运行该命令获取实时状态；
 - 当前 `origin` 为 `https://github.com/mordecairegular/green-direct-platform.git`；
 - 因此下一步不是继续改 Vercel 适配，而是经用户确认后推送当前分支到私有 GitHub，等待 GitHub Actions 质量门通过，再按 Render/Cloudflare checklist 做真实部署演练。
 
