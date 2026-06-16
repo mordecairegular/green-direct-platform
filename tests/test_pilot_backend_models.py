@@ -176,6 +176,29 @@ def test_project_study_artifact_and_result_record_preserve_project_boundary():
     assert record.report_artifact_ids["brief"] == "artifact_report"
 
 
+def test_result_record_soft_delete_marker_is_consistent():
+    deleted = StudyResultRecord(
+        result_id="result_deleted",
+        project_id="project_1",
+        study_id="study_1",
+        created_by_job_id="job_1",
+        deleted_at=_dt(7),
+        deleted_by_user_id="admin",
+    )
+
+    assert deleted.is_deleted
+    assert deleted.deleted_by_user_id == "admin"
+
+    with pytest.raises(ValueError, match="deleted_at and deleted_by_user_id"):
+        StudyResultRecord(
+            result_id="result_bad",
+            project_id="project_1",
+            study_id="study_1",
+            created_by_job_id="job_1",
+            deleted_at=_dt(7),
+        )
+
+
 def test_artifact_rejects_negative_size_and_empty_storage_uri():
     with pytest.raises(ValueError, match="size_bytes must be non-negative"):
         JobArtifact(

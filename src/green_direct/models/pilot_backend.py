@@ -110,6 +110,7 @@ class AuditAction(str, Enum):
     VIEW_ARTIFACT = "view_artifact"
     DOWNLOAD_ARTIFACT = "download_artifact"
     DELETE_ARTIFACT = "delete_artifact"
+    DELETE_RESULT_RECORD = "delete_result_record"
 
 
 @dataclass(frozen=True)
@@ -372,6 +373,8 @@ class StudyResultRecord:
     hourly_detail_artifact_ids: Mapping[str, str] = field(default_factory=dict)
     report_artifact_ids: Mapping[str, str] = field(default_factory=dict)
     created_at: datetime = field(default_factory=_utcnow)
+    deleted_at: datetime | None = None
+    deleted_by_user_id: str | None = None
 
     def __post_init__(self) -> None:
         _require_text(self.result_id, "result_id")
@@ -379,9 +382,18 @@ class StudyResultRecord:
         _require_text(self.study_id, "study_id")
         _require_text(self.created_by_job_id, "created_by_job_id")
         _ensure_aware(self.created_at, "created_at")
+        _ensure_aware(self.deleted_at, "deleted_at")
+        if (self.deleted_at is None) != (self.deleted_by_user_id is None):
+            raise ValueError("deleted_at and deleted_by_user_id must be set together.")
+        if self.deleted_by_user_id is not None:
+            _require_text(self.deleted_by_user_id, "deleted_by_user_id")
         object.__setattr__(self, "annual_cashflow_artifact_ids", dict(self.annual_cashflow_artifact_ids))
         object.__setattr__(self, "hourly_detail_artifact_ids", dict(self.hourly_detail_artifact_ids))
         object.__setattr__(self, "report_artifact_ids", dict(self.report_artifact_ids))
+
+    @property
+    def is_deleted(self) -> bool:
+        return self.deleted_at is not None
 
 
 @dataclass(frozen=True)

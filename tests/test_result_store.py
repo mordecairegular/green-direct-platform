@@ -201,6 +201,66 @@ def test_result_store_lists_project_and_study_result_records_newest_first(tmp_pa
     assert store.list_project_result_records("project_missing") == []
 
 
+def test_result_store_soft_deletes_result_records_without_removing_artifacts(tmp_path):
+    store = LocalResultStore(tmp_path)
+    artifact = store.store_artifact(
+        artifact_id="technical_summary",
+        project_id="project_1",
+        study_id="study_1",
+        job_id="job_1",
+        kind=ArtifactKind.TECHNICAL_SUMMARY,
+        payload=b"summary",
+        filename="summary.csv",
+    )
+    keep = StudyResultRecord(
+        result_id="result_keep",
+        project_id="project_1",
+        study_id="study_1",
+        created_by_job_id="job_1",
+        technical_summary_artifact_id=artifact.artifact_id,
+        created_at=_dt(1),
+    )
+    delete = StudyResultRecord(
+        result_id="result_delete",
+        project_id="project_1",
+        study_id="study_1",
+        created_by_job_id="job_1",
+        technical_summary_artifact_id=artifact.artifact_id,
+        created_at=_dt(2),
+    )
+    store.save_result_record(keep)
+    store.save_result_record(delete)
+
+    deleted = store.soft_delete_result_record(
+        "project_1",
+        "study_1",
+        "result_delete",
+        deleted_by_user_id="admin",
+        deleted_at=_dt(3),
+    )
+
+    assert deleted.is_deleted
+    assert deleted.deleted_at == _dt(3)
+    assert deleted.deleted_by_user_id == "admin"
+    assert store.load_result_record("project_1", "study_1", "result_delete").is_deleted
+    assert [record.result_id for record in store.list_study_result_records("project_1", "study_1")] == [
+        "result_keep"
+    ]
+    assert [record.result_id for record in store.list_project_result_records("project_1")] == [
+        "result_keep"
+    ]
+    all_study_records = store.list_study_result_records(
+        "project_1",
+        "study_1",
+        include_deleted=True,
+    )
+    assert [record.result_id for record in all_study_records] == [
+        "result_delete",
+        "result_keep",
+    ]
+    assert store.read_artifact_payload(store.load_artifact("project_1", "study_1", "technical_summary")) == b"summary"
+
+
 def test_result_store_appends_project_and_global_audit_logs(tmp_path):
     store = LocalResultStore(tmp_path)
     project_event = AuditLog(

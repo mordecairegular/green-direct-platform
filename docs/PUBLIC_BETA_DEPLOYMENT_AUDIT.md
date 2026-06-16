@@ -13,13 +13,13 @@
 - 可选登录门禁、平台管理员 bootstrap、账号创建/停用/重置密码；
 - 项目、项目成员和 `can_export_artifacts` 第一版授权位；
 - 本地 `PilotAccessService` 权限/审计门面；
-- 本地 `ResultStore`、`JobStore`、artifact 元数据和过期 payload 清理；
+- 本地 `ResultStore`、`JobStore`、artifact 元数据、过期 payload 清理和结果索引软删除；
 - 技术 summary、按需单方案逐小时明细、经济 summary、推荐席位输入和推荐 portfolio 的项目级写入第一阶段；技术 summary、经济 summary、推荐席位输入和推荐 portfolio 已有 summary-only / portfolio-only 恢复入口；
 - 导出页已可将所选方案 HTML 图表包和简版 Markdown 报告显式保存为项目级 `chart_package` / `report` artifact，登记 `chart_export` / `report_export` Job，并写入 `STORE_ARTIFACT` 审计；
 - 当前 06 导出页的临时下载按钮已接入 `PilotAccessService.record_transient_export_download()`，点击 CSV/Excel/ZIP/Markdown 下载会复用项目导出权限并写 `DOWNLOAD_ARTIFACT` 审计；
 - 上传文件类型/大小校验和 hash 元数据；
 - 大方案池 summary-first、计算前粗略耗时提示、大批量确认、单次方案数硬上限、可选并行和并行方案块提交、当前会话单方案逐小时明细补算、hourly artifact 留存、已有 hourly artifact 跨会话加载，以及基于三条 input artifact 的跨会话单方案明细补算第一版；
-- 欢迎页项目任务与结果面板，以及排队/运行中任务的最小查看和取消入口；
+- 欢迎页项目任务与结果面板、项目 admin 结果索引隐藏入口，以及排队/运行中任务的最小查看和取消入口；
 - `.env.example`、内部部署 runbook、pilot store 备份/恢复脚本。
 - Dockerfile、docker-compose.yml、README_DEPLOY.md、SECURITY.md 第一版。
 
@@ -42,12 +42,12 @@
 | 不可导出用户不能导出 | 第一版满足 | `ProjectMembership.can_export_artifacts`、`read_artifact_payload()` 下载审计；当前 06 页临时下载走 `record_transient_export_download()`；网页查看走 `read_artifact_payload_for_view()` | 仍需保证未来 API、反向代理下载和对象存储签名 URL 不绕过服务门面 | 所有下载/导出统一走后端授权服务 |
 | 上传文件类型/大小限制 | 第一版满足 | `UploadPolicy`，默认 20MB，CSV/XLSX/XLSM 白名单；技术三曲线随技术结果写入 `ArtifactKind.INPUT_CURVE` | 价格曲线、schema 报告和原始输入清理调度仍未闭环 | 增加 schema 报告、定时清理和关键 Run 保留 |
 | 单次方案数限流 | 第一版满足 | `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN`、`PerformanceParams.max_scenarios_per_run`、02 页超限提示、大批量确认和 `run_batch()` 后端拒绝 | 粗略耗时模型仍需目标服务器实测校准；已有活动任务取消入口，但仍缺 worker 级取消和排队 | 继续补后台进度、worker 取消和任务队列 |
-| 项目/Run/参数/结果摘要留存 | 部分满足 | 技术/经济/推荐 summary、推荐席位输入、已保留的经济年度现金流与按需 hourly artifact 已写 `ResultStore`；HTML 图表包和 Markdown 报告可显式保存为 `chart_package` / `report` artifact；技术 summary、经济 summary、年度现金流、推荐席位输入和推荐 portfolio 可恢复到当前会话 | 推荐视角选择/重新排序工作台状态、PNG/Excel/批量导出包和完整报告未完整持久化；summary-only 经济运行不会凭空恢复未保留现金流 | 按 `StudyResultRecord` 串联完整结果索引并补剩余 chart/report/export artifacts |
+| 项目/Run/参数/结果摘要留存 | 部分满足 | 技术/经济/推荐 summary、推荐席位输入、已保留的经济年度现金流与按需 hourly artifact 已写 `ResultStore`；HTML 图表包和 Markdown 报告可显式保存为 `chart_package` / `report` artifact；技术 summary、经济 summary、年度现金流、推荐席位输入和推荐 portfolio 可恢复到当前会话；项目 admin 可软删除/隐藏结果索引并写审计 | 推荐视角选择/重新排序工作台状态、PNG/Excel/批量导出包和完整报告未完整持久化；summary-only 经济运行不会凭空恢复未保留现金流 | 按 `StudyResultRecord` 串联完整结果索引并补剩余 chart/report/export artifacts |
 | 原始文件、逐小时明细、导出文件留存和清理 | 部分满足 | 当前有 artifact payload 过期清理；技术三曲线 input artifact 与按需 hourly artifact 默认 30 天过期；HTML 图表包和 Markdown 报告默认 7 天过期；已有 hourly artifact 可跨会话加载，缺明细的历史 summary-only 可在 input artifact 可用时恢复输入并补算单方案明细 | 补算与导出保存仍是同步动作；价格曲线、PNG/Excel/批量包未完整 artifact 化；旧结果缺 `curve_columns` 时不能恢复输入 | 把按需补算升级为 Job，并补剩余 cashflow/chart/report/export artifacts |
-| 关键操作审计日志 | 部分满足 | 登录、项目、成员、任务、artifact 写入/网页查看/下载/清理、当前 06 页临时导出下载已审计 | 管理员跨项目查看、原始文件查看、未来 API/反向代理下载仍需补齐 | 扩充 `AuditAction` 覆盖面 |
+| 关键操作审计日志 | 部分满足 | 登录、项目、成员、任务、artifact 写入/网页查看/下载/清理、结果索引软删除、当前 06 页临时导出下载已审计 | 管理员跨项目查看、原始文件查看、未来 API/反向代理下载仍需补齐 | 扩充 `AuditAction` 覆盖面 |
 | Docker 可部署 | 第一版满足 | `Dockerfile`、`docker-compose.yml`、`README_DEPLOY.md` | 尚未在目标服务器完成构建/启动/恢复演练 | 实机运行 `docker compose build/up` 和数据卷恢复演练 |
 | HTTPS/反向代理/备份/恢复/回滚说明 | 部分满足 | 内部 runbook、PowerShell 备份/恢复脚本、`README_DEPLOY.md` | 缺少系统服务托管、集中日志、监控告警和自动恢复演练 | 在目标服务器补 Caddy/Nginx 配置、日志和监控 |
-| 核心算法回归通过 | 满足当前 checkpoint | 最近 `pytest -q` 为 304 passed | 后续改性能/后台时仍需重复验证 | 每个工程化切片后跑回归 |
+| 核心算法回归通过 | 满足当前 checkpoint | 最近 `pytest -q` 为 307 passed | 后续改性能/后台时仍需重复验证 | 每个工程化切片后跑回归 |
 
 ## 3. 推荐执行顺序
 
@@ -67,6 +67,7 @@
 
 3. **历史结果恢复**
    - 从 `StudyResultRecord` 恢复技术 summary、经济 summary、已保留年度现金流、推荐席位输入和推荐 portfolio；推荐视角选择与重新排序状态后续再恢复为完整工作台状态；
+   - 项目 admin 可软删除/隐藏历史结果索引，默认结果列表不再展示；该动作不删除 artifact payload；
    - 如果已有 hourly artifact，优先按网页查看权限加载到当前工作流；
    - 如果 input artifact 可用，允许跨会话按需补算某方案 hourly detail；
    - 如果 input artifact 已清理，明确提示“只能查看摘要，不能补算明细”。

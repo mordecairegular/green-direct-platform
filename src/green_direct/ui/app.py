@@ -2011,6 +2011,12 @@ def _current_pilot_project_can_export_artifacts(st) -> bool:
     return bool(st.session_state.get(PILOT_ACTIVE_PROJECT_CAN_EXPORT_KEY, False))
 
 
+def _current_pilot_project_can_manage(st) -> bool:
+    if not _pilot_auth_enabled():
+        return True
+    return st.session_state.get(PILOT_ACTIVE_PROJECT_ROLE_KEY) == ProjectRole.ADMIN.value
+
+
 def _render_pilot_project_submit_permission_block(st) -> None:
     st.markdown("## 当前项目为只读权限")
     st.warning("你的项目角色当前不能发起新的技术仿真或经济性测算。请联系项目管理员或平台管理员调整为 admin / analyst 后再运行计算。")
@@ -3028,6 +3034,7 @@ def _render_pilot_result_artifact_downloads(
 
     st.caption("历史结果产物")
     can_export_artifacts = _current_pilot_project_can_export_artifacts(st)
+    can_manage_project = _current_pilot_project_can_manage(st)
     if not can_export_artifacts:
         st.info("当前项目成员权限允许查看和恢复历史结果到网页工作流，但不允许下载结果文件。")
 
@@ -3091,6 +3098,31 @@ def _render_pilot_result_artifact_downloads(
                     else:
                         st.rerun()
                 st.caption("恢复仅写入推荐组合 portfolio；推荐席位输入不会随之恢复。")
+            if can_manage_project:
+                st.divider()
+                confirm_delete_key = (
+                    f"pilot_history_delete_confirm_{record.project_id}:{record.study_id}:{record.result_id}"
+                )
+                delete_key = f"pilot_history_delete_{record.project_id}:{record.study_id}:{record.result_id}"
+                st.caption("项目管理员可隐藏这条历史结果索引；这不会删除已落盘 artifact 文件。")
+                if st.checkbox("确认隐藏这条历史结果索引", key=confirm_delete_key):
+                    if st.button("隐藏历史结果索引", key=delete_key):
+                        try:
+                            deleted = access.delete_result_record(
+                                actor_user_id=actor_user_id,
+                                project_id=record.project_id,
+                                study_id=record.study_id,
+                                result_id=record.result_id,
+                            )
+                        except Exception as exc:  # noqa: BLE001 - activity panel should surface storage/permission races
+                            if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
+                                st.warning(f"历史结果索引暂不能隐藏：{exc}")
+                                return
+                            raise
+                        st.session_state[PILOT_PROJECT_NOTICE_KEY] = (
+                            f"已隐藏历史结果索引：{deleted.result_id}"
+                        )
+                        st.rerun()
             if not can_export_artifacts:
                 for label, artifact_id in _pilot_result_artifact_refs(record):
                     st.caption(f"{label} · {artifact_id}")

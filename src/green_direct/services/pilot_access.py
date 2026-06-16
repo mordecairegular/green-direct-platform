@@ -293,6 +293,38 @@ class PilotAccessService:
         self.require_project_view(actor_user_id=actor_user_id, project_id=project_id)
         return self.result_store.list_study_result_records(project_id, study_id)
 
+    def delete_result_record(
+        self,
+        *,
+        actor_user_id: str,
+        project_id: str,
+        study_id: str,
+        result_id: str,
+    ) -> StudyResultRecord:
+        """Soft-delete a result index after checking project admin permission."""
+
+        self.require_project_admin(actor_user_id=actor_user_id, project_id=project_id)
+        deleted = self.result_store.soft_delete_result_record(
+            project_id,
+            study_id,
+            result_id,
+            deleted_by_user_id=actor_user_id,
+        )
+        self._audit(
+            actor_user_id=actor_user_id,
+            action=AuditAction.DELETE_RESULT_RECORD,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=deleted.created_by_job_id,
+            target_type="result_record",
+            target_id=result_id,
+            metadata={
+                "created_by_job_id": deleted.created_by_job_id,
+                "deleted_at": deleted.deleted_at.isoformat() if deleted.deleted_at else None,
+            },
+        )
+        return deleted
+
     def cancel_job(self, *, actor_user_id: str, project_id: str, study_id: str, job_id: str) -> Job:
         """Cancel a queued/running job; analysts may cancel only their own jobs."""
 

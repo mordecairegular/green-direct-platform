@@ -4244,3 +4244,32 @@ exchange_import_shortfall_energy == 0
 - `python -m compileall -q src scripts tests` 通过；
 - `python -m pytest -q` 通过，304 项通过；
 - `git diff --check` 无实际空白错误，仅提示 Windows 换行转换。
+
+### 2026-06-16 历史结果索引软删除
+
+本轮继续补内部 10-20 人试用的历史结果管理闭环。此前欢迎页已经能列出项目任务和结果索引，并支持下载/恢复多个已落盘 artifact；但用户或项目管理员无法隐藏明显过期、误跑或不应继续展示的历史结果。直接物理删除 artifact 又会破坏审计和误删恢复，因此本轮先做结果索引软删除。
+
+本轮判断：
+- 删除动作应先作用于 `StudyResultRecord` 索引，不直接删除 artifact payload；
+- 默认结果列表应隐藏已软删除记录，必要时服务层仍可 `include_deleted=True` 读取用于审计或恢复；
+- 删除权限先收紧到项目 `admin`，避免 analyst/viewer 误删项目历史；
+- 该能力不是完整历史结果页、报告版本标记、物理清理策略或数据库级回收站。
+
+本轮实现：
+- `StudyResultRecord` 新增 `deleted_at` 和 `deleted_by_user_id`，并要求两个字段成对出现；
+- `LocalResultStore.soft_delete_result_record()` 会重写结果索引 JSON，设置软删除字段；`list_project_result_records()` 和 `list_study_result_records()` 默认过滤已删除记录；
+- `AuditAction` 新增 `DELETE_RESULT_RECORD`；
+- `PilotAccessService.delete_result_record()` 仅允许项目 admin 软删除结果索引，并写项目级审计；
+- Streamlit 欢迎页“历史结果产物”区为项目 admin 增加“隐藏历史结果索引”入口，明确提示不会删除已落盘 artifact 文件。
+
+边界说明：
+- 软删除后，已有 artifact payload 仍按原 retention 策略保留或过期清理；
+- 当前不提供跨项目搜索、报告版本标记、回收站恢复 UI 或物理批量清理；
+- 本地 JSON store 仍不是正式数据库事务或跨进程锁。
+
+验证：
+- `python -m pytest tests/test_pilot_backend_models.py tests/test_result_store.py tests/test_pilot_access.py -q` 通过，35 项通过；
+- `python -m compileall -q src/green_direct/models/pilot_backend.py src/green_direct/services/result_store.py src/green_direct/services/pilot_access.py src/green_direct/ui/app.py` 通过；
+- `python -m pytest tests/test_pilot_backend_models.py tests/test_result_store.py tests/test_pilot_access.py tests/test_ui_import.py::test_pilot_project_activity_frames_summarize_jobs_and_results tests/test_ui_import.py::test_pilot_history_artifact_refs_and_download_use_access_service -q` 通过，37 项通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `python -m pytest -q` 通过，307 项通过。
