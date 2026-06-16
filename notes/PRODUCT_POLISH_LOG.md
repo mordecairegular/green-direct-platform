@@ -5014,3 +5014,18 @@ benchmark：
 - `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
 - `git diff --check` 通过，仅有 Windows 换行转换提示；
 - `python -m pytest -q` 通过，357 项通过。
+
+### 2026-06-16 Claude Code UI 提升提示词拆分
+
+本轮继续处理用户提出的“除了 review/debug，也希望 Claude Code 对 UI 进行提升”的协作需求。此前 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md` 已有 UI 提升提示词，但仍偏一次性让 Claude Code 直接优化六页，容易和上线 review、性能专项混在一起，也容易在没有浏览器证据时大改 `app.py`。
+
+调整：
+- 将 UI 提升拆成两段：`UI 审查与切片选择提示词` 和 `UI 小切片落地提示词`；
+- UI 审查阶段要求先读既有 UI 审计、roadmap、mapping、自查和当前 `app.py` / `chart_ui.py`，能运行时必须用浏览器检查 01-06 页和窄屏/手机宽度；
+- 明确优先审查已知高价值问题：窄屏遮挡、03 经济性主 CTA 和结果摘要、04 推荐理由与状态分级、05 图表问题意识、06 交付包/依赖状态、raw enumeration 是否被放回主体验；
+- 落地阶段要求只做一个小切片，并继续禁止改技术调度、经济性、推荐排序或把 mock 数据接进正式 Streamlit；
+- `notes/HANDOFF_FOR_NEW_MACHINE.md` 已同步：Claude Code 提示词现在分为六类，并明确 UI 提升要先审查切片、再小步落地。
+
+边界：
+- 本轮只改协作提示词和交接文档，不改正式 UI 代码；
+- 后续真正 UI 代码改动仍应基于浏览器截图/复现路径，并运行 `python -m pytest -q` 和六页浏览器检查。

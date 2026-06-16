@@ -60,12 +60,13 @@
 
 如果目标是 10-20 人内部试用上线，或从内网 pilot 升级到邀请制受控公网内测 Route A，请优先使用 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`。
 
-该文档把 Claude Code 任务拆成五类可复制提示词：
+该文档把 Claude Code 任务拆成六类可复制提示词：
 - 上下文读取；
 - 上线前 review/debug；
 - 方案遍历与经济性测算性能专项；
-- Streamlit UI 提升；
-- 后台账户、Job 和 `ResultStore` 架构设计。
+- Streamlit UI 提升（先 UI 审查与切片选择，再做小切片落地）；
+- 后台账户、Job 和 `ResultStore` 架构设计；
+- 托管平台公网测试演练。
 
 不要把 review/debug、性能专项和 UI 提升合并到同一轮。前者用于清 P0/P1 风险，性能专项用于量化并推进大方案池等待时间问题，UI 提升用于改善六步工作流体验；三者的判断标准不同，混在一起容易漏掉上线风险。
 
