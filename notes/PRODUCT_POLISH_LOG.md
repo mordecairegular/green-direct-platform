@@ -5459,3 +5459,20 @@ profile / benchmark：
 - `python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 4 --wind-count 4 --bess-power-count 2 --durations 0,2 --skip-full-retention --json` 通过，30 个方案技术 summary-first 约 0.5641s，经济性 summary-only 约 0.0938s；
 - `python -m pytest -q` 通过，380 项通过；
 - `git diff --check` 通过，仅有 Windows 换行转换提示。
+
+### 2026-06-17 Claude Code UI 提升提示词补强
+
+本轮继续处理用户提出的“除了 review/debug，也想让 Claude Code 对 UI 进行提升”。此前 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md` 已把任务拆为上线审查、性能专项、UI 提升、后台架构和托管部署演练，但 UI 提升部分仍偏审查清单，缺少“当前运行截图证据”“首轮小切片选择”和“移动网络试用相关验收”的硬要求。
+
+调整：
+- 明确不要直接发送“请美化界面”，而要先让 Claude Code 用当前运行浏览器证据审查 01-06 页，再选择一个可验收小切片；
+- UI 审查阅读材料新增 `FLOW_CAPTURE_NOTES.md`、GPT Project UI handoff、截图清单和截图索引，要求区分历史截图和当前运行结果；
+- 浏览器检查要求覆盖桌面宽屏和约 `390 x 844` 手机宽度；历史截图只能作为线索，不能替代当前截图；
+- 新增首轮 UI 小切片候选：窄屏/手机可用性、03 经济测算首屏节奏、04 推荐状态表达、06 导出中心交付状态、图表页代表方案复核；
+- 明确若无强 P0/P1 上线风险，第一轮 UI 落地优先选窄屏/手机可用性或 03 经济性首屏节奏，不要一次性重做六页；
+- UI 小切片落地提示词新增浏览器验收最低要求：桌面 01-06 页、窄屏至少 01/02/本轮改动页、Demo 跑到相关页面并记录状态，无法截图时必须说明原因。
+
+边界：
+- 这是提示词/交接质量提升，不改变 Streamlit UI 代码、计算口径、经济性口径或推荐排序；
+- 后续真正 UI 改造仍应先完成上线 review/debug P0/P1 判断，再选一个小切片落地；
+- UI 提升不能替代 Render/Cloudflare 真实移动网络部署演练。

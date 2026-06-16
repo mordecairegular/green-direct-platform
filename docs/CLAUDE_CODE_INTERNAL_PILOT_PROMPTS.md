@@ -13,7 +13,7 @@
 
 现有提示词方向是对的：应该把 Claude Code 分成“上线审查”“性能专项”“UI 提升”“后台架构”和“托管部署演练”等几轮，而不是让它一次性同时做安全、性能、架构、部署和视觉改造。
 
-但原提示词还需要补强四点：
+但原提示词还需要补强五点：
 
 - 明确审查范围：要求 Claude Code 先确认当前分支、最近提交和工作区状态；
 - 明确修复权限：P0/P1 可直接修，但任何计算口径变化必须先说明原因，并同步测试和文档；
@@ -33,6 +33,8 @@
 6. 如果要直接公网试用，再单独发送“托管平台部署演练提示词”。
 
 不要把第 2 步、第 3 步和第 4 步合并。审查阶段要保守，性能阶段要可量化，UI 阶段要有设计判断，混在一起容易漏掉真正的上线风险或把视觉优化误当成上线能力。
+
+如果目标是“让 Claude Code 对 UI 进行提升”，不要直接发送一句“请美化界面”。应先让它用截图和浏览器证据审查当前 01-06 页，再选择一个可验收小切片落地。首次 UI 提升优先考虑“窄屏/手机宽度可用性”和“经济性/推荐/导出页的任务状态反馈”，因为它们直接影响同事在移动网络下试用时是否能完成闭环。
 
 ## 3. 上下文读取提示词
 
@@ -143,9 +145,14 @@ python -m pytest -q
 - docs/WEB_APP_WORKFLOW_AND_UI_RESTRUCTURE.md；
 - docs/ui/audit-20260606-product-design/UI_AUDIT_REPORT.md；
 - docs/ui/audit-20260606-product-design/UI_REDESIGN_ROADMAP.md；
+- docs/ui/audit-20260606-product-design/FLOW_CAPTURE_NOTES.md；
 - docs/ui/UI_IMPLEMENTATION_MAPPING_20260606.md；
 - docs/ui/UI_MAPPING_SELF_AUDIT_20260608.md；
 - docs/ui/UI_REFERENCE_MAPPING.md；
+- docs/ui/gpt-project-handoff-20260609/01_PROJECT_CONTEXT.md；
+- docs/ui/gpt-project-handoff-20260609/02_UI_REVIEW_PROMPT.md；
+- docs/ui/gpt-project-handoff-20260609/05_SCREENSHOT_AND_RECORDING_CHECKLIST.md；
+- docs/ui/gpt-project-handoff-20260609/screenshots-main-long-20260609/SCREENSHOT_INDEX.md；
 - docs/SOFTWARE_OVERVIEW_AND_INTERFACE.md；
 - src/green_direct/ui/app.py；
 - src/green_direct/visualization/chart_ui.py。
@@ -153,7 +160,7 @@ python -m pytest -q
 如果可以运行本地应用，请启动：
 streamlit run src/green_direct/ui/app.py
 
-然后用浏览器实际检查 01-06 页，至少覆盖桌面宽屏和窄屏/手机宽度。若当前环境无法打开浏览器，请说明限制，并基于已有截图和代码审查，不要臆造浏览器已通过。
+然后用浏览器实际检查 01-06 页，至少覆盖桌面宽屏和窄屏/手机宽度。窄屏建议至少检查约 `390 x 844` 或接近手机浏览器宽度。若当前环境无法打开浏览器，请说明限制，并基于已有截图和代码审查，不要臆造浏览器已通过。历史截图只能作为线索，不能替代当前运行截图；如果代码已变更，应重新截图或明确“未重新截图”。
 
 目标体验按页面拆解：
 1. 01 项目启动：让用户快速知道输入是否齐备、结果是否可用、下一步该做什么；
@@ -171,12 +178,22 @@ streamlit run src/green_direct/ui/app.py
 5. 06 下载报告页是否有“交付包/依赖状态”概念，能否说明哪些导出已准备好、哪些需要先补算；
 6. UI 是否仍把 raw scenario enumeration、逐小时大表或年度现金流大表放回主体验。
 
+首轮可选小切片建议：
+1. 窄屏/手机宽度可用性：解决侧边导航或顶部状态条遮挡主内容，让同事移动网络访问时至少能完成登录、选择项目和 Demo 试算；
+2. 03 经济测算首屏节奏：让关键参数、计算按钮、运行状态和计算后摘要更靠近，减少用户误以为页面卡住；
+3. 04 推荐页状态表达：强化推荐席位、命中理由、pending/no-candidate 的原因和下一步动作；
+4. 06 导出中心交付状态：把已准备、需补算、无权限、失败重试分清楚，尤其要体现不可导出用户边界；
+5. 图表页代表方案复核：减少围绕全量枚举的选择压力，让图表回答“为什么推荐/风险在哪”。
+
+若没有强 P0/P1 上线风险，建议第一轮 UI 落地优先选第 1 项或第 2 项；不要一次性重做全部六页。
+
 输出要求：
 1. 先列 UI Findings，按 P0/P1/P2 排序；
 2. 每个 finding 给出页面、复现路径、相关代码区域和用户影响；
 3. 提出 3-5 个可独立实施的小切片，每个切片说明要改的用户任务、主要文件、风险、测试/浏览器验收方式；
 4. 推荐本轮最应该落地的 1 个小切片；
 5. 明确哪些建议必须等 review/debug P0/P1 清零后再做。
+6. 给出需要保存的新截图清单，包含桌面和窄屏，说明建议存放到 `docs/ui/audit-YYYYMMDD-*/screenshots/` 或复用现有 UI evidence 目录。
 ```
 
 ### 5.2 UI 小切片落地提示词
@@ -210,6 +227,12 @@ streamlit run src/green_direct/ui/app.py
 5. 截图或文字记录检查结果；
 6. 如果发现 UI 问题但本轮不修，请列为 P2/P3 后续项；
 7. 如果改动改变了重要用户体验判断，请更新 notes/PRODUCT_POLISH_LOG.md；如果会影响下一位 agent 的工作边界，请更新 notes/HANDOFF_FOR_NEW_MACHINE.md。
+
+浏览器验收最低要求：
+1. 桌面宽屏打开 01-06 页，确认主 CTA、状态提示和页面跳转没有明显异常；
+2. 窄屏/手机宽度打开至少 01 项目启动、02 方案仿真和本轮改动页，确认没有导航、状态条、按钮或卡片遮挡主内容；
+3. 如果改动涉及经济性、推荐或导出状态，至少用 Demo 跑到相关页面并记录计算前、计算中/排队、计算后的状态；
+4. 如果当前环境无法截图，必须说明不能截图的原因，并列出人工验收路径。
 ```
 
 ## 6. 性能专项提示词

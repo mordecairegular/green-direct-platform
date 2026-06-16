@@ -84,6 +84,7 @@
 - `scripts/smoke_streamlit_app.py`：用于推送 GitHub/Render 前做本地服务器口径冒烟检查，默认启用 pilot auth、关闭 runtime snapshot、使用临时 pilot store 并检查 `/_stcore/health`。
 - `.github/workflows/internal-pilot-quality.yml`：GitHub 推送/PR 质量门，自动运行 compile、部署 preflight、临时目录版 pilot store doctor 和全量 pytest；手动触发并勾选 `run_smoke` 时会额外启动 Streamlit 做健康检查。
 - `render.yaml`：当前 pilot Blueprint 显式部署 `codex/UI`，设置 `numInstances=1` 和 `autoDeployTrigger: checksPass`；Render 应等 GitHub Actions 质量门通过后再自动部署，避免部署默认分支或未通过检查的提交。
+- `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`：UI 提升提示词已明确要求先做当前运行截图/浏览器审查，再选择一个可验收小切片；首轮 UI 提升优先考虑窄屏/手机可用性或 03 经济性首屏节奏，不要让 Claude Code 一次性“美化全部六页”。
 
 2026-06-16 当前部署前事实状态：
 - `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 已通过，`failed_count=0`，包含 `smoke:streamlit`；
