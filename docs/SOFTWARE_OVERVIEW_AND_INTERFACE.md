@@ -1037,6 +1037,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `set_platform_admin()`：授予或撤销平台管理员标记；
 - `disable_user()`：停用用户，并撤销其有效本地会话；
 - `enable_user()`：恢复已停用用户，并写入 `UPDATE_USER` 审计；
+- `list_user_sessions()` / `revoke_user_session()`：平台管理员查看并撤销指定用户会话，撤销写入 `UPDATE_USER` 审计；
 - `list_users()`：平台管理员列出用户；
 - `create_project()` / `archive_project()` / `list_projects()` / `list_project_memberships()` / `grant_project_role()` / `disable_project_membership()`：平台管理员创建或归档项目，并维护项目成员角色和导出授权。
 
@@ -1050,7 +1051,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `disable-user`：停用用户并撤销有效会话；
 - `enable-user`：恢复已停用用户；
 - `grant-platform-admin` / `revoke-platform-admin`：授予或撤销平台管理员；
-- `list-users` / `list-sessions`：查看用户和会话；
+- `list-users` / `list-sessions` / `revoke-session`：查看用户、查看会话和撤销指定会话；
 - `list-audit-events`：查看全局或指定项目的审计事件，可按 `AuditAction` 和条数过滤；
 - `list-projects` / `list-project-members`：查看项目和项目成员；
 - `create-project` / `archive-project`：创建项目并给 owner 初始项目 admin，或归档项目；
@@ -1072,7 +1073,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - 登录成功会用 `LocalPilotAuth.require_session()` 校验本地 bearer-token 会话；
 - 会话失效、token 错误或退出登录时，会清理当前浏览器会话内的测算结果、下载缓存、价格曲线和图表导出缓存，避免下一位用户看到上一位用户的临时结果；
 - 登录后必须先创建或选择一个有效项目工作区，六步业务工作流才会继续渲染；切换项目会清理当前测算结果和下载缓存；
-- 平台管理员登录后，侧栏会出现“平台管理”入口，当前支持创建账号、重置密码、停用/恢复账号、授予/撤销平台管理员、查看会话，并在“项目和成员”中创建/归档项目、为项目分配或禁用成员角色、维护是否允许下载/导出项目结果，在“任务运维”中处理受支持 queued job / 恢复超时 running 任务元数据，在“审计日志”中只读查看全局或项目级审计事件；
+- 平台管理员登录后，侧栏会出现“平台管理”入口，当前支持创建账号、重置密码、停用/恢复账号、授予/撤销平台管理员、查看/撤销会话，并在“项目和成员”中创建/归档项目、为项目分配或禁用成员角色、维护是否允许下载/导出项目结果，在“任务运维”中处理受支持 queued job / 恢复超时 running 任务元数据，在“审计日志”中只读查看全局或项目级审计事件；
 - 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引；面板可筛出当前项目排队/运行中的活动任务，并按项目角色提供最小取消入口；“任务状态明细”可查看 worker、最后 heartbeat、stale 标记、进度和错误说明；导出权限允许时，可下载已落盘的 summary / portfolio artifact；网页内恢复技术汇总、加载已有 hourly artifact 和恢复 input artifact 走 `read_artifact_payload_for_view()`，只要求项目查看权限并写 `VIEW_ARTIFACT` 审计，不授予文件下载能力；
 - 当前门禁、平台管理页和结果面板只解决内部试用账号、项目工作区控制、结果可见性、最小任务运维、审计抽查和已落盘 artifact 取回入口，仍没有数据库会话表、CSRF 防护、正式审计后台、完整历史结果恢复或正式后台 worker。
 

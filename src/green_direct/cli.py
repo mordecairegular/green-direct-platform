@@ -197,15 +197,27 @@ def _cmd_list_users(args: argparse.Namespace) -> int:
 
 def _cmd_list_sessions(args: argparse.Namespace) -> int:
     services = _pilot_services(args.store_dir)
-    services.admin.list_users(actor_user_id=args.actor_user_id)
-    sessions = services.auth.list_user_sessions(
-        args.user_id,
+    sessions = services.admin.list_user_sessions(
+        actor_user_id=args.actor_user_id,
+        user_id=args.user_id,
         active_only=bool(args.active_only),
     )
     print("session_id\tuser_id\texpires_at\trevoked")
     for session in sessions:
         revoked = "yes" if session.is_revoked else "no"
         print(f"{session.session_id}\t{session.user_id}\t{session.expires_at.isoformat()}\t{revoked}")
+    return 0
+
+
+def _cmd_revoke_session(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    session = services.admin.revoke_user_session(
+        actor_user_id=args.actor_user_id,
+        user_id=args.user_id,
+        session_id=args.session_id,
+    )
+    revoked_at = session.revoked_at.isoformat() if session.revoked_at is not None else ""
+    print(f"Revoked session: {session.session_id}\tuser={session.user_id}\trevoked_at={revoked_at}")
     return 0
 
 
@@ -661,6 +673,13 @@ def build_parser() -> argparse.ArgumentParser:
     list_sessions.add_argument("--user-id", required=True)
     list_sessions.add_argument("--active-only", action="store_true")
     list_sessions.set_defaults(func=_cmd_list_sessions)
+
+    revoke_session = pilot_admin_sub.add_parser("revoke-session", help="Revoke one user session.")
+    _add_common_store_arg(revoke_session)
+    _add_actor_arg(revoke_session)
+    revoke_session.add_argument("--user-id", required=True)
+    revoke_session.add_argument("--session-id", required=True)
+    revoke_session.set_defaults(func=_cmd_revoke_session)
 
     list_audit_events = pilot_admin_sub.add_parser(
         "list-audit-events",

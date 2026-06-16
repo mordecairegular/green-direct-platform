@@ -180,6 +180,7 @@ docker compose --profile worker up -d green-direct-worker
 - 重置密码；
 - 停用/恢复用户；
 - 授予/撤销平台管理员；
+- 查看并撤销用户会话；
 - 创建/归档项目；
 - 维护项目成员角色；
 - 控制项目成员是否允许下载/导出结果；

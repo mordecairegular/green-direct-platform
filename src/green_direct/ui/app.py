@@ -4031,12 +4031,38 @@ def _render_platform_admin_page(st) -> None:
             session_user_id = st.selectbox("查看用户", user_ids, key="pilot_admin_session_user_id")
             active_only = st.checkbox("只看有效会话", value=True, key="pilot_admin_session_active_only")
             try:
-                sessions = _pilot_auth_service().list_user_sessions(str(session_user_id), active_only=bool(active_only))
+                sessions = admin_service.list_user_sessions(
+                    actor_user_id=actor_user_id,
+                    user_id=str(session_user_id),
+                    active_only=bool(active_only),
+                )
             except Exception as exc:  # noqa: BLE001
                 _handle_platform_admin_error(st, exc)
                 sessions = []
             if sessions:
                 st.dataframe(_platform_admin_session_frame(sessions), width="stretch", hide_index=True)
+                revocable_sessions = [session for session in sessions if not session.is_revoked]
+                if revocable_sessions:
+                    revoke_session_id = st.selectbox(
+                        "撤销会话",
+                        [session.session_id for session in revocable_sessions],
+                        key="pilot_admin_revoke_session_id",
+                    )
+                    if st.button("撤销所选会话", key="pilot_admin_revoke_session"):
+                        try:
+                            revoked = admin_service.revoke_user_session(
+                                actor_user_id=actor_user_id,
+                                user_id=str(session_user_id),
+                                session_id=str(revoke_session_id),
+                            )
+                            if revoked.session_id == st.session_state.get(PILOT_SESSION_ID_KEY):
+                                _clear_pilot_session(st, clear_work_state=True)
+                                st.session_state[PILOT_LOGIN_NOTICE_KEY] = "当前会话已被撤销，请重新登录。"
+                            else:
+                                st.session_state[PILOT_ADMIN_NOTICE_KEY] = f"已撤销会话：{revoked.session_id}"
+                            st.rerun()
+                        except Exception as exc:  # noqa: BLE001
+                            _handle_platform_admin_error(st, exc)
             else:
                 st.info("该用户暂无会话记录。")
 

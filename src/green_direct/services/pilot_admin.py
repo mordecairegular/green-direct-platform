@@ -15,7 +15,7 @@ from green_direct.models.pilot_backend import (
     User,
     UserStatus,
 )
-from green_direct.services.pilot_auth import LocalPilotAuth, MIN_PASSWORD_LENGTH
+from green_direct.services.pilot_auth import LocalPilotAuth, MIN_PASSWORD_LENGTH, PilotSessionRecord
 from green_direct.services.pilot_registry import LocalPilotRegistry
 from green_direct.services.result_store import LocalResultStore
 
@@ -199,6 +199,47 @@ class LocalPilotAdminService:
             metadata={"status": enabled.status.value},
         )
         return enabled
+
+    def list_user_sessions(
+        self,
+        *,
+        actor_user_id: str,
+        user_id: str,
+        active_only: bool = False,
+    ) -> list[PilotSessionRecord]:
+        """List one user's sessions after checking platform-admin permission."""
+
+        self._platform_admin(actor_user_id)
+        self.registry.load_user(user_id)
+        return self.auth.list_user_sessions(user_id, active_only=active_only)
+
+    def revoke_user_session(
+        self,
+        *,
+        actor_user_id: str,
+        user_id: str,
+        session_id: str,
+    ) -> PilotSessionRecord:
+        """Revoke one user's local session after checking platform-admin permission."""
+
+        actor = self._platform_admin(actor_user_id)
+        self.registry.load_user(user_id)
+        record = self.auth.load_session_record(session_id)
+        if record.user_id != user_id:
+            raise PilotAdminError(f"Session does not belong to user: {session_id}")
+        revoked = self.auth.revoke_session(session_id)
+        self._audit(
+            actor_user_id=actor.user_id,
+            action=AuditAction.UPDATE_USER,
+            target_user_id=user_id,
+            metadata={
+                "session_revoked": True,
+                "session_id": revoked.session_id,
+                "already_revoked": record.is_revoked,
+                "revoked_at": revoked.revoked_at.isoformat() if revoked.revoked_at is not None else None,
+            },
+        )
+        return revoked
 
     def list_users(self, *, actor_user_id: str, active_only: bool = False) -> list[User]:
         """List users after checking platform-admin permission."""

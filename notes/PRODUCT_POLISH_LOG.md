@@ -5225,3 +5225,25 @@ profile / benchmark：
 - `python -m pytest -q` 通过，363 项通过；
 - `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
 - `git diff --check` 通过，仅有 Windows 换行转换提示。
+
+### 2026-06-16 平台管理员撤销用户会话入口
+
+本轮继续补内部 10-20 人公网内测所需的后台账号控制闭环。底层 `LocalPilotAuth` 早已有 `revoke_session()` 和 `list_user_sessions()`，但平台管理员服务、CLI 和 Web 管理页没有统一入口；真实内测中如果账号借用、邀请误发、设备遗失或需要临时封控，就只能停用整个账号或等待会话自然过期。
+
+实现：
+- `LocalPilotAdminService.list_user_sessions()` 新增平台管理员保护的会话查看入口；
+- `LocalPilotAdminService.revoke_user_session()` 新增平台管理员保护的单会话撤销入口，校验 session 属于目标用户，撤销后写入 `UPDATE_USER` 审计 metadata；
+- `pilot-admin revoke-session` 新增服务器侧应急入口，`list-sessions` 改为复用管理员服务层而不是直接绕过到 auth store；
+- Streamlit “平台管理 -> 会话”tab 改为通过管理员服务列出会话，并新增“撤销所选会话”按钮；如果平台管理员撤销的是自己当前会话，前端会立即清理登录状态并要求重新登录；
+- README、部署 runbook、软件接口总览和 handoff 已同步。
+
+边界：
+- 不改变密码、登录 token hash、session TTL 或企业 IAM 边界；
+- 不新增独立 `AuditAction`，本轮沿用 `UPDATE_USER` 记录账号运维类操作；
+- 单会话撤销不等同于停用账号，用户仍可重新登录，若需全面封禁仍应使用停用用户；
+- 仍没有数据库会话表、CSRF 防护、集中审计后台或企业 SSO。
+
+验证：
+- `python -m pytest tests\test_pilot_admin.py tests\test_cli.py -q` 通过，27 项通过；
+- `python -m compileall -q src\green_direct\services\pilot_admin.py src\green_direct\cli.py src\green_direct\ui\app.py tests\test_pilot_admin.py tests\test_cli.py tests\test_ui_import.py` 通过；
+- `python -m pytest tests\test_ui_import.py::test_streamlit_platform_admin_can_create_user tests\test_ui_import.py::test_streamlit_platform_admin_can_reactivate_user tests\test_ui_import.py::test_streamlit_platform_admin_can_revoke_user_session -q` 通过，3 项通过。

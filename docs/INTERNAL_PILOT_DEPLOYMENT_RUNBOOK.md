@@ -77,7 +77,7 @@ python -m green_direct.cli pilot-admin bootstrap `
     --password-env GREEN_DIRECT_ADMIN_PASSWORD
 ```
 
-之后可在 Streamlit 的“平台管理”页创建试用账号、重置密码、停用/恢复用户、授予/撤销平台管理员，并维护项目成员和导出权限。应至少保留两个活跃平台管理员，避免单点锁死。
+之后可在 Streamlit 的“平台管理”页创建试用账号、重置密码、停用/恢复用户、授予/撤销平台管理员、查看/撤销用户会话，并维护项目成员和导出权限。应至少保留两个活跃平台管理员，避免单点锁死。
 
 CLI 也可作为 Web 管理页不可用时的服务器侧应急入口：
 
@@ -86,6 +86,17 @@ $env:PYTHONPATH = "src"
 python -m green_direct.cli pilot-admin list-projects `
     --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
     --actor-user-id admin
+
+python -m green_direct.cli pilot-admin list-sessions `
+    --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --actor-user-id admin `
+    --user-id analyst_01
+
+python -m green_direct.cli pilot-admin revoke-session `
+    --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --actor-user-id admin `
+    --user-id analyst_01 `
+    --session-id sess_xxxxxxxxxxxxxxxx
 
 python -m green_direct.cli pilot-admin create-project `
     --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
@@ -108,7 +119,7 @@ python -m green_direct.cli pilot-admin grant-project-role `
     --cannot-export-artifacts
 ```
 
-`create-project` 会把 `--owner-user-id` 指定用户设为项目创建人并授予项目 `admin`；若不指定 owner，则默认使用执行命令的平台管理员。`grant-project-role` 可用 `--can-export-artifacts` 或 `--cannot-export-artifacts` 明确维护导出权限；`disable-project-member` 可禁用单个项目成员关系；`archive-project` 可归档项目，归档后不能再新增或更新成员。
+`list-sessions` / `revoke-session` 用于服务器侧应急会话管理；撤销后对应 bearer-token 会话会立即失效，并写入 `UPDATE_USER` 审计。`create-project` 会把 `--owner-user-id` 指定用户设为项目创建人并授予项目 `admin`；若不指定 owner，则默认使用执行命令的平台管理员。`grant-project-role` 可用 `--can-export-artifacts` 或 `--cannot-export-artifacts` 明确维护导出权限；`disable-project-member` 可禁用单个项目成员关系；`archive-project` 可归档项目，归档后不能再新增或更新成员。
 
 ## 6. 启动服务
 
@@ -326,7 +337,7 @@ python -m green_direct.cli pilot-admin list-audit-events `
 - 普通用户必须选择或创建项目后才进入六步工作流；
 - Demo 技术仿真、经济性测算、方案推荐能跑通；
 - 禁止导出的项目成员不能下载历史 artifact 或 06 页导出文件；
-- `pilot-admin list-users`、`enable-user`、`list-projects`、`list-project-members`、`list-audit-events`、`list-jobs`、`claim-next-job`、`heartbeat-job`、`complete-worker-job`、`fail-worker-job`、`retry-job`、`run-worker-once`、`run-worker-loop`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
+- `pilot-admin list-users`、`enable-user`、`list-sessions`、`revoke-session`、`list-projects`、`list-project-members`、`list-audit-events`、`list-jobs`、`claim-next-job`、`heartbeat-job`、`complete-worker-job`、`fail-worker-job`、`retry-job`、`run-worker-once`、`run-worker-loop`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
 - 新运行日志不包含明文密码、明文 token、原始曲线内容。
 
 ## 13. 回滚

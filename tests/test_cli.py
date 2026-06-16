@@ -14,7 +14,7 @@ from green_direct.models.pilot_backend import (
     Project,
     ProjectRole,
 )
-from green_direct.services import LocalJobStore, LocalPilotAuth, LocalPilotRegistry, LocalResultStore
+from green_direct.services import LocalJobStore, LocalPilotAuth, LocalPilotRegistry, LocalResultStore, PilotAuthError
 
 
 def _store_arg(tmp_path):
@@ -178,7 +178,7 @@ def test_cli_pilot_admin_grant_revoke_and_list_sessions(tmp_path, monkeypatch, c
         registry=LocalPilotRegistry(tmp_path),
         result_store=LocalResultStore(tmp_path),
     )
-    auth.login(login_name="ops@example.local", password="ops-password")
+    session = auth.login(login_name="ops@example.local", password="ops-password")
     assert main(
         [
             "pilot-admin",
@@ -191,6 +191,23 @@ def test_cli_pilot_admin_grant_revoke_and_list_sessions(tmp_path, monkeypatch, c
         ]
     ) == 0
     assert "ops" in capsys.readouterr().out
+
+    assert main(
+        [
+            "pilot-admin",
+            "revoke-session",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--user-id",
+            "ops",
+            "--session-id",
+            session.session_id,
+        ]
+    ) == 0
+    assert "Revoked session" in capsys.readouterr().out
+    with pytest.raises(PilotAuthError, match="Session has been revoked"):
+        auth.require_session(session_id=session.session_id, token=session.token)
 
     assert main(
         [

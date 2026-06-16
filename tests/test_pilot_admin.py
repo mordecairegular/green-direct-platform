@@ -143,6 +143,45 @@ def test_disable_user_revokes_active_sessions_and_audits(tmp_path):
     )
 
 
+def test_platform_admin_can_revoke_user_session_and_audit(tmp_path):
+    service = _admin_service(tmp_path)
+    service.bootstrap_platform_admin(user=User("admin", "admin@example.local", "Admin"), password="admin-password")
+    service.create_user(
+        actor_user_id="admin",
+        user=User("analyst", "analyst@example.local", "Analyst"),
+        initial_password="analyst-password",
+    )
+    service.create_user(
+        actor_user_id="admin",
+        user=User("viewer", "viewer@example.local", "Viewer"),
+        initial_password="viewer-password",
+    )
+    session = service.auth.login(login_name="analyst@example.local", password="analyst-password")
+
+    listed = service.list_user_sessions(actor_user_id="admin", user_id="analyst", active_only=True)
+    revoked = service.revoke_user_session(
+        actor_user_id="admin",
+        user_id="analyst",
+        session_id=session.session_id,
+    )
+
+    assert [record.session_id for record in listed] == [session.session_id]
+    assert revoked.is_revoked is True
+    with pytest.raises(PilotAuthError, match="Session has been revoked"):
+        service.auth.require_session(session_id=session.session_id, token=session.token)
+    assert any(
+        event.action == AuditAction.UPDATE_USER
+        and event.target_id == "analyst"
+        and event.metadata.get("session_revoked") is True
+        and event.metadata.get("session_id") == session.session_id
+        for event in service.result_store.read_audit_log()
+    )
+    with pytest.raises(PilotAdminError, match="Session does not belong to user"):
+        service.revoke_user_session(actor_user_id="admin", user_id="viewer", session_id=session.session_id)
+    with pytest.raises(PilotAdminError, match="cannot manage platform accounts"):
+        service.revoke_user_session(actor_user_id="analyst", user_id="analyst", session_id=session.session_id)
+
+
 def test_platform_admin_can_reactivate_disabled_user_and_audit(tmp_path):
     service = _admin_service(tmp_path)
     service.bootstrap_platform_admin(user=User("admin", "admin@example.local", "Admin"), password="admin-password")
