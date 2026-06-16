@@ -631,8 +631,8 @@ def run_single_scenario(
     curtail_due_to_exchange_limit_energy = 0.0
     exchange_import_shortfall_energy = 0.0
     bess_charge_energy = 0.0
-    max_grid_import_power = 0.0
-    max_grid_export_power = 0.0
+    max_grid_import_energy = 0.0
+    max_grid_export_energy = 0.0
 
     for idx in range(n):
         load_energy = float(load_energy_values[idx])
@@ -716,8 +716,10 @@ def run_single_scenario(
             curtail_due_to_exchange_limit_energy += step_curtail_due_to_exchange_limit
             exchange_import_shortfall_energy += step_exchange_import_shortfall
             bess_charge_energy += step_bess_charge
-            max_grid_import_power = max(max_grid_import_power, step_grid_import * dt_inverse)
-            max_grid_export_power = max(max_grid_export_power, step_grid_export * dt_inverse)
+            if step_grid_import > max_grid_import_energy:
+                max_grid_import_energy = step_grid_import
+            if step_grid_export > max_grid_export_energy:
+                max_grid_export_energy = step_grid_export
 
         if data is not None:
             data["direct_self_use_power"][idx] = direct_self_use * dt_inverse
@@ -769,8 +771,8 @@ def run_single_scenario(
             bess_charge_energy=bess_charge_energy,
             final_bess_energy=bess_energy,
             initial_bess_energy=initial_bess_energy,
-            max_grid_import_power=max_grid_import_power,
-            max_grid_export_power=max_grid_export_power,
+            max_grid_import_power=max_grid_import_energy * dt_inverse,
+            max_grid_export_power=max_grid_export_energy * dt_inverse,
             final_soc=final_soc,
         )
     summary["dispatch_strategy"] = dispatch_strategy.value

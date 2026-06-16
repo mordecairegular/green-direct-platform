@@ -60,24 +60,45 @@ def dispatch_bess_hour_values_with_limits(
     if renewable_energy >= load_energy:
         direct_self_use = load_energy
         surplus = renewable_energy - load_energy
-        charge_space_input = max((bess_soc_max_energy - bess_energy_start) / eta_charge, 0.0)
-        bess_charge = min(surplus, bess_power_energy_limit, charge_space_input)
+        charge_space_input = (bess_soc_max_energy - bess_energy_start) / eta_charge
+        if charge_space_input < 0.0:
+            charge_space_input = 0.0
+        bess_charge = surplus
+        if bess_power_energy_limit < bess_charge:
+            bess_charge = bess_power_energy_limit
+        if charge_space_input < bess_charge:
+            bess_charge = charge_space_input
         bess_energy_end = bess_energy_start + bess_charge * eta_charge
 
         surplus_after_charge = surplus - bess_charge
-        export_limit = min(export_limit_energy, exchange_limit_energy) if has_exchange_limit else export_limit_energy
-        export_before_annual_cap = min(surplus_after_charge, export_limit) if allow_export else 0.0
+        if has_exchange_limit and exchange_limit_energy < export_limit_energy:
+            export_limit = exchange_limit_energy
+        else:
+            export_limit = export_limit_energy
+        if allow_export:
+            export_before_annual_cap = surplus_after_charge
+            if export_limit < export_before_annual_cap:
+                export_before_annual_cap = export_limit
+        else:
+            export_before_annual_cap = 0.0
         if remaining_export_cap is not None:
-            grid_export = min(export_before_annual_cap, max(remaining_export_cap, 0.0))
+            if remaining_export_cap < 0.0:
+                remaining_cap = 0.0
+            else:
+                remaining_cap = remaining_export_cap
+            grid_export = export_before_annual_cap
+            if remaining_cap < grid_export:
+                grid_export = remaining_cap
         else:
             grid_export = export_before_annual_cap
         curtail = surplus_after_charge - grid_export
-        curtail_due_to_export_cap = max(export_before_annual_cap - grid_export, 0.0)
-        curtail_due_to_exchange_limit = (
-            max(surplus_after_charge - min(surplus_after_charge, exchange_limit_energy), 0.0)
-            if has_exchange_limit
-            else 0.0
-        )
+        curtail_due_to_export_cap = export_before_annual_cap - grid_export
+        if curtail_due_to_export_cap < 0.0:
+            curtail_due_to_export_cap = 0.0
+        if has_exchange_limit and exchange_limit_energy < surplus_after_charge:
+            curtail_due_to_exchange_limit = surplus_after_charge - exchange_limit_energy
+        else:
+            curtail_due_to_exchange_limit = 0.0
         grid_import = 0.0
         exchange_import_shortfall = 0.0
         bess_discharge = 0.0
@@ -97,13 +118,22 @@ def dispatch_bess_hour_values_with_limits(
     else:
         direct_self_use = renewable_energy
         deficit = load_energy - renewable_energy
-        available_discharge = max((bess_energy_start - bess_soc_min_energy) * eta_discharge, 0.0)
-        bess_discharge = min(deficit, bess_power_energy_limit, available_discharge)
+        available_discharge = (bess_energy_start - bess_soc_min_energy) * eta_discharge
+        if available_discharge < 0.0:
+            available_discharge = 0.0
+        bess_discharge = deficit
+        if bess_power_energy_limit < bess_discharge:
+            bess_discharge = bess_power_energy_limit
+        if available_discharge < bess_discharge:
+            bess_discharge = available_discharge
         bess_energy_end = bess_energy_start - bess_discharge / eta_discharge
 
         raw_grid_import = deficit - bess_discharge
         if has_exchange_limit:
-            grid_import = min(raw_grid_import, exchange_limit_energy)
+            if exchange_limit_energy < raw_grid_import:
+                grid_import = exchange_limit_energy
+            else:
+                grid_import = raw_grid_import
             exchange_import_shortfall = raw_grid_import - grid_import
         else:
             grid_import = raw_grid_import
@@ -173,24 +203,45 @@ def dispatch_bess_hour_summary_values_with_limits(
     if renewable_energy >= load_energy:
         direct_self_use = load_energy
         surplus = renewable_energy - load_energy
-        charge_space_input = max((bess_soc_max_energy - bess_energy_start) / eta_charge, 0.0)
-        bess_charge = min(surplus, bess_power_energy_limit, charge_space_input)
+        charge_space_input = (bess_soc_max_energy - bess_energy_start) / eta_charge
+        if charge_space_input < 0.0:
+            charge_space_input = 0.0
+        bess_charge = surplus
+        if bess_power_energy_limit < bess_charge:
+            bess_charge = bess_power_energy_limit
+        if charge_space_input < bess_charge:
+            bess_charge = charge_space_input
         bess_energy_end = bess_energy_start + bess_charge * eta_charge
 
         surplus_after_charge = surplus - bess_charge
-        export_limit = min(export_limit_energy, exchange_limit_energy) if has_exchange_limit else export_limit_energy
-        export_before_annual_cap = min(surplus_after_charge, export_limit) if allow_export else 0.0
+        if has_exchange_limit and exchange_limit_energy < export_limit_energy:
+            export_limit = exchange_limit_energy
+        else:
+            export_limit = export_limit_energy
+        if allow_export:
+            export_before_annual_cap = surplus_after_charge
+            if export_limit < export_before_annual_cap:
+                export_before_annual_cap = export_limit
+        else:
+            export_before_annual_cap = 0.0
         if remaining_export_cap is not None:
-            grid_export = min(export_before_annual_cap, max(remaining_export_cap, 0.0))
+            if remaining_export_cap < 0.0:
+                remaining_cap = 0.0
+            else:
+                remaining_cap = remaining_export_cap
+            grid_export = export_before_annual_cap
+            if remaining_cap < grid_export:
+                grid_export = remaining_cap
         else:
             grid_export = export_before_annual_cap
         curtail = surplus_after_charge - grid_export
-        curtail_due_to_export_cap = max(export_before_annual_cap - grid_export, 0.0)
-        curtail_due_to_exchange_limit = (
-            max(surplus_after_charge - min(surplus_after_charge, exchange_limit_energy), 0.0)
-            if has_exchange_limit
-            else 0.0
-        )
+        curtail_due_to_export_cap = export_before_annual_cap - grid_export
+        if curtail_due_to_export_cap < 0.0:
+            curtail_due_to_export_cap = 0.0
+        if has_exchange_limit and exchange_limit_energy < surplus_after_charge:
+            curtail_due_to_exchange_limit = surplus_after_charge - exchange_limit_energy
+        else:
+            curtail_due_to_exchange_limit = 0.0
         return (
             direct_self_use,
             bess_charge,
@@ -206,13 +257,22 @@ def dispatch_bess_hour_summary_values_with_limits(
 
     direct_self_use = renewable_energy
     deficit = load_energy - renewable_energy
-    available_discharge = max((bess_energy_start - bess_soc_min_energy) * eta_discharge, 0.0)
-    bess_discharge = min(deficit, bess_power_energy_limit, available_discharge)
+    available_discharge = (bess_energy_start - bess_soc_min_energy) * eta_discharge
+    if available_discharge < 0.0:
+        available_discharge = 0.0
+    bess_discharge = deficit
+    if bess_power_energy_limit < bess_discharge:
+        bess_discharge = bess_power_energy_limit
+    if available_discharge < bess_discharge:
+        bess_discharge = available_discharge
     bess_energy_end = bess_energy_start - bess_discharge / eta_discharge
 
     raw_grid_import = deficit - bess_discharge
     if has_exchange_limit:
-        grid_import = min(raw_grid_import, exchange_limit_energy)
+        if exchange_limit_energy < raw_grid_import:
+            grid_import = exchange_limit_energy
+        else:
+            grid_import = raw_grid_import
         exchange_import_shortfall = raw_grid_import - grid_import
     else:
         grid_import = raw_grid_import

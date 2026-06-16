@@ -5806,3 +5806,23 @@ profile / benchmark：
 边界：
 - 该决策不等于已经完成公网部署；真实发布仍需用户授权 push、等待 GitHub Actions、Render Blueprint 实机部署、Web Service Shell `pilot-admin doctor/bootstrap`、Cloudflare Access 配置和手机 4G/5G 验收；
 - 若后续需要多实例 Web、独立 worker、正式队列或更强审计备份，应先推进数据库/对象存储和后台 worker 架构，不应在当前 file store 形态上直接水平扩容。
+
+### 2026-06-17 含储能 summary-only 减少每小时 Python 调用
+
+本轮继续处理有储能 summary-only 技术仿真热路径。上一轮已经跳过 `hour_case` 和逐小时 SOC 文本路径，新的 cProfile 显示剩余显著热点包括 BESS helper 内部 `max()` / `min()` 调用，以及 summary-only 循环里每小时维护最大下网/上网功率的 `max()` 和乘法。
+
+实现：
+- `dispatch_bess_hour_values_with_limits()` 和 `dispatch_bess_hour_summary_values_with_limits()` 内部热点 `max()` / `min()` 改为等价条件比较；
+- 保留 `clamp_outputs=True` public helper 的最终防御性输出夹紧语义；
+- `run_single_scenario()` 有储能 summary-only 路径改为跟踪最大下网/上网电量，循环结束后再乘 `dt_inverse` 得到最大功率。
+
+验证与反馈环：
+- `python -m pytest tests\test_bess_dispatch.py tests\test_single_scenario.py tests\test_batch_runner.py -q` 通过，68 项通过；
+- `python -m compileall -q src\green_direct\core\bess_dispatch.py src\green_direct\core\single_scenario_simulator.py` 通过；
+- 48 个 8760 小时方案、全部含储能、summary-only、无常驻逐小时明细的同参数 cProfile：函数调用数约从 2,112,037 降到 430,117，cProfile 总耗时约从 0.753s 降到 0.430s；
+- 同一直接计时三次约从 0.3475s / 0.3549s / 0.3405s 到 0.3280s / 0.3443s / 0.3371s；直接计时受噪声影响较大，主要证据看 cProfile 调用数；
+- 带 `tracemalloc` 的 benchmark 同参数技术 summary-first 约从 16.4035s 到 15.7857s，峰值 Python heap 约 1.09MB，未观察到内存副作用。
+
+边界：
+- 不改变 V0.1 BESS 充放电顺序、SOC 能量滚动、功率/容量约束、上网/下网限制、summary 字段、经济性 V1 或推荐排序；
+- 这仍是 Python 热路径微优化，不等于解决成千上万方案全部等待问题；后续仍应推进后台 Job、worker 级取消/重试、数据库/对象存储和更大规模计算内核优化。
