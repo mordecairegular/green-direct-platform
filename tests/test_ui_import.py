@@ -1092,6 +1092,27 @@ def test_large_run_detail_retention_plan_switches_to_summary_first():
     assert summary_only["hourly_detail_scenario_ids"] == ()
 
 
+def test_simulation_scenario_count_limit_uses_environment_guardrail(monkeypatch):
+    import green_direct.ui.app as app
+
+    monkeypatch.setenv(app.MAX_SCENARIOS_PER_RUN_ENV, "123")
+    assert app._max_scenarios_per_run() == 123
+
+    monkeypatch.setenv(app.MAX_SCENARIOS_PER_RUN_ENV, "0")
+    assert app._max_scenarios_per_run() is None
+
+    monkeypatch.setenv(app.MAX_SCENARIOS_PER_RUN_ENV, "invalid")
+    assert app._max_scenarios_per_run() == app.DEFAULT_MAX_SCENARIOS_PER_RUN
+
+
+def test_scenario_count_limit_notice_blocks_oversized_pool():
+    import green_direct.ui.app as app
+
+    assert app._scenario_count_limit_notice(100, 100) is None
+    assert app._scenario_count_limit_notice(101, 100)
+    assert app.MAX_SCENARIOS_PER_RUN_ENV in app._scenario_count_limit_notice(101, 100)
+
+
 def test_append_hourly_detail_updates_current_result(monkeypatch):
     import green_direct.ui.app as app
     from green_direct.batch.batch_runner import BatchResult

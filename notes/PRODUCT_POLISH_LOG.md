@@ -3844,3 +3844,30 @@ exchange_import_shortfall_energy == 0
 - `python -m compileall -q src/green_direct/models/pilot_backend.py src/green_direct/services/pilot_access.py src/green_direct/ui/app.py tests/test_pilot_access.py tests/test_ui_import.py` 通过；
 - `pytest -q` 通过，284 项通过；
 - `python -m compileall -q src scripts tests` 通过。
+
+### 2026-06-16 单次方案数硬上限与部署护栏
+
+本轮继续推进大方案池性能路线中的“计算前限流”。此前 UI 已能预估方案数并在超过提醒阈值时进入 summary-first，但仍允许用户无意提交极大的同步任务；多人内测时，这会拖住 Streamlit 进程，也会影响其他试用用户。
+
+本轮判断：
+- 单次方案数上限不能只靠 UI 提示，必须放到 `run_batch()` 后端入口作为兜底；
+- 上限不改变 V0.1 调度、经济性或推荐口径，只决定“是否允许本次任务启动”；
+- 默认值应保守可用，管理员可按服务器能力调整，真正的大任务仍应后续进入后台 Job / worker。
+
+本轮实现：
+- `PerformanceParams` 新增 `max_scenarios_per_run`；
+- `run_batch()` 在正式逐方案调度前检查候选方案总数，超过上限时抛出清晰中文错误；
+- Streamlit 02 页新增 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN` 读取，默认 20,000；超限时显示错误并禁用“开始测算”；
+- Dockerfile、docker-compose、`.env.example`、部署 README、安全说明、性能路线、架构计划和审计矩阵均已补该变量和边界；
+- Claude Code 性能专项提示词已从“是否需要方案数上限”改为检查默认值是否合适，以及继续补预计耗时、取消和后台 Job。
+
+边界说明：
+- 设置 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN=0` 可关闭该上限，仅建议本地 benchmark 或管理员监督运行时使用；
+- 这不是后台排队、取消、重试或资源隔离；多人公网内测仍需要 Job 状态页和 worker；
+- 默认 20,000 只是第一版 guardrail，目标服务器实机 benchmark 后应再调参。
+
+验证：
+- `pytest -q tests/test_batch_runner.py tests/test_study_runner.py tests/test_ui_import.py::test_large_run_detail_retention_plan_switches_to_summary_first tests/test_ui_import.py::test_simulation_scenario_count_limit_uses_environment_guardrail tests/test_ui_import.py::test_scenario_count_limit_notice_blocks_oversized_pool tests/test_ui_import.py::test_simulation_page_exposes_parallel_worker_control tests/test_deployment_artifacts.py` 通过，28 项通过；
+- `python scripts/benchmark_internal_pilot_performance.py --hours 168 --pv-count 4 --wind-count 4 --bess-power-count 2 --durations 0,2 --skip-full-retention --json` 通过；本机样本：30 个方案，summary-first 技术仿真约 1.2438s、峰值 Python heap 约 2.1MB，经济 summary-only 约 0.7454s、峰值 Python heap 约 0.195MB；
+- `pytest -q` 通过，287 项通过；
+- `python -m compileall -q src scripts tests` 通过。

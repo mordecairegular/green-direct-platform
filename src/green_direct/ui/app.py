@@ -149,6 +149,7 @@ RUNTIME_STATE_DIR = PROJECT_ROOT / ".runtime"
 LATEST_SESSION_SNAPSHOT_PATH = RUNTIME_STATE_DIR / "latest_session_snapshot.pkl"
 RUNTIME_SNAPSHOT_ENV = "GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT"
 MAX_UPLOAD_MB_ENV = "GREEN_DIRECT_MAX_UPLOAD_MB"
+MAX_SCENARIOS_PER_RUN_ENV = "GREEN_DIRECT_MAX_SCENARIOS_PER_RUN"
 PILOT_AUTH_ENV = "GREEN_DIRECT_ENABLE_PILOT_AUTH"
 PILOT_STORE_DIR_ENV = "GREEN_DIRECT_PILOT_STORE_DIR"
 PILOT_DEFAULT_STORE_DIR = RUNTIME_STATE_DIR / "pilot_store"
@@ -306,6 +307,7 @@ SIMULATION_WIDGET_STATE_KEYS = [
     "simulation_wind_value_col",
 ]
 DEFAULT_LARGE_RUN_HOURLY_DETAIL_LIMIT = 20
+DEFAULT_MAX_SCENARIOS_PER_RUN = 20000
 
 WORKBENCH_CSS = """
 <style>
@@ -3790,6 +3792,29 @@ def _max_upload_bytes() -> int:
     return int(megabytes * 1024 * 1024)
 
 
+def _max_scenarios_per_run() -> int | None:
+    raw_value = os.getenv(MAX_SCENARIOS_PER_RUN_ENV, "").strip()
+    if not raw_value:
+        return DEFAULT_MAX_SCENARIOS_PER_RUN
+    try:
+        limit = int(raw_value)
+    except ValueError:
+        return DEFAULT_MAX_SCENARIOS_PER_RUN
+    if limit <= 0:
+        return None
+    return limit
+
+
+def _scenario_count_limit_notice(scenario_count: int | None, max_scenarios: int | None) -> str | None:
+    if scenario_count is None or max_scenarios is None or int(scenario_count) <= int(max_scenarios):
+        return None
+    return (
+        f"当前候选方案数 {int(scenario_count):,} 已超过单次测算上限 {int(max_scenarios):,}。"
+        "请增大步长、缩小容量范围或改用指定单方案；如确需运行，请由管理员调整 "
+        f"`{MAX_SCENARIOS_PER_RUN_ENV}` 后重启服务。"
+    )
+
+
 def _upload_policy(*suffixes: str) -> UploadPolicy:
     return UploadPolicy(frozenset(suffixes), max_bytes=_max_upload_bytes())
 
@@ -7161,6 +7186,7 @@ def _render_simulation_page(st) -> None:
     scenario_grid = None
     scenario_count: int | None = None
     warn_threshold = 5000
+    max_scenarios_per_run = _max_scenarios_per_run()
     parallel_workers = 1
     large_run_hourly_detail_limit = DEFAULT_LARGE_RUN_HOURLY_DETAIL_LIMIT
     grid_exchange_power_limit = None
@@ -7448,6 +7474,13 @@ def _render_simulation_page(st) -> None:
                     "进程数大于 1 时只并行技术仿真，不改变调度口径。"
                     "大批量明细保留只影响结果常驻内存，不改变计算本身。"
                 )
+                if max_scenarios_per_run is None:
+                    st.caption(f"当前未启用单次方案数硬上限；可通过 `{MAX_SCENARIOS_PER_RUN_ENV}` 配置。")
+                else:
+                    st.caption(
+                        f"当前单次测算上限为 {max_scenarios_per_run:,} 个方案；"
+                        f"管理员可通过 `{MAX_SCENARIOS_PER_RUN_ENV}` 调整。"
+                    )
 
             if scenario_mode == "指定单方案":
                 exact_row_1 = st.columns(2, gap="small")
@@ -7721,6 +7754,9 @@ def _render_simulation_page(st) -> None:
         threshold=int(warn_threshold),
         large_run_hourly_detail_limit=int(large_run_hourly_detail_limit),
     )
+    scenario_limit_notice = _scenario_count_limit_notice(scenario_count, max_scenarios_per_run)
+    if scenario_limit_notice is not None:
+        st.error(scenario_limit_notice)
     if scenario_count is not None and scenario_grid is not None and detail_retention_plan["mode"] == "summary_first":
         st.warning(
             f"本次配置将生成 {scenario_count:,} 个方案，可能计算较慢。{detail_retention_plan['message']}"
@@ -7738,6 +7774,7 @@ def _render_simulation_page(st) -> None:
             wind_time_col,
             wind_value_col,
             scenario_grid,
+            scenario_limit_notice is None,
         ]
     )
 
@@ -7812,6 +7849,7 @@ def _render_simulation_page(st) -> None:
                     performance_params=PerformanceParams(
                         warn_if_scenarios_exceed=int(warn_threshold),
                         parallel_workers=int(parallel_workers),
+                        max_scenarios_per_run=max_scenarios_per_run,
                     ),
                     cleaning_params=DataCleaningParams(),
                     retain_hourly_details=bool(demo_detail_retention_plan["retain_hourly_details"]),
@@ -7921,6 +7959,7 @@ def _render_simulation_page(st) -> None:
                 performance_params=PerformanceParams(
                     warn_if_scenarios_exceed=int(warn_threshold),
                     parallel_workers=int(parallel_workers),
+                    max_scenarios_per_run=max_scenarios_per_run,
                 ),
                 cleaning_params=DataCleaningParams(),
                 retain_hourly_details=bool(detail_retention_plan["retain_hourly_details"]),
@@ -7932,6 +7971,7 @@ def _render_simulation_page(st) -> None:
                     "upload_file_metadata": upload_file_metadata,
                     "upload_file_policy": {
                         "max_bytes": _max_upload_bytes(),
+                        "max_scenarios_per_run": max_scenarios_per_run,
                         "technical_curve_suffixes": sorted(_upload_policy(".csv").allowed_suffixes),
                         "price_curve_suffixes": sorted(_upload_policy(".csv", ".xlsx", ".xlsm").allowed_suffixes),
                     },

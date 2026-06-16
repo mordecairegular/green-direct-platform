@@ -85,7 +85,7 @@ python -m pytest -q
    - 经济性、推荐、图表和报告只读取技术仿真结果，不反向改变调度。
 4. 性能风险：
    - 成千上万方案时是否仍强制保留所有逐小时明细；
-   - `retain_hourly_details`、`hourly_detail_scenario_ids`、`retain_annual_cashflows`、`parallel_workers` 的默认行为和 UI 接入是否一致；
+   - `retain_hourly_details`、`hourly_detail_scenario_ids`、`retain_annual_cashflows`、`parallel_workers`、`max_scenarios_per_run` 的默认行为和 UI 接入是否一致；
    - 并行技术仿真是否保持 scenario_id、warning、error、进度和结果顺序稳定；
    - 经济性测算是否有继续批量化的明确下一步。
 5. UI 和交付风险：
@@ -187,7 +187,7 @@ python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/tes
 2. 按需逐小时明细是否与全量保留结果一致；
 3. 并行仿真是否保持 scenario_id、warning、error、进度和结果顺序稳定；
 4. 经济性测算是否仍为每个方案常驻年度现金流；
-5. UI 是否需要方案数上限、预计耗时、取消/后台 Job 的下一步切片；
+5. UI 的方案数硬上限默认值是否合适，是否还需要预计耗时、取消/后台 Job 的下一步切片；
 6. benchmark 是否能复现优化前后差异。
 
 允许直接修改不改变计算口径的性能与内存问题；任何可能改变技术 dispatch、经济性现金流或推荐排序的改动必须先说明，并同步测试和文档。

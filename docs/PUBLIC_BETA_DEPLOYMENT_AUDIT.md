@@ -16,7 +16,7 @@
 - 本地 `ResultStore`、`JobStore`、artifact 元数据和过期 payload 清理；
 - 技术 summary、按需单方案逐小时明细、经济 summary、推荐 portfolio 的项目级写入第一阶段；
 - 上传文件类型/大小校验和 hash 元数据；
-- 大方案池 summary-first、可选并行、当前会话单方案逐小时明细补算、hourly artifact 留存和已有 hourly artifact 跨会话加载；
+- 大方案池 summary-first、单次方案数硬上限、可选并行、当前会话单方案逐小时明细补算、hourly artifact 留存和已有 hourly artifact 跨会话加载；
 - `.env.example`、内部部署 runbook、pilot store 备份/恢复脚本。
 - Dockerfile、docker-compose.yml、README_DEPLOY.md、SECURITY.md 第一版。
 
@@ -38,12 +38,13 @@
 | 用户只能访问授权项目 | 第一版满足 | `PilotAccessService.list_accessible_projects()` 和项目工作区门禁 | 未来 API/下载入口必须复用同一门面 | 禁止 UI 直接绕过 `PilotAccessService` |
 | 不可导出用户不能导出 | 第一版满足 | `ProjectMembership.can_export_artifacts`、`read_artifact_payload()` 下载审计；网页查看走 `read_artifact_payload_for_view()` | 只覆盖已落盘 artifact 和当前导出页；未来 API/报告 artifact 仍需接入 | 所有下载/导出统一走后端授权服务 |
 | 上传文件类型/大小限制 | 第一版满足 | `UploadPolicy`，默认 20MB，CSV/XLSX/XLSM 白名单 | 还未持久化原始上传文件到隔离 artifact | 增加 input artifact、schema 报告和留存清理 |
+| 单次方案数限流 | 第一版满足 | `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN`、`PerformanceParams.max_scenarios_per_run`、02 页超限提示和 `run_batch()` 后端拒绝 | 仍缺后台 Job、取消和排队；管理员需按服务器能力调参 | 继续补预计耗时、后台进度、取消和任务队列 |
 | 项目/Run/参数/结果摘要留存 | 部分满足 | 技术/经济/推荐 summary 与按需 hourly artifact 已写 `ResultStore` | 年度现金流、图表和报告未完整持久化 | 按 `StudyResultRecord` 串联完整结果索引 |
 | 原始文件、逐小时明细、导出文件留存和清理 | 部分满足 | 当前有 artifact payload 过期清理，按需 hourly artifact 默认 30 天过期，已有 hourly artifact 可跨会话加载 | 原始输入未 artifact 化，缺明细的历史 summary-only 仍不能跨会话补算 | 做 user/project/run 隔离 input/detail/export artifacts |
 | 关键操作审计日志 | 部分满足 | 登录、项目、成员、任务、artifact 写入/网页查看/下载/清理已审计 | 管理员跨项目查看、原始文件查看、未来导出仍需补齐 | 扩充 `AuditAction` 覆盖面 |
 | Docker 可部署 | 第一版满足 | `Dockerfile`、`docker-compose.yml`、`README_DEPLOY.md` | 尚未在目标服务器完成构建/启动/恢复演练 | 实机运行 `docker compose build/up` 和数据卷恢复演练 |
 | HTTPS/反向代理/备份/恢复/回滚说明 | 部分满足 | 内部 runbook、PowerShell 备份/恢复脚本、`README_DEPLOY.md` | 缺少系统服务托管、集中日志、监控告警和自动恢复演练 | 在目标服务器补 Caddy/Nginx 配置、日志和监控 |
-| 核心算法回归通过 | 满足当前 checkpoint | 最近 `pytest -q` 为 284 passed | 后续改性能/后台时仍需重复验证 | 每个工程化切片后跑回归 |
+| 核心算法回归通过 | 满足当前 checkpoint | 最近 `pytest -q` 为 287 passed | 后续改性能/后台时仍需重复验证 | 每个工程化切片后跑回归 |
 
 ## 3. 推荐执行顺序
 

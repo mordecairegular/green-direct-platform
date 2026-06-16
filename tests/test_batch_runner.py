@@ -139,6 +139,22 @@ def test_batch_runner_warns_when_scenario_count_exceeds_threshold():
     assert result.warnings
 
 
+def test_batch_runner_rejects_scenario_count_above_hard_limit():
+    grid = {
+        "pv_capacity": {"start": 0, "end": 1, "step": 1},
+        "wind_capacity": {"start": 0, "end": 1, "step": 1},
+        "bess_power": {"start": 0, "end": 1, "step": 1},
+        "bess_duration_hours": [0, 2],
+    }
+
+    try:
+        run_batch(_curves(), grid, performance_params=PerformanceParams(max_scenarios_per_run=5))
+    except ValueError as exc:
+        assert "超过单次测算上限" in str(exc)
+    else:
+        raise AssertionError("Expected run_batch to reject a scenario pool above the hard limit.")
+
+
 def test_batch_runner_reports_progress():
     grid = {
         "pv_capacity": {"start": 0, "end": 1, "step": 1},

@@ -70,6 +70,7 @@ GREEN_DIRECT_ENABLE_PILOT_AUTH=1
 GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0
 GREEN_DIRECT_PILOT_STORE_DIR=/data/pilot_store
 GREEN_DIRECT_MAX_UPLOAD_MB=20
+GREEN_DIRECT_MAX_SCENARIOS_PER_RUN=20000
 ```
 
 含义：
@@ -78,6 +79,7 @@ GREEN_DIRECT_MAX_UPLOAD_MB=20
 - 多人部署不启用本地 runtime snapshot，避免恢复上一位用户结果；
 - 账号、会话、项目、任务、结果、artifact 和审计日志写入容器外 volume；
 - 上传文件默认单文件 20MB 上限。
+- 技术仿真默认单次最多 20,000 个候选方案，超过时前台会阻止启动，后端 `run_batch()` 也会拒绝执行。
 
 ## 4. 数据卷
 

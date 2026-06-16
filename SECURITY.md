@@ -59,6 +59,7 @@
 - 技术曲线默认只允许 CSV；
 - 下网电价曲线允许 CSV/XLSX/XLSM；
 - 默认单文件上限 20MB，可用 `GREEN_DIRECT_MAX_UPLOAD_MB` 调整；
+- 默认单次技术仿真上限 20,000 个候选方案，可用 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN` 调整，超限时前台和 `run_batch()` 后端都会拒绝执行；
 - 后续应补 schema 校验报告 artifact、原始输入 artifact 留存和清理。
 
 ## 部署要求
@@ -68,6 +69,7 @@
 - 设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1`；
 - 设置 `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0`；
 - 将 `GREEN_DIRECT_PILOT_STORE_DIR` 指向仓库外受控目录或容器数据卷；
+- 设置或确认 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN`，避免多人环境误提交超大同步计算；
 - 使用 HTTPS 反向代理；
 - 关闭开放注册；
 - 限制服务器、容器和数据卷访问权限；

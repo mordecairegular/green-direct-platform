@@ -21,6 +21,7 @@
 - `run_batch(..., retain_hourly_details=False, hourly_detail_scenario_ids=...)` 已支持汇总优先和指定方案明细保留；
 - `PerformanceParams.parallel_workers` 已支持 `ProcessPoolExecutor` 并行技术仿真；
 - 02 页已暴露并行进程数和大批量保留明细数；
+- `PerformanceParams.max_scenarios_per_run` 与 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN` 已提供单次方案数硬上限；02 页会在超限时提示并禁用开始测算，`run_batch()` 后端也会拒绝执行；
 - 推荐页、图表页和导出页已支持当前会话内对单方案按需补算逐小时明细；
 - `run_economic_study(..., retain_annual_cashflows=False, annual_cashflow_scenario_ids=...)` 已支持只常驻经济性 summary 或指定方案年度现金流；
 - 经济性批量评价已减少 `iterrows()`、重复校验和部分 IRR 求解开销。
@@ -63,7 +64,7 @@ python scripts\benchmark_internal_pilot_performance.py --json
 
 - 在 UI 中继续保留方案数预估；
 - 增加大任务确认和预计耗时提示；
-- 增加单次方案数上限的环境变量或后台配置；
+- 增加单次方案数上限的环境变量或后台配置；（已完成第一版：`GREEN_DIRECT_MAX_SCENARIOS_PER_RUN`）
 - 记录 benchmark 样本：方案数、小时数、是否保留明细、并行 worker、耗时、内存。
 
 验收：
@@ -151,7 +152,7 @@ python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/tes
 2. 按需逐小时明细是否与全量保留结果一致；
 3. 并行仿真是否保持 scenario_id、warning、error、进度和结果顺序稳定；
 4. 经济性测算是否仍为每个方案常驻年度现金流；
-5. 是否需要为 UI 增加方案数上限、耗时提示、取消/后台 Job 的下一步切片。
+5. UI 的方案数硬上限默认值是否合适，是否还需要耗时提示、取消/后台 Job 的下一步切片。
 
 允许直接修改不改变口径的性能与内存问题；任何可能改变技术 dispatch、经济性现金流或推荐排序的改动必须先说明，并同步测试和文档。
 

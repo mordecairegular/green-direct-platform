@@ -162,6 +162,12 @@ def run_batch(
 ) -> BatchResult:
     scenarios = generate_scenarios(scenario_grid)
     performance = performance_params or PerformanceParams()
+    max_scenarios = performance.max_scenarios_per_run
+    if max_scenarios is not None and int(max_scenarios) > 0 and len(scenarios) > int(max_scenarios):
+        raise ValueError(
+            f"本次配置将生成 {len(scenarios)} 个方案，超过单次测算上限 {int(max_scenarios)} 个。"
+            "请增大步长、缩小容量范围或改用指定单方案。"
+        )
     parallel_workers = max(1, int(performance.parallel_workers or 1))
     retained_hourly_ids = {str(scenario_id) for scenario_id in hourly_detail_scenario_ids or []}
     warnings: list[str] = []

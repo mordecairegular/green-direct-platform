@@ -200,6 +200,7 @@ PNG 图表包后台任务也按会话隔离：
 - `run_batch(..., retain_hourly_details=False, hourly_detail_scenario_ids=[...])` 可只返回方案汇总，或只保留指定方案逐小时明细；
 - `run_single_scenario(..., retain_hourly_detail=False)` 已支持 summary-only 模式：仍按同一逐小时 dispatch 规则滚动 SOC 和累计技术指标，但不构造 8760/8784 行 `hourly_detail` DataFrame；
 - `PerformanceParams(parallel_workers=N)` 可让 `run_batch()` 使用 `ProcessPoolExecutor` 并行执行单方案技术仿真；默认 `1`，02 页“高级：枚举性能提醒”已暴露并行进程数；
+- `PerformanceParams(max_scenarios_per_run=N)` 与 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN` 已作为单次方案数硬上限；02 页超限时禁用“开始测算”，`run_batch()` 后端也会拒绝执行，避免未来 API/Job 绕过 UI；
 - `TechnicalStudyInput(retain_hourly_details=False, hourly_detail_scenario_ids=(...))` 已把该能力接入服务层，并写入 `config_snapshot["detail_retention"]`；
 - `run_hourly_detail_for_scenario(inputs, scenario_id=..., summary=...)` 已提供当前会话内的单方案逐小时明细补算入口：从技术 summary 行重建 `Scenario`，复用同一次技术输入的原始曲线、BESS 参数、政策参数和 `dt_hours`，只补算选中方案；
 - 02 页“高级：枚举性能提醒”已新增“大批量保留明细数”：当方案数超过提醒阈值时，UI 自动进入汇总优先模式，技术仿真只常驻方案汇总和前 N 个方案逐小时明细；
@@ -213,6 +214,7 @@ PNG 图表包后台任务也按会话隔离：
 
 1. **计算前限流和预估**
    - 保留当前方案数预估；
+   - 已有第一版单次方案数硬上限，默认 20,000，可用 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN` 调整；
    - 超过阈值时进入“大批量模式”，提示预计耗时和内存；
    - 支持取消任务和查看部分进度。
 

@@ -56,3 +56,4 @@ class PerformanceParams:
 
     warn_if_scenarios_exceed: int = 5000
     parallel_workers: int = 1
+    max_scenarios_per_run: int | None = None
