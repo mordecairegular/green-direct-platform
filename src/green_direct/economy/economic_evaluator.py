@@ -15,6 +15,8 @@ import pandas as pd
 
 from green_direct.economy.economic_inputs import EconomicParams, OtherOperatingRevenueItem
 
+_EMPTY_ANNUAL_CASHFLOW = pd.DataFrame()
+
 
 @dataclass
 class EconomicResult:
@@ -354,6 +356,7 @@ def evaluate_scenario_economy(
     *,
     retain_annual_cashflow: bool = True,
     _context: _PowerEconomyContext | None = None,
+    _empty_annual_cashflow: pd.DataFrame | None = None,
 ) -> EconomicResult:
     """Evaluate V1 annual project cash flow for one technical scenario."""
 
@@ -463,58 +466,64 @@ def evaluate_scenario_economy(
     vat_credit_begin = 0.0
     loss_buckets: list[tuple[int, float]] = []
 
+    def append_cashflow(year: int, net_cash_flow: float) -> None:
+        years.append(int(year))
+        cashflows.append(float(net_cash_flow))
+
     def append_row(row: dict[str, Any]) -> None:
-        years.append(int(row["year"]))
-        cashflows.append(float(row["net_cash_flow"]))
+        append_cashflow(int(row["year"]), float(row["net_cash_flow"]))
         if rows is not None:
             rows.append({"scenario_id": scenario_id, **row})
 
-    append_row(
-        {
-            "year": 0,
-            "operation_year": 0,
-            "period_type": "construction",
-            "grid_export_energy": 0.0,
-            "self_use_energy": 0.0,
-            "grid_export_revenue_with_vat": 0.0,
-            "self_use_revenue_with_vat": 0.0,
-            "other_operating_revenue_with_vat": 0.0,
-            "operating_revenue_with_vat": 0.0,
-            "operating_revenue_without_vat": 0.0,
-            "output_vat": 0.0,
-            "wind_om_cost_with_vat": 0.0,
-            "pv_om_cost_with_vat": 0.0,
-            "bess_om_cost_with_vat": 0.0,
-            "other_operating_cost_with_vat": 0.0,
-            "operating_cost_with_vat": 0.0,
-            "operating_cost_without_vat": 0.0,
-            "construction_input_vat": construction_input_vat,
-            "bess_replacement_input_vat": 0.0,
-            "input_vat": construction_input_vat,
-            "vat_credit_begin": 0.0,
-            "vat_payable": 0.0,
-            "vat_credit_end": construction_input_vat,
-            "urban_maintenance_tax": 0.0,
-            "education_surcharge": 0.0,
-            "local_education_surcharge": 0.0,
-            "taxes_and_surcharges": 0.0,
-            "wind_depreciation": 0.0,
-            "pv_depreciation": 0.0,
-            "bess_depreciation": 0.0,
-            "bess_replacement_depreciation": 0.0,
-            "dedicated_connection_line_depreciation": 0.0,
-            "other_fixed_asset_depreciation": 0.0,
-            "depreciation": 0.0,
-            "profit_before_tax": 0.0,
-            "loss_offset": 0.0,
-            "taxable_income": 0.0,
-            "income_tax": 0.0,
-            "net_profit": 0.0,
-            "construction_cash_outflow": construction_cash_outflow,
-            "bess_replacement_cash_outflow": 0.0,
-            "net_cash_flow": -construction_cash_outflow,
-        }
-    )
+    if rows is not None:
+        append_row(
+            {
+                "year": 0,
+                "operation_year": 0,
+                "period_type": "construction",
+                "grid_export_energy": 0.0,
+                "self_use_energy": 0.0,
+                "grid_export_revenue_with_vat": 0.0,
+                "self_use_revenue_with_vat": 0.0,
+                "other_operating_revenue_with_vat": 0.0,
+                "operating_revenue_with_vat": 0.0,
+                "operating_revenue_without_vat": 0.0,
+                "output_vat": 0.0,
+                "wind_om_cost_with_vat": 0.0,
+                "pv_om_cost_with_vat": 0.0,
+                "bess_om_cost_with_vat": 0.0,
+                "other_operating_cost_with_vat": 0.0,
+                "operating_cost_with_vat": 0.0,
+                "operating_cost_without_vat": 0.0,
+                "construction_input_vat": construction_input_vat,
+                "bess_replacement_input_vat": 0.0,
+                "input_vat": construction_input_vat,
+                "vat_credit_begin": 0.0,
+                "vat_payable": 0.0,
+                "vat_credit_end": construction_input_vat,
+                "urban_maintenance_tax": 0.0,
+                "education_surcharge": 0.0,
+                "local_education_surcharge": 0.0,
+                "taxes_and_surcharges": 0.0,
+                "wind_depreciation": 0.0,
+                "pv_depreciation": 0.0,
+                "bess_depreciation": 0.0,
+                "bess_replacement_depreciation": 0.0,
+                "dedicated_connection_line_depreciation": 0.0,
+                "other_fixed_asset_depreciation": 0.0,
+                "depreciation": 0.0,
+                "profit_before_tax": 0.0,
+                "loss_offset": 0.0,
+                "taxable_income": 0.0,
+                "income_tax": 0.0,
+                "net_profit": 0.0,
+                "construction_cash_outflow": construction_cash_outflow,
+                "bess_replacement_cash_outflow": 0.0,
+                "net_cash_flow": -construction_cash_outflow,
+            }
+        )
+    else:
+        append_cashflow(0, -construction_cash_outflow)
     vat_credit_begin = construction_input_vat
 
     for operation_year in context.operation_year_range:
@@ -602,52 +611,55 @@ def evaluate_scenario_economy(
             - taxes_and_surcharges
             - income_tax
         )
-        append_row(
-            {
-                "year": operation_year,
-                "operation_year": operation_year,
-                "period_type": "operation",
-                "grid_export_energy": grid_export_energy,
-                "self_use_energy": self_use_energy,
-                "grid_export_revenue_with_vat": grid_export_revenue_with_vat,
-                "self_use_revenue_with_vat": self_use_revenue_with_vat,
-                "other_operating_revenue_with_vat": other_revenue_with_vat,
-                "operating_revenue_with_vat": operating_revenue_with_vat,
-                "operating_revenue_without_vat": operating_revenue_without_vat,
-                "output_vat": output_vat,
-                "wind_om_cost_with_vat": wind_om_cost_with_vat,
-                "pv_om_cost_with_vat": pv_om_cost_with_vat,
-                "bess_om_cost_with_vat": bess_om_cost_with_vat,
-                "other_operating_cost_with_vat": other_operating_cost_with_vat,
-                "operating_cost_with_vat": operating_cost_with_vat,
-                "operating_cost_without_vat": operating_cost_without_vat,
-                "construction_input_vat": 0.0,
-                "bess_replacement_input_vat": replacement_input_vat,
-                "input_vat": input_vat,
-                "vat_credit_begin": vat_credit_begin,
-                "vat_payable": vat_payable,
-                "vat_credit_end": vat_credit_end,
-                "urban_maintenance_tax": urban_maintenance_tax,
-                "education_surcharge": education_surcharge,
-                "local_education_surcharge": local_education_surcharge,
-                "taxes_and_surcharges": taxes_and_surcharges,
-                "wind_depreciation": wind_depreciation,
-                "pv_depreciation": pv_depreciation,
-                "bess_depreciation": bess_depreciation,
-                "bess_replacement_depreciation": bess_replacement_depreciation,
-                "dedicated_connection_line_depreciation": dedicated_connection_line_depreciation,
-                "other_fixed_asset_depreciation": other_fixed_asset_depreciation,
-                "depreciation": depreciation,
-                "profit_before_tax": profit_before_tax,
-                "loss_offset": loss_offset,
-                "taxable_income": taxable_income,
-                "income_tax": income_tax,
-                "net_profit": net_profit,
-                "construction_cash_outflow": 0.0,
-                "bess_replacement_cash_outflow": replacement_cash_outflow,
-                "net_cash_flow": net_cash_flow,
-            }
-        )
+        if rows is not None:
+            append_row(
+                {
+                    "year": operation_year,
+                    "operation_year": operation_year,
+                    "period_type": "operation",
+                    "grid_export_energy": grid_export_energy,
+                    "self_use_energy": self_use_energy,
+                    "grid_export_revenue_with_vat": grid_export_revenue_with_vat,
+                    "self_use_revenue_with_vat": self_use_revenue_with_vat,
+                    "other_operating_revenue_with_vat": other_revenue_with_vat,
+                    "operating_revenue_with_vat": operating_revenue_with_vat,
+                    "operating_revenue_without_vat": operating_revenue_without_vat,
+                    "output_vat": output_vat,
+                    "wind_om_cost_with_vat": wind_om_cost_with_vat,
+                    "pv_om_cost_with_vat": pv_om_cost_with_vat,
+                    "bess_om_cost_with_vat": bess_om_cost_with_vat,
+                    "other_operating_cost_with_vat": other_operating_cost_with_vat,
+                    "operating_cost_with_vat": operating_cost_with_vat,
+                    "operating_cost_without_vat": operating_cost_without_vat,
+                    "construction_input_vat": 0.0,
+                    "bess_replacement_input_vat": replacement_input_vat,
+                    "input_vat": input_vat,
+                    "vat_credit_begin": vat_credit_begin,
+                    "vat_payable": vat_payable,
+                    "vat_credit_end": vat_credit_end,
+                    "urban_maintenance_tax": urban_maintenance_tax,
+                    "education_surcharge": education_surcharge,
+                    "local_education_surcharge": local_education_surcharge,
+                    "taxes_and_surcharges": taxes_and_surcharges,
+                    "wind_depreciation": wind_depreciation,
+                    "pv_depreciation": pv_depreciation,
+                    "bess_depreciation": bess_depreciation,
+                    "bess_replacement_depreciation": bess_replacement_depreciation,
+                    "dedicated_connection_line_depreciation": dedicated_connection_line_depreciation,
+                    "other_fixed_asset_depreciation": other_fixed_asset_depreciation,
+                    "depreciation": depreciation,
+                    "profit_before_tax": profit_before_tax,
+                    "loss_offset": loss_offset,
+                    "taxable_income": taxable_income,
+                    "income_tax": income_tax,
+                    "net_profit": net_profit,
+                    "construction_cash_outflow": 0.0,
+                    "bess_replacement_cash_outflow": replacement_cash_outflow,
+                    "net_cash_flow": net_cash_flow,
+                }
+            )
+        else:
+            append_cashflow(operation_year, net_cash_flow)
         vat_credit_begin = vat_credit_end
 
     discount_factors = context.discount_factors
@@ -662,7 +674,7 @@ def evaluate_scenario_economy(
         annual["discounted_net_cash_flow"] = annual["net_cash_flow"] * annual["discount_factor"]
         annual["cumulative_discounted_net_cash_flow"] = annual["discounted_net_cash_flow"].cumsum()
     else:
-        annual = pd.DataFrame()
+        annual = _empty_annual_cashflow if _empty_annual_cashflow is not None else pd.DataFrame()
 
     firr, firr_status = _calculate_irr(cashflows)
     metrics = {
@@ -717,6 +729,7 @@ def evaluate_batch_economy(
             params=economic_params,
             retain_annual_cashflow=retain_cashflow,
             _context=context,
+            _empty_annual_cashflow=_EMPTY_ANNUAL_CASHFLOW,
         )
         results.append(result.metrics)
         if retain_cashflow:

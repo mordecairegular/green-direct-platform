@@ -10,6 +10,7 @@ import pandas as pd
 
 from green_direct.economy.economic_evaluator import (
     EconomicResult,
+    _EMPTY_ANNUAL_CASHFLOW,
     _calculate_irr,
     _calculate_payback,
     _discount_factors,
@@ -101,6 +102,7 @@ def evaluate_single_entity_pre_tax_economy(
     validate_params: bool = True,
     retain_annual_cashflow: bool = True,
     _context: _SingleEntityEconomyContext | None = None,
+    _empty_annual_cashflow: pd.DataFrame | None = None,
 ) -> EconomicResult:
     """Evaluate same-investor incremental pre-tax cash flow for one scenario.
 
@@ -205,35 +207,41 @@ def evaluate_single_entity_pre_tax_economy(
     years: list[int] = []
     cashflows: list[float] = []
 
+    def append_cashflow(year: int, net_cash_flow: float) -> None:
+        years.append(int(year))
+        cashflows.append(float(net_cash_flow))
+
     def append_row(row: dict[str, Any]) -> None:
-        years.append(int(row["year"]))
-        cashflows.append(float(row["net_cash_flow"]))
+        append_cashflow(int(row["year"]), float(row["net_cash_flow"]))
         if rows is not None:
             rows.append({"scenario_id": scenario_id, **row})
 
-    append_row(
-        {
-            "year": 0,
-            "operation_year": 0,
-            "period_type": "construction",
-            "self_use_energy": 0.0,
-            "grid_export_energy": 0.0,
-            "net_avoided_grid_cost_price": net_avoided_grid_cost_price,
-            "avoided_grid_purchase_cash_price": avoided_grid_purchase_cash_price,
-            "self_use_saving": 0.0,
-            "avoided_grid_purchase_cash_saving": 0.0,
-            "environmental_value": 0.0,
-            "grid_export_revenue_without_vat": 0.0,
-            "other_external_revenue_without_vat": 0.0,
-            "operating_cost_basis": 0.0,
-            "bess_replacement_basis": 0.0,
-            "bess_replacement_cash_outflow_with_vat": 0.0,
-            "initial_investment_basis": initial_investment_basis,
-            "construction_cash_outflow_with_vat": construction_cash_outflow_with_vat,
-            "pre_tax_net_cash_flow": -initial_investment_basis,
-            "net_cash_flow": -initial_investment_basis,
-        }
-    )
+    if rows is not None:
+        append_row(
+            {
+                "year": 0,
+                "operation_year": 0,
+                "period_type": "construction",
+                "self_use_energy": 0.0,
+                "grid_export_energy": 0.0,
+                "net_avoided_grid_cost_price": net_avoided_grid_cost_price,
+                "avoided_grid_purchase_cash_price": avoided_grid_purchase_cash_price,
+                "self_use_saving": 0.0,
+                "avoided_grid_purchase_cash_saving": 0.0,
+                "environmental_value": 0.0,
+                "grid_export_revenue_without_vat": 0.0,
+                "other_external_revenue_without_vat": 0.0,
+                "operating_cost_basis": 0.0,
+                "bess_replacement_basis": 0.0,
+                "bess_replacement_cash_outflow_with_vat": 0.0,
+                "initial_investment_basis": initial_investment_basis,
+                "construction_cash_outflow_with_vat": construction_cash_outflow_with_vat,
+                "pre_tax_net_cash_flow": -initial_investment_basis,
+                "net_cash_flow": -initial_investment_basis,
+            }
+        )
+    else:
+        append_cashflow(0, -initial_investment_basis)
 
     for operation_year in context.operation_year_range:
         _, other_revenue_without_vat, _ = other_revenue_by_year[operation_year]
@@ -249,29 +257,32 @@ def evaluate_single_entity_pre_tax_economy(
             - operating_cost_basis
             - replacement_basis
         )
-        append_row(
-            {
-                "year": operation_year,
-                "operation_year": operation_year,
-                "period_type": "operation",
-                "self_use_energy": self_use_energy,
-                "grid_export_energy": grid_export_energy,
-                "net_avoided_grid_cost_price": net_avoided_grid_cost_price,
-                "avoided_grid_purchase_cash_price": avoided_grid_purchase_cash_price,
-                "self_use_saving": self_use_saving,
-                "avoided_grid_purchase_cash_saving": avoided_grid_purchase_cash_saving,
-                "environmental_value": environmental_value,
-                "grid_export_revenue_without_vat": grid_export_revenue_without_vat,
-                "other_external_revenue_without_vat": other_revenue_without_vat,
-                "operating_cost_basis": operating_cost_basis,
-                "bess_replacement_basis": replacement_basis,
-                "bess_replacement_cash_outflow_with_vat": replacement_cash_outflow,
-                "initial_investment_basis": 0.0,
-                "construction_cash_outflow_with_vat": 0.0,
-                "pre_tax_net_cash_flow": pre_tax_net_cash_flow,
-                "net_cash_flow": pre_tax_net_cash_flow,
-            }
-        )
+        if rows is not None:
+            append_row(
+                {
+                    "year": operation_year,
+                    "operation_year": operation_year,
+                    "period_type": "operation",
+                    "self_use_energy": self_use_energy,
+                    "grid_export_energy": grid_export_energy,
+                    "net_avoided_grid_cost_price": net_avoided_grid_cost_price,
+                    "avoided_grid_purchase_cash_price": avoided_grid_purchase_cash_price,
+                    "self_use_saving": self_use_saving,
+                    "avoided_grid_purchase_cash_saving": avoided_grid_purchase_cash_saving,
+                    "environmental_value": environmental_value,
+                    "grid_export_revenue_without_vat": grid_export_revenue_without_vat,
+                    "other_external_revenue_without_vat": other_revenue_without_vat,
+                    "operating_cost_basis": operating_cost_basis,
+                    "bess_replacement_basis": replacement_basis,
+                    "bess_replacement_cash_outflow_with_vat": replacement_cash_outflow,
+                    "initial_investment_basis": 0.0,
+                    "construction_cash_outflow_with_vat": 0.0,
+                    "pre_tax_net_cash_flow": pre_tax_net_cash_flow,
+                    "net_cash_flow": pre_tax_net_cash_flow,
+                }
+            )
+        else:
+            append_cashflow(operation_year, pre_tax_net_cash_flow)
 
     discount_factors = context.discount_factors
     discounted_cashflows = [
@@ -285,7 +296,7 @@ def evaluate_single_entity_pre_tax_economy(
         annual["discounted_net_cash_flow"] = annual["net_cash_flow"] * annual["discount_factor"]
         annual["cumulative_discounted_net_cash_flow"] = annual["discounted_net_cash_flow"].cumsum()
     else:
-        annual = pd.DataFrame()
+        annual = _empty_annual_cashflow if _empty_annual_cashflow is not None else pd.DataFrame()
 
     firr, firr_status = _calculate_irr(cashflows)
     metrics = {
@@ -350,6 +361,7 @@ def evaluate_batch_single_entity_pre_tax_economy(
             validate_params=False,
             retain_annual_cashflow=retain_cashflow,
             _context=context,
+            _empty_annual_cashflow=_EMPTY_ANNUAL_CASHFLOW,
         )
         results.append(result.metrics)
         if retain_cashflow:

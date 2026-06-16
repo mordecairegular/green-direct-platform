@@ -5100,6 +5100,33 @@ benchmark：
 - `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
 - `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 通过，`failed_count=0`，包含 `smoke:streamlit`。
 
+### 2026-06-16 经济性 summary-only 跳过年度 row 构造
+
+本轮继续推进“成千上万个方案下经济性测算等待时间”的性能路线。上一轮已经让未保留年度现金流的方案不再构造完整 `DataFrame`，但 evaluator 内部仍会为 Year 0-Year N 构造完整年度 row dict，然后只从里面取 `year` 和 `net_cash_flow` 计算 summary 指标。
+
+实现：
+- 电源侧 `evaluate_scenario_economy()` 和同一主体 `evaluate_single_entity_pre_tax_economy()` 新增轻量 `append_cashflow()` 路径；
+- 当 `retain_annual_cashflow=False` 时，只追加 `year` 与 `net_cash_flow` 到现金流数组，不再构造年度现金流表 row dict；
+- 当需要保留年度现金流时，仍构造原有 row dict 和完整年度 `DataFrame`，字段与口径不变；
+- 批量入口为未保留现金流的方案复用内部空年度现金流表哨兵，公开单方案调用仍保持独立空表语义，避免把共享可变对象暴露给普通调用方。
+
+边界：
+- 不改变经济性 V1 年度现金流公式、字段、FNPV、FIRR、静态/动态回收期；
+- 不改变价格曲线模式、推荐排序或导出 artifact 语义；
+- benchmark 仍受本机负载和 `tracemalloc` 影响，只作为方向性记录。
+
+benchmark：
+- 改前本轮基线：`python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 8 --wind-count 8 --bess-power-count 3 --durations 0,2 --skip-full-retention --json`，189 个方案，`economy_summary_no_annual_cashflows` 约 0.7749 秒；
+- 改后同一命令：189 个方案，`economy_summary_no_annual_cashflows` 约 0.5605 秒；
+- profiler 同一经济性调用从约 189286 次函数调用 / 0.086 秒降到约 123514 次函数调用 / 0.044 秒，`pd.DataFrame` 构造从每方案空表下降到批量结果所需的少量表；
+- 额外较大样本：`python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 12 --wind-count 12 --bess-power-count 4 --durations 0,2 --skip-full-retention --json`，572 个方案，`economy_summary_no_annual_cashflows` 约 1.4056 秒。
+
+验证：
+- `python -m pytest tests\test_economy_v1.py tests\test_single_entity_economy.py -q` 通过，30 项通过；
+- `python -m pytest tests\test_economy_v1.py tests\test_single_entity_economy.py tests\test_pilot_worker.py -q` 通过，35 项通过；
+- `python -m pytest tests\test_economy_v1.py tests\test_single_entity_economy.py tests\test_study_runner.py tests\test_pilot_worker.py tests\test_performance_benchmark_script.py -q` 通过，48 项通过；
+- `python -m compileall -q src\green_direct\economy\economic_evaluator.py src\green_direct\economy\single_entity_evaluator.py` 通过。
+
 ### 2026-06-16 GitHub 到 Render 的移动网络试用路径确认
 
 本轮继续对齐用户最核心问题：如何让其他同事在移动网络下试用工具，以及 Vercel / Cloudflare / GitHub Import 该如何分工。
