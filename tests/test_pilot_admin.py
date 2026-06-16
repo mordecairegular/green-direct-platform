@@ -61,15 +61,26 @@ def test_platform_admin_can_create_user_and_reset_password(tmp_path):
         user=User("analyst", "analyst@example.local", "Analyst"),
         initial_password="analyst-password",
     )
-    service.set_user_password(actor_user_id="admin", user_id="analyst", password="new-password")
+    old_session = service.auth.login(login_name="analyst@example.local", password="analyst-password")
+    revoked_count = service.set_user_password(actor_user_id="admin", user_id="analyst", password="new-password")
 
     assert user.is_platform_admin is False
+    assert revoked_count == 1
+    with pytest.raises(PilotAuthError, match="Session has been revoked"):
+        service.auth.require_session(session_id=old_session.session_id, token=old_session.token)
     assert service.auth.login(login_name="analyst@example.local", password="new-password").user_id == "analyst"
     with pytest.raises(PilotAuthError, match="Invalid login credentials"):
         service.auth.login(login_name="analyst@example.local", password="analyst-password")
     actions = [event.action for event in service.result_store.read_audit_log()]
     assert actions.count(AuditAction.CREATE_USER) == 2
     assert AuditAction.UPDATE_USER in actions
+    assert any(
+        event.action == AuditAction.UPDATE_USER
+        and event.target_id == "analyst"
+        and event.metadata.get("password_reset") is True
+        and event.metadata.get("revoked_sessions") == 1
+        for event in service.result_store.read_audit_log()
+    )
 
 
 def test_non_platform_admin_cannot_manage_accounts(tmp_path):

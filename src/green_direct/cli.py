@@ -142,12 +142,12 @@ def _cmd_create_user(args: argparse.Namespace) -> int:
 def _cmd_reset_password(args: argparse.Namespace) -> int:
     password = _password_from_args(args, required=True)
     services = _pilot_services(args.store_dir)
-    services.admin.set_user_password(
+    revoked_count = services.admin.set_user_password(
         actor_user_id=args.actor_user_id,
         user_id=args.user_id,
         password=str(password),
     )
-    print(f"Password reset for user: {args.user_id}")
+    print(f"Password reset for user: {args.user_id}\trevoked_sessions={revoked_count}")
     return 0
 
 

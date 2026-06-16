@@ -61,6 +61,13 @@ def test_cli_pilot_admin_bootstrap_create_reset_disable_user(tmp_path, monkeypat
         ]
     ) == 0
 
+    auth = LocalPilotAuth(
+        tmp_path,
+        registry=LocalPilotRegistry(tmp_path),
+        result_store=LocalResultStore(tmp_path),
+    )
+    old_session = auth.login(login_name="analyst@example.local", password="analyst-password")
+
     assert main(
         [
             "pilot-admin",
@@ -74,12 +81,10 @@ def test_cli_pilot_admin_bootstrap_create_reset_disable_user(tmp_path, monkeypat
             "RESET_PASSWORD",
         ]
     ) == 0
+    assert "revoked_sessions=1" in capsys.readouterr().out
 
-    auth = LocalPilotAuth(
-        tmp_path,
-        registry=LocalPilotRegistry(tmp_path),
-        result_store=LocalResultStore(tmp_path),
-    )
+    with pytest.raises(PilotAuthError, match="Session has been revoked"):
+        auth.require_session(session_id=old_session.session_id, token=old_session.token)
     assert auth.login(login_name="analyst@example.local", password="reset-password").user_id == "analyst"
 
     assert main(

@@ -5247,3 +5247,29 @@ profile / benchmark：
 - `python -m pytest tests\test_pilot_admin.py tests\test_cli.py -q` 通过，27 项通过；
 - `python -m compileall -q src\green_direct\services\pilot_admin.py src\green_direct\cli.py src\green_direct\ui\app.py tests\test_pilot_admin.py tests\test_cli.py tests\test_ui_import.py` 通过；
 - `python -m pytest tests\test_ui_import.py::test_streamlit_platform_admin_can_create_user tests\test_ui_import.py::test_streamlit_platform_admin_can_reactivate_user tests\test_ui_import.py::test_streamlit_platform_admin_can_revoke_user_session -q` 通过，3 项通过。
+
+### 2026-06-16 重置密码后撤销有效会话
+
+本轮继续补内部公网内测账号安全闭环。上一小节已经允许平台管理员撤销指定会话，但“重置密码”仍只更新密码哈希，不会自动让旧浏览器会话失效；如果账号密码疑似泄露，管理员重置密码后，攻击者或误用者的已登录会话仍可能继续访问。
+
+实现：
+- `LocalPilotAdminService.set_user_password()` 改为重置密码后撤销目标用户所有 active session，并返回撤销数量；
+- `UPDATE_USER` 审计 metadata 继续记录 `password_reset=True`，并新增 `revoked_sessions`；
+- `pilot-admin reset-password` 输出 `revoked_sessions=<n>`，方便服务器侧操作后确认影响面；
+- Streamlit “平台管理 -> 重置密码”会提示已撤销会话数量；如果管理员重置的是自己的密码且当前会话被撤销，前端会立即清理登录状态并要求重新登录；
+- README、部署 runbook、软件接口总览、TODO 和 handoff 已同步。
+
+边界：
+- 不改变 `LocalPilotAuth` 的密码哈希、session TTL、token hash 或登录口径；
+- 不新增独立审计动作，仍用账号运维类 `UPDATE_USER`；
+- 重置密码会让目标用户重新登录，但不会停用账号或变更项目权限；
+- 仍不是企业 IAM、SSO、数据库会话表或集中风控系统。
+
+验证：
+- `python -m pytest tests\test_pilot_admin.py::test_platform_admin_can_create_user_and_reset_password tests\test_cli.py::test_cli_pilot_admin_bootstrap_create_reset_disable_user -q` 通过，2 项通过；
+- `python -m compileall -q src\green_direct\services\pilot_admin.py src\green_direct\cli.py src\green_direct\ui\app.py tests\test_pilot_admin.py tests\test_cli.py` 通过；
+- `$env:PYTHONPATH='src'; python -m green_direct.cli pilot-admin reset-password --help` 通过；
+- `python -m pytest -q` 通过，365 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 通过，`failed_count=0`，包含 `smoke:streamlit`；
+- `git diff --check` 通过，仅有 Windows 换行转换提示。

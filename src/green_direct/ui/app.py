@@ -3820,12 +3820,18 @@ def _render_platform_admin_page(st) -> None:
                 try:
                     if not new_password:
                         raise ValueError("新密码不能为空。")
-                    admin_service.set_user_password(
+                    revoked_count = admin_service.set_user_password(
                         actor_user_id=actor_user_id,
                         user_id=str(reset_user_id),
                         password=str(new_password),
                     )
-                    st.session_state[PILOT_ADMIN_NOTICE_KEY] = f"已重置密码：{reset_user_id}"
+                    if str(reset_user_id) == actor_user_id and revoked_count > 0:
+                        _clear_pilot_session(st, clear_work_state=True)
+                        st.session_state[PILOT_LOGIN_NOTICE_KEY] = "当前密码已重置，会话已失效，请重新登录。"
+                    else:
+                        st.session_state[PILOT_ADMIN_NOTICE_KEY] = (
+                            f"已重置密码：{reset_user_id}；已撤销有效会话 {revoked_count} 个"
+                        )
                     st.rerun()
                 except Exception as exc:  # noqa: BLE001 - form errors should be visible
                     _handle_platform_admin_error(st, exc)

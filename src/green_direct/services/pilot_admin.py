@@ -139,17 +139,22 @@ class LocalPilotAdminService:
         )
         return saved
 
-    def set_user_password(self, *, actor_user_id: str, user_id: str, password: str) -> None:
-        """Reset a user's local password after checking platform-admin permission."""
+    def set_user_password(self, *, actor_user_id: str, user_id: str, password: str) -> int:
+        """Reset a user's local password, revoke active sessions, and return revoke count."""
 
         actor = self._platform_admin(actor_user_id)
         self.auth.set_password(user_id=user_id, password=password)
+        revoked_count = 0
+        for session in self.auth.list_user_sessions(user_id, active_only=True):
+            self.auth.revoke_session(session.session_id)
+            revoked_count += 1
         self._audit(
             actor_user_id=actor.user_id,
             action=AuditAction.UPDATE_USER,
             target_user_id=user_id,
-            metadata={"password_reset": True},
+            metadata={"password_reset": True, "revoked_sessions": revoked_count},
         )
+        return revoked_count
 
     def set_platform_admin(self, *, actor_user_id: str, user_id: str, is_platform_admin: bool) -> User:
         """Grant or revoke platform-admin status."""

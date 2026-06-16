@@ -177,7 +177,7 @@ docker compose --profile worker up -d green-direct-worker
 平台管理员登录后可以在“平台管理”页：
 
 - 创建用户；
-- 重置密码；
+- 重置密码并撤销该用户有效会话；
 - 停用/恢复用户；
 - 授予/撤销平台管理员；
 - 查看并撤销用户会话；
