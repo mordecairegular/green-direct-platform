@@ -4862,3 +4862,15 @@ benchmark：
 - `git diff --check` 通过；
 - `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
 - `python -m pytest -q` 通过，347 项通过。
+
+### 2026-06-16 公网内测部署交接事实校准
+
+本轮在年度现金流后台 Job checkpoint 后，继续校准上线交接材料，避免 README、审计矩阵和 handoff 仍停留在“worker 只支持 hourly detail”的旧事实。
+
+更新：
+- `README_DEPLOY.md` 的“仍未完成”改为当前真实边界：已有按需逐小时明细和固定价/网页组价年度现金流 queued job，仍缺正式队列、worker 级取消、重试和进程守护；
+- `docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md` 的 Route A 缺口描述同步补入 annual cashflow queued job；
+- `notes/HANDOFF_FOR_NEW_MACHINE.md` 修正 worker、`PilotAccessService` 和经济性 artifact 段落，明确当前 worker 支持 `technical_study/hourly_detail` 与 `economic_study/annual_cashflow`，且价格曲线现金流、全量经济性后台化、PNG/Excel/完整报告仍待迁移。
+
+验证：
+- 文档事实校准，不改变代码或计算口径；后续运行 `python scripts\preflight_internal_pilot_deploy.py --json` 和 `git diff --check` 复核。

@@ -31,7 +31,7 @@
 - HTTPS/反向代理已有文档样例，但仍未经过目标服务器实机演练；
 - 技术仿真三条输入曲线已能随技术结果保存为 input artifact，历史 summary-only 结果可在 input artifact 未过期且 `config_snapshot` 带有 `curve_columns` 时恢复 `TechnicalStudyInput` 并补算单方案逐小时明细；HTML 图表包和 Markdown 报告已有显式保存第一版，但 PNG/Excel/批量包、价格曲线、完整报告和未来 API/反向代理下载尚未完整进入项目/Run 级 artifact 留存闭环；
 - input artifact 补算已有 Streamlit 同步 fallback 和后台 queued job 提交入口，one-shot worker 和最小 `run-worker-loop` 轮询 worker 也能执行该类任务；按需明细区域已有任务状态轮询和成功后加载 hourly artifact；但没有全局任务通知或 worker 级取消重试闭环。旧结果若缺少 `curve_columns` 或 input artifact 已清理，只能查看 summary 或已有 hourly artifact；
-- 计算仍主要在 Streamlit 进程内同步执行；已有活动任务查看/取消入口、worker 认领原语、按需 hourly detail queued job 入口、one-shot worker 和最小轮询 worker，但没有正式队列、跨进程队列锁、worker 级取消和重试闭环；
+- 计算仍主要在 Streamlit 进程内同步执行；已有活动任务查看/取消入口、worker 认领原语、按需 hourly detail / annual cashflow queued job 入口、one-shot worker 和最小轮询 worker，但没有正式队列、跨进程队列锁、worker 级取消和重试闭环；
 - 本地 JSON 文件 store 已通过临时文件原子替换降低半写损坏风险，但仍没有数据库事务、跨进程锁和并发冲突处理。
 
 ## 2. P0 审计矩阵
