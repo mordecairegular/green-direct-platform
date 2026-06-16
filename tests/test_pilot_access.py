@@ -315,6 +315,96 @@ def test_platform_admin_can_fail_stale_running_jobs_with_audit(tmp_path):
         )
 
 
+def test_platform_admin_can_retry_failed_or_canceled_job_with_audit(tmp_path):
+    service = _service(tmp_path)
+    service.registry.save_user(User("ops", "ops@example.local", "Ops", is_platform_admin=True))
+    service.registry.save_user(User("analyst", "analyst@example.local", "Analyst"))
+    project = service.create_project(
+        actor_user_id="ops",
+        project=Project("project_1", "Internal pilot project"),
+    )
+    service.grant_project_role(
+        actor_user_id="ops",
+        project_id=project.project_id,
+        user_id="analyst",
+        role=ProjectRole.ANALYST,
+    )
+    service.result_store.store_artifact(
+        artifact_id="technical_summary",
+        project_id="project_1",
+        study_id="study_1",
+        job_id="job_source",
+        kind=ArtifactKind.TECHNICAL_SUMMARY,
+        payload="scenario_id\nS0001\n",
+        filename="technical_summary.csv",
+        content_type="text/csv",
+    )
+    service.submit_job(
+        actor_user_id="analyst",
+        job=Job(
+            job_id="job_failed",
+            project_id="project_1",
+            study_id="study_1",
+            requested_by_user_id="analyst",
+            job_type=JobType.ECONOMIC_STUDY,
+            input_fingerprint="fingerprint_1",
+            input_artifact_ids={"technical_summary": "technical_summary"},
+        ),
+    )
+    service.start_job(actor_user_id="analyst", project_id="project_1", study_id="study_1", job_id="job_failed")
+    service.fail_job(
+        actor_user_id="analyst",
+        project_id="project_1",
+        study_id="study_1",
+        job_id="job_failed",
+        error_message="sanitized failure",
+    )
+
+    retry = service.retry_terminal_job_for_platform_admin(
+        actor_user_id="ops",
+        project_id="project_1",
+        study_id="study_1",
+        job_id="job_failed",
+        new_job_id="job_failed_retry_1",
+        queued_at=_dt(5),
+    )
+
+    assert retry.status == JobStatus.QUEUED
+    assert retry.job_id == "job_failed_retry_1"
+    assert retry.requested_by_user_id == "analyst"
+    assert retry.job_type == JobType.ECONOMIC_STUDY
+    assert retry.input_fingerprint == "fingerprint_1"
+    assert retry.input_artifact_ids == {"technical_summary": "technical_summary"}
+    assert service.job_store.load_job("project_1", "study_1", "job_failed").status == JobStatus.FAILED
+    audit_events = service.result_store.read_audit_log("project_1")
+    assert any(
+        event.action == AuditAction.SUBMIT_JOB
+        and event.job_id == "job_failed_retry_1"
+        and event.metadata["retry_of_job_id"] == "job_failed"
+        and event.metadata["retry_of_status"] == JobStatus.FAILED.value
+        and event.metadata["original_error_message"] == "sanitized failure"
+        for event in audit_events
+    )
+
+    with pytest.raises(PilotAccessError, match="Only failed or canceled jobs"):
+        service.retry_terminal_job_for_platform_admin(
+            actor_user_id="ops",
+            project_id="project_1",
+            study_id="study_1",
+            job_id="job_failed_retry_1",
+        )
+
+    service.registry.disable_membership("project_1", "analyst")
+    with pytest.raises(PilotAccessError, match="no active membership"):
+        service.retry_terminal_job_for_platform_admin(
+            actor_user_id="ops",
+            project_id="project_1",
+            study_id="study_1",
+            job_id="job_failed",
+            new_job_id="job_failed_retry_2",
+        )
+
+
 def test_cancel_job_allows_owner_or_admin_only(tmp_path):
     service = _service(tmp_path)
     _create_project_with_members(service)

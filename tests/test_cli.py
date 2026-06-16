@@ -11,6 +11,7 @@ from green_direct.models.pilot_backend import (
     Job,
     JobStatus,
     JobType,
+    Project,
     ProjectRole,
 )
 from green_direct.services import LocalJobStore, LocalPilotAuth, LocalPilotRegistry, LocalResultStore
@@ -928,6 +929,90 @@ def test_cli_pilot_admin_fails_stale_running_jobs_and_audits(tmp_path, monkeypat
     assert audit_events[0].metadata["status"] == JobStatus.FAILED.value
     assert audit_events[0].metadata["stale_after_seconds"] == 3600
     assert audit_events[0].metadata["worker_id"] == "worker_1"
+
+
+def test_cli_pilot_admin_retries_failed_job_and_audits(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ADMIN_PASSWORD", "admin-password")
+    assert main(
+        [
+            "pilot-admin",
+            "bootstrap",
+            *_store_arg(tmp_path),
+            "--user-id",
+            "admin",
+            "--login-name",
+            "admin@example.local",
+            "--display-name",
+            "Admin",
+            "--password-env",
+            "ADMIN_PASSWORD",
+        ]
+    ) == 0
+    capsys.readouterr()
+
+    registry = LocalPilotRegistry(tmp_path)
+    registry.save_project(Project("project_1", "Internal pilot project", created_by_user_id="admin"))
+    registry.grant_project_role(project_id="project_1", user_id="admin", role=ProjectRole.ADMIN)
+    job_store = LocalJobStore(tmp_path)
+    job_store.submit_job(
+        Job(
+            job_id="job_failed",
+            project_id="project_1",
+            study_id="study_1",
+            requested_by_user_id="admin",
+            job_type=JobType.TECHNICAL_STUDY,
+            queued_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        )
+    )
+    job_store.start_job(
+        "project_1",
+        "study_1",
+        "job_failed",
+        started_at=datetime(2020, 1, 1, 1, tzinfo=timezone.utc),
+        worker_id="worker_1",
+    )
+    job_store.fail_job(
+        "project_1",
+        "study_1",
+        "job_failed",
+        "sanitized failure",
+        finished_at=datetime(2020, 1, 1, 2, tzinfo=timezone.utc),
+    )
+
+    assert main(
+        [
+            "pilot-admin",
+            "retry-job",
+            *_store_arg(tmp_path),
+            "--actor-user-id",
+            "admin",
+            "--project-id",
+            "project_1",
+            "--study-id",
+            "study_1",
+            "--job-id",
+            "job_failed",
+            "--new-job-id",
+            "job_failed_retry_1",
+        ]
+    ) == 0
+
+    output = capsys.readouterr().out
+    assert "project_1\tstudy_1\tjob_failed_retry_1\ttechnical_study\tqueued" in output
+
+    retry = job_store.load_job("project_1", "study_1", "job_failed_retry_1")
+    assert retry.status == JobStatus.QUEUED
+    assert retry.requested_by_user_id == "admin"
+    assert job_store.load_job("project_1", "study_1", "job_failed").status == JobStatus.FAILED
+
+    audit_events = LocalResultStore(tmp_path).read_audit_log("project_1")
+    assert any(
+        event.action == AuditAction.SUBMIT_JOB
+        and event.job_id == "job_failed_retry_1"
+        and event.metadata["retry_of_job_id"] == "job_failed"
+        and event.metadata["retry_of_status"] == JobStatus.FAILED.value
+        for event in audit_events
+    )
 
 
 def test_cli_exposes_green_direct_console_script():

@@ -347,6 +347,64 @@ class PilotAccessService:
             )
         return failed
 
+    def retry_terminal_job_for_platform_admin(
+        self,
+        *,
+        actor_user_id: str,
+        project_id: str,
+        study_id: str,
+        job_id: str,
+        new_job_id: str | None = None,
+        queued_at: datetime | None = None,
+    ) -> Job:
+        """Clone a failed/canceled job into a fresh queued job for trusted operations."""
+
+        self._platform_admin(actor_user_id)
+        self._project(project_id, require_active=True)
+        original = self.job_store.load_job(project_id, study_id, job_id)
+        if original.status not in {JobStatus.FAILED, JobStatus.CANCELED}:
+            raise PilotAccessError("Only failed or canceled jobs can be retried.")
+        membership = self._membership(
+            project_id,
+            original.requested_by_user_id,
+            require_active_project=True,
+        )
+        if not membership.can_submit_jobs():
+            raise PilotAccessError("Original requester can no longer submit jobs for this project.")
+        for artifact_id in original.input_artifact_ids.values():
+            self.result_store.load_artifact(project_id, study_id, artifact_id)
+
+        retry_id = new_job_id or f"{original.job_id}_retry_{uuid4().hex[:8]}"
+        retry = Job(
+            job_id=retry_id,
+            project_id=project_id,
+            study_id=study_id,
+            requested_by_user_id=original.requested_by_user_id,
+            job_type=original.job_type,
+            input_fingerprint=original.input_fingerprint,
+            input_artifact_ids=dict(original.input_artifact_ids),
+            queued_at=queued_at or datetime.now(timezone.utc),
+        )
+        saved = self.job_store.submit_job(retry, overwrite=False)
+        self._audit(
+            actor_user_id=actor_user_id,
+            action=AuditAction.SUBMIT_JOB,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=saved.job_id,
+            target_type="job",
+            target_id=saved.job_id,
+            metadata={
+                "job_type": saved.job_type.value,
+                "status": saved.status.value,
+                "input_artifact_ids": dict(saved.input_artifact_ids),
+                "retry_of_job_id": original.job_id,
+                "retry_of_status": original.status.value,
+                "original_error_message": original.error_message,
+            },
+        )
+        return saved
+
     def load_job(self, *, actor_user_id: str, project_id: str, study_id: str, job_id: str) -> Job:
         """Load a job visible to an active project member."""
 

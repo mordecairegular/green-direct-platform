@@ -191,9 +191,24 @@ python -m green_direct.cli pilot-admin fail-stale-jobs `
     --stale-after-minutes 60
 ```
 
-该命令会把超过阈值未 heartbeat 的 running 任务标记为 `failed`，写入项目级 `COMPLETE_JOB` 审计，并保留原 `worker_id`、最后 heartbeat 和错误说明。它只修复任务元数据，不会终止操作系统进程，也不代表已经有正式后台队列、重试或资源回收。
+该命令会把超过阈值未 heartbeat 的 running 任务标记为 `failed`，写入项目级 `COMPLETE_JOB` 审计，并保留原 `worker_id`、最后 heartbeat 和错误说明。它只修复任务元数据，不会终止操作系统进程，也不代表已经有正式后台队列、自动重试或资源回收。
 
 平台管理员也可以在 Streamlit “平台管理 -> 任务运维”中查看超时运行任务，并点击“标记超时运行任务失败”。该入口复用同一服务层语义，适合 Render 单 Web Service 首次内测时不方便进入 Shell 的场景。
+
+如果某个任务已经进入 `failed` 或 `canceled` 终态，且原始输入 artifact 仍存在、原始请求人仍有项目提交权限，平台管理员可以把它克隆为一个新的 queued job：
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m green_direct.cli pilot-admin retry-job `
+    --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --actor-user-id admin `
+    --project-id project_1 `
+    --study-id study_1 `
+    --job-id job_failed `
+    --new-job-id job_failed_retry_1
+```
+
+`retry-job` 会保留原任务的请求人、任务类型、输入 fingerprint 和 `input_artifact_ids`，并写入 `SUBMIT_JOB` 审计 metadata：`retry_of_job_id`、`retry_of_status` 和原始脱敏错误说明。它不会修改原任务，不会重试 queued/running/succeeded 任务，也不是自动重试策略；如需重试很多任务，应先排查失败原因和资源限制。
 
 worker wrapper 可使用同一 CLI 认领 queued job：
 
@@ -311,7 +326,7 @@ python -m green_direct.cli pilot-admin list-audit-events `
 - 普通用户必须选择或创建项目后才进入六步工作流；
 - Demo 技术仿真、经济性测算、方案推荐能跑通；
 - 禁止导出的项目成员不能下载历史 artifact 或 06 页导出文件；
-- `pilot-admin list-users`、`enable-user`、`list-projects`、`list-project-members`、`list-audit-events`、`list-jobs`、`claim-next-job`、`heartbeat-job`、`complete-worker-job`、`fail-worker-job`、`run-worker-once`、`run-worker-loop`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
+- `pilot-admin list-users`、`enable-user`、`list-projects`、`list-project-members`、`list-audit-events`、`list-jobs`、`claim-next-job`、`heartbeat-job`、`complete-worker-job`、`fail-worker-job`、`retry-job`、`run-worker-once`、`run-worker-loop`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
 - 新运行日志不包含明文密码、明文 token、原始曲线内容。
 
 ## 13. 回滚
@@ -320,7 +335,7 @@ python -m green_direct.cli pilot-admin list-audit-events `
 
 ## 14. 仍未完成的生产化事项
 
-- 正式队列、worker 级取消、重试和限流；当前仅有活动任务取消元数据、stale running 置失败运维入口、按需 hourly detail / annual cashflow 的 queued job 入口，平台管理页手动处理一个排队任务 / 恢复超时 running 任务元数据，以及最小 `run-worker-loop` 轮询 worker；
+- 正式队列、worker 级取消、自动重试策略和限流；当前仅有活动任务取消元数据、stale running 置失败运维入口、failed/canceled 任务手动克隆重试入口、按需 hourly detail / annual cashflow 的 queued job 入口，平台管理页手动处理一个排队任务 / 恢复超时 running 任务元数据，以及最小 `run-worker-loop` 轮询 worker；
 - SQLite/Postgres 或对象存储适配；
 - 原始上传文件保存、留存和清理；
 - 完整历史结果恢复、跨项目搜索和报告版本管理；结果索引标记/置顶和软删除已有第一版；

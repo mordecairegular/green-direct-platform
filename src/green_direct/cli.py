@@ -443,6 +443,21 @@ def _cmd_fail_worker_job(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_retry_job(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    retry = services.access.retry_terminal_job_for_platform_admin(
+        actor_user_id=args.actor_user_id,
+        project_id=args.project_id,
+        study_id=args.study_id,
+        job_id=args.job_id,
+        new_job_id=args.new_job_id,
+        queued_at=datetime.now(timezone.utc),
+    )
+    _print_job_header(include_stale=False)
+    _print_job_row(retry)
+    return 0
+
+
 def _cmd_run_worker_once(args: argparse.Namespace) -> int:
     services = _pilot_services(args.store_dir)
     result = execute_next_worker_job(
@@ -793,6 +808,18 @@ def build_parser() -> argparse.ArgumentParser:
     fail_worker_job.add_argument("--job-id", required=True)
     fail_worker_job.add_argument("--error-message", required=True, help="Sanitized worker failure message.")
     fail_worker_job.set_defaults(func=_cmd_fail_worker_job)
+
+    retry_job = pilot_admin_sub.add_parser(
+        "retry-job",
+        help="Clone a failed/canceled job into a new queued job.",
+    )
+    _add_common_store_arg(retry_job)
+    _add_actor_arg(retry_job)
+    retry_job.add_argument("--project-id", required=True)
+    retry_job.add_argument("--study-id", required=True)
+    retry_job.add_argument("--job-id", required=True, help="Failed or canceled job to retry.")
+    retry_job.add_argument("--new-job-id", help="Optional explicit id for the new queued job.")
+    retry_job.set_defaults(func=_cmd_retry_job)
 
     run_worker_once = pilot_admin_sub.add_parser(
         "run-worker-once",

@@ -5151,3 +5151,31 @@ benchmark：
 边界：
 - 本轮不推送 GitHub，不创建 Render 服务，不配置 Cloudflare；
 - 这些操作需要用户确认账号、仓库权限、套餐/持久盘、域名和内测邮箱名单。
+
+### 2026-06-16 failed/canceled 任务手动重试入口
+
+本轮把后台 worker 元数据闭环再补一小步：任务已经能排队、认领、heartbeat、成功/失败终态和 stale 恢复，但 failed/canceled 终态任务如果需要再跑，只能人工重新提交业务动作。公网或移动网络试用时，网络中断、worker 异常、管理员手动取消后，都需要一个受控、可审计的“重新排队”入口。
+
+实现：
+- `PilotAccessService.retry_terminal_job_for_platform_admin()` 新增平台管理员保护的终态任务重试入口；
+- 仅允许重试 `failed` / `canceled` 任务，不允许重试 `queued` / `running` / `succeeded`；
+- 新 job 保留原始请求人、任务类型、输入 fingerprint 和 `input_artifact_ids`，默认生成 `<old_job_id>_retry_<suffix>`，也可由 CLI 指定 `--new-job-id`；
+- 重试前校验原始项目仍 active、原始请求人仍有 active membership 和提交权限、原始 input artifact 仍存在；
+- `pilot-admin retry-job` 新增服务器侧运维入口；
+- `SUBMIT_JOB` 审计 metadata 记录 `retry_of_job_id`、`retry_of_status` 和原始脱敏错误说明，原任务保持原终态不被修改；
+- README、部署 runbook 和 handoff 已同步，明确这是手动克隆重试，不是自动重试策略。
+
+边界：
+- 不会终止或恢复真实操作系统进程；
+- 不会自动批量重试，也没有退避、最大次数、失败分类或资源限流；
+- 不改变按需 hourly detail / annual cashflow worker 的执行范围；
+- 不改变 V0.1 技术仿真、经济性 V1 或推荐排序口径。
+
+验证：
+- `python -m pytest tests\test_pilot_access.py::test_platform_admin_can_retry_failed_or_canceled_job_with_audit tests\test_cli.py::test_cli_pilot_admin_retries_failed_job_and_audits -q` 通过，2 项通过；
+- `python -m compileall -q src\green_direct\services\pilot_access.py src\green_direct\cli.py tests\test_pilot_access.py tests\test_cli.py` 通过；
+- `python -m pytest tests\test_pilot_access.py tests\test_cli.py tests\test_job_store.py -q` 通过，45 项通过；
+- `python -m pytest -q` 通过，362 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `$env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin retry-job --help` 通过；
+- `git diff --check` 通过，仅有 Windows 换行转换提示。
