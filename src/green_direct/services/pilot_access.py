@@ -18,6 +18,7 @@ from green_direct.models.pilot_backend import (
     Job,
     JobArtifact,
     JobStatus,
+    JobType,
     Project,
     ProjectMembership,
     ProjectRole,
@@ -55,6 +56,12 @@ class PilotAccessService:
         user = self.registry.load_user(user_id)
         if not user.is_active:
             raise PilotAccessError(f"User is disabled: {user_id}")
+        return user
+
+    def _platform_admin(self, user_id: str) -> User:
+        user = self._active_user(user_id)
+        if not user.is_platform_admin:
+            raise PilotAccessError("User cannot manage platform operations.")
         return user
 
     def _project(self, project_id: str, *, require_active: bool) -> Project:
@@ -403,6 +410,59 @@ class PilotAccessService:
         job = self.job_store.load_job(project_id, study_id, job_id)
         self._job_mutation_membership(actor_user_id=actor_user_id, job=job)
         return self.job_store.start_job(project_id, study_id, job_id, worker_id=worker_id)
+
+    def claim_next_job_for_worker(
+        self,
+        *,
+        actor_user_id: str,
+        worker_id: str,
+        project_id: str | None = None,
+        job_types: Iterable[JobType | str] | None = None,
+        claimed_at: datetime | None = None,
+    ) -> Job | None:
+        """Claim the oldest queued job for a trusted worker process.
+
+        This is a server-side queue primitive for the internal pilot. It is
+        intentionally platform-admin guarded and skips archived projects; it is
+        not a public user action or a durable distributed queue lock.
+        """
+
+        self._platform_admin(actor_user_id)
+        accepted_types = (
+            {JobType(job_type) for job_type in job_types}
+            if job_types is not None
+            else None
+        )
+        if project_id is not None:
+            self._project(project_id, require_active=True)
+            return self.job_store.claim_next_queued_job(
+                worker_id=worker_id,
+                project_id=project_id,
+                job_types=accepted_types,
+                claimed_at=claimed_at,
+            )
+
+        active_project_ids = {
+            project.project_id
+            for project in self.registry.list_projects()
+            if project.status == ProjectStatus.ACTIVE
+        }
+        for candidate in self.job_store.list_jobs(statuses=[JobStatus.QUEUED]):
+            if candidate.project_id not in active_project_ids:
+                continue
+            if accepted_types is not None and candidate.job_type not in accepted_types:
+                continue
+            try:
+                return self.job_store.start_job(
+                    candidate.project_id,
+                    candidate.study_id,
+                    candidate.job_id,
+                    started_at=claimed_at,
+                    worker_id=worker_id,
+                )
+            except ValueError:
+                continue
+        return None
 
     def update_job_progress(
         self,

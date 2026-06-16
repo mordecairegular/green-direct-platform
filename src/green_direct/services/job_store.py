@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
-from green_direct.models.pilot_backend import Job, JobStatus
+from green_direct.models.pilot_backend import Job, JobStatus, JobType
 from green_direct.services.local_store_utils import (
     read_json,
     validate_path_segment,
@@ -51,6 +51,12 @@ def _status_filter(statuses: Iterable[JobStatus | str] | None) -> set[JobStatus]
     if statuses is None:
         return None
     return {JobStatus(status) for status in statuses}
+
+
+def _job_type_filter(job_types: Iterable[JobType | str] | None) -> set[JobType] | None:
+    if job_types is None:
+        return None
+    return {JobType(job_type) for job_type in job_types}
 
 
 class LocalJobStore:
@@ -152,6 +158,38 @@ class LocalJobStore:
         if project_id is not None:
             return self.list_project_jobs(project_id, statuses=statuses)
         return self._all_jobs(statuses=statuses)
+
+    def claim_next_queued_job(
+        self,
+        *,
+        worker_id: str,
+        project_id: str | None = None,
+        job_types: Iterable[JobType | str] | None = None,
+        claimed_at: datetime | None = None,
+    ) -> Job | None:
+        """Start the oldest queued job matching the filters and assign it to a worker.
+
+        This local-file adapter re-loads a candidate before starting it, which
+        avoids claiming jobs that were already canceled or completed by another
+        code path. It is still not a cross-process queue lock.
+        """
+
+        accepted_types = _job_type_filter(job_types)
+        queued_jobs = self.list_jobs(project_id=project_id, statuses=[JobStatus.QUEUED])
+        for candidate in queued_jobs:
+            if accepted_types is not None and candidate.job_type not in accepted_types:
+                continue
+            try:
+                return self.start_job(
+                    candidate.project_id,
+                    candidate.study_id,
+                    candidate.job_id,
+                    started_at=claimed_at,
+                    worker_id=worker_id,
+                )
+            except ValueError:
+                continue
+        return None
 
     def start_job(
         self,

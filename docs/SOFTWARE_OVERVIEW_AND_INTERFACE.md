@@ -1077,10 +1077,11 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `list_jobs()`：跨本地 store 列出任务，可选按项目和状态过滤；
 - `list_project_jobs()` / `list_study_jobs()`：按项目或研究列出任务，并支持按状态筛选；
 - `start_job()` / `update_job_progress()` / `succeed_job()` / `fail_job()` / `cancel_job()`：持久化任务状态、进度、失败原因、完成时间、`worker_id` 和 `last_heartbeat_at`；
+- `claim_next_queued_job()`：按项目和任务类型认领最早排队任务，写入 `worker_id`、`started_at` 和 heartbeat，作为后续 worker 轮询入口的本地原语；
 - `list_stale_running_jobs()` / `fail_stale_running_jobs()`：按 `last_heartbeat_at` 或 `started_at` 判断超时 running 任务，并可批量标记失败；
 - 任务文件按 `projects/{project_id}/studies/{study_id}/jobs/{job_id}.json` 隔离，路径片段使用白名单校验。
 
-`LocalJobStore` 目前只保存任务元数据，不启动 worker、不做重试、不做 worker 级资源中断。Streamlit 欢迎页已消费该任务状态，显示活动任务、任务状态明细，并通过 `PilotAccessService.cancel_job()` 更新取消状态；`pilot-admin fail-stale-jobs` 可把进程中断后遗留的 running 元数据转成 failed，便于试用期恢复项目状态，但不会杀死或回收任何操作系统进程。后续接入正式后台时，应让前台提交 `Job`、轮询 `JobStatus`，由后台 worker 写入 `worker_id` / heartbeat 和 `LocalResultStore` 或其替代存储。
+`LocalJobStore` 目前只保存任务元数据和本地认领原语，不启动 worker、不做重试、不做 worker 级资源中断，也没有跨进程队列锁。Streamlit 欢迎页已消费该任务状态，显示活动任务、任务状态明细，并通过 `PilotAccessService.cancel_job()` 更新取消状态；`pilot-admin fail-stale-jobs` 可把进程中断后遗留的 running 元数据转成 failed，便于试用期恢复项目状态，但不会杀死或回收任何操作系统进程。后续接入正式后台时，应让前台提交 `Job`、轮询 `JobStatus`，由后台 worker 通过受控服务认领任务、写入 `worker_id` / heartbeat 和 `LocalResultStore` 或其替代存储。
 
 `src/green_direct/services/pilot_access.py` 已提供第一版 `PilotAccessService`：
 
@@ -1088,6 +1089,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - `list_accessible_projects()`：列出当前用户有有效 membership 的项目；
 - `grant_project_role()` / `disable_project_membership()` / `archive_project()`：项目管理员权限下的成员和项目管理动作；
 - `submit_job()` / `list_project_jobs()` / `load_job()` / `cancel_job()`：带项目角色校验的任务操作；
+- `claim_next_job_for_worker()`：平台管理员触发的 worker 队列认领入口，会跳过已归档项目；
 - `list_project_result_records()` / `list_study_result_records()`：带项目查看权限校验的结果索引列表；
 - `mark_result_record()`：仅项目 admin 可标记/置顶结果索引，并写入 `UPDATE_RESULT_RECORD` 审计；
 - `delete_result_record()`：仅项目 admin 可软删除/隐藏结果索引，并写入 `DELETE_RESULT_RECORD` 审计；

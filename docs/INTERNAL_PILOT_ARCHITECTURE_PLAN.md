@@ -167,15 +167,17 @@ PNG 图表包后台任务也按会话隔离：
 - 任务元数据按 `projects/{project_id}/studies/{study_id}/jobs/{job_id}.json` 隔离保存；
 - 支持提交、读取、按全局/项目/研究列出任务，并可按 `queued`、`running`、`succeeded`、`failed`、`canceled` 状态筛选；
 - 支持 `start_job()`、`update_job_progress()`、`succeed_job()`、`fail_job()` 和 `cancel_job()`，状态合法性沿用 `Job` 模型，并可保存 `worker_id` / heartbeat 元数据；
+- 支持 `claim_next_queued_job()`，可按项目和任务类型认领最早 queued 任务并转为 running，写入 `worker_id` 和 heartbeat，作为后续 worker 轮询的本地原语；
 - 支持 `list_stale_running_jobs()` 和 `fail_stale_running_jobs()`，可把超过阈值未 heartbeat 的 running 任务标记为 failed；`pilot-admin fail-stale-jobs` 会复用该能力并写 `COMPLETE_JOB` 审计；
 - 路径片段使用白名单校验，防止 `project_id`、`study_id`、`job_id` 被拼接成越权路径；
-- 当前实现只持久化任务状态；JSON 写入已使用原子替换，但仍不包含 worker 调度、重试策略、跨进程并发锁、鉴权或管理员 UI；后续任务队列或数据库实现应沿用同一 `Job` 契约。
+- 当前实现只持久化任务状态和本地认领原语；JSON 写入已使用原子替换，但仍不包含真正 worker 调度、重试策略、跨进程并发锁或管理员 UI；后续任务队列或数据库实现应沿用同一 `Job` 契约。
 - Streamlit 欢迎页已消费该任务状态：可筛选 `queued` / `running` 活动任务、展示任务状态明细并提供最小取消入口。但取消和 stale cleanup 都只改变任务元数据状态，不代表已有 worker 级中断、重试或资源隔离。
 
 已落地的第一步权限与审计服务：
 
 - `src/green_direct/services/pilot_access.py` 提供 `PilotAccessService` 和 `PilotAccessError`；
 - 该服务组合 `LocalPilotRegistry`、`LocalJobStore` 和 `LocalResultStore`，让 UI、后台 worker 或未来管理页通过同一入口做项目访问控制；
+- `claim_next_job_for_worker()` 已作为平台管理员保护的 worker 认领入口，支持全局或单项目认领，并在全局扫描时跳过归档项目；
 - `list_accessible_projects()` 已用于 Streamlit 登录后的项目工作区选择，只返回当前用户有有效 membership 的项目；
 - `admin` 可创建/归档项目、授予/停用成员、提交任务、查看任务和产物、取消他人任务；
 - `analyst` 可提交和查看本项目任务，并取消自己提交的任务；

@@ -251,6 +251,62 @@ def test_job_lifecycle_updates_require_owner_or_project_admin_and_are_audited(tm
     )
 
 
+def test_platform_admin_claims_next_worker_job_and_skips_archived_projects(tmp_path):
+    service = _service(tmp_path)
+    service.registry.save_user(
+        User("platform_admin", "platform-admin@example.local", "Platform Admin", is_platform_admin=True)
+    )
+    service.registry.save_user(User("analyst", "analyst@example.local", "Analyst"))
+    active_project = service.create_project(
+        actor_user_id="platform_admin",
+        project=Project("project_active", "Active project"),
+    )
+    archived_project = service.create_project(
+        actor_user_id="platform_admin",
+        project=Project("project_archived", "Archived project"),
+    )
+    service.registry.grant_project_role(
+        project_id=active_project.project_id,
+        user_id="analyst",
+        role=ProjectRole.ANALYST,
+    )
+    service.job_store.submit_job(
+        Job(
+            job_id="job_archived",
+            project_id=archived_project.project_id,
+            study_id="study_1",
+            requested_by_user_id="platform_admin",
+            job_type=JobType.TECHNICAL_STUDY,
+        )
+    )
+    service.job_store.submit_job(
+        Job(
+            job_id="job_active",
+            project_id=active_project.project_id,
+            study_id="study_1",
+            requested_by_user_id="analyst",
+            job_type=JobType.TECHNICAL_STUDY,
+        )
+    )
+    service.archive_project(actor_user_id="platform_admin", project_id=archived_project.project_id)
+
+    with pytest.raises(PilotAccessError, match="platform operations"):
+        service.claim_next_job_for_worker(actor_user_id="analyst", worker_id="worker_1")
+
+    claimed = service.claim_next_job_for_worker(
+        actor_user_id="platform_admin",
+        worker_id="worker_1",
+        job_types=[JobType.TECHNICAL_STUDY],
+    )
+
+    assert claimed is not None
+    assert claimed.job_id == "job_active"
+    assert claimed.project_id == "project_active"
+    assert claimed.status == JobStatus.RUNNING
+    assert claimed.worker_id == "worker_1"
+    assert service.job_store.load_job("project_archived", "study_1", "job_archived").status == JobStatus.QUEUED
+
+
 def test_artifact_payload_read_requires_project_view_and_is_audited(tmp_path):
     service = _service(tmp_path)
     _create_project_with_members(service)

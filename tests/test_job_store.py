@@ -129,6 +129,38 @@ def test_job_store_filters_by_status(tmp_path):
     ] == ["job_succeeded"]
 
 
+def test_job_store_claims_oldest_queued_job_for_worker(tmp_path):
+    store = LocalJobStore(tmp_path)
+    store.submit_job(_job("job_economic", job_type=JobType.ECONOMIC_STUDY, queued_at=_dt(1)))
+    store.submit_job(_job("job_technical", job_type=JobType.TECHNICAL_STUDY, queued_at=_dt(2)))
+    store.submit_job(_job("job_later", job_type=JobType.TECHNICAL_STUDY, queued_at=_dt(3)))
+
+    claimed = store.claim_next_queued_job(
+        worker_id="worker_1",
+        job_types=[JobType.TECHNICAL_STUDY],
+        claimed_at=_dt(4),
+    )
+
+    assert claimed is not None
+    assert claimed.job_id == "job_technical"
+    assert claimed.status == JobStatus.RUNNING
+    assert claimed.worker_id == "worker_1"
+    assert claimed.started_at == _dt(4)
+    assert claimed.last_heartbeat_at == _dt(4)
+    assert store.load_job("project_1", "study_1", "job_economic").status == JobStatus.QUEUED
+    assert store.load_job("project_1", "study_1", "job_later").status == JobStatus.QUEUED
+
+    next_technical = store.claim_next_queued_job(
+        worker_id="worker_2",
+        project_id="project_1",
+        job_types=["technical_study"],
+        claimed_at=_dt(5),
+    )
+    assert next_technical is not None
+    assert next_technical.job_id == "job_later"
+    assert store.claim_next_queued_job(worker_id="worker_3", job_types=[JobType.REPORT_EXPORT]) is None
+
+
 def test_job_store_lists_and_fails_stale_running_jobs(tmp_path):
     store = LocalJobStore(tmp_path)
     store.submit_job(_job("job_stale", queued_at=_dt(1)))

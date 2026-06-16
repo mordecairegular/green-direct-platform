@@ -4470,3 +4470,30 @@ exchange_import_shortfall_energy == 0
 - `python -m compileall -q src scripts tests` 通过；
 - `python -m green_direct.cli pilot-admin --help` 和 `python -m green_direct.cli pilot-admin list-audit-events --help` 通过；
 - `pytest -q` 通过，318 项通过。
+
+### 2026-06-16 worker 队列认领原语
+
+本轮继续推进后台任务化，但刻意不直接实现完整 worker。原因是当前技术/经济/推荐路径仍有较多 Streamlit session 兼容状态和 `ResultStore` 迁移工作，若一次写一个会执行真实测算的 worker，容易把任务 payload、输入 artifact、取消语义、错误脱敏和报告产物写入混在一起。更稳的下一片是先把“worker 如何安全认领 queued job”变成可测试服务原语。
+
+本轮判断：
+- `LocalJobStore` 可以提供本地文件版认领能力，但它不知道项目是否归档；
+- `PilotAccessService` 作为后续 worker、UI 和数据库适配的服务门面，应提供平台管理员保护的认领入口，并跳过归档项目；
+- 这仍不是正式后台队列：没有执行器、重试、任务 payload、跨进程队列锁、worker 级取消或资源隔离；
+- 不改变 V0.1 技术调度、经济性 V1 或推荐 V1 口径。
+
+本轮实现：
+- `LocalJobStore.claim_next_queued_job()`：按项目和任务类型筛选最早 queued job，转为 running，并写入 `worker_id`、`started_at` 和 `last_heartbeat_at`；
+- `PilotAccessService.claim_next_job_for_worker()`：要求 `actor_user_id` 是活跃平台管理员；支持全局或单项目认领；全局扫描时跳过归档项目；
+- `tests/test_job_store.py` 覆盖按任务类型认领最早 queued job、保留其他 queued job、无匹配返回 `None`；
+- `tests/test_pilot_access.py` 覆盖非平台管理员不能认领、归档项目 queued job 不被全局 worker 认领；
+- 软件接口总览、内部 pilot 架构、性能路线、受控公网审计矩阵、上线前质量审查、Claude Code 提示词、TODO 和 handoff 已同步。
+
+边界说明：
+- `claim_next_queued_job()` 是本地 JSON store 的 best-effort 状态转换，不是跨进程 compare-and-swap；
+- 后续真正 worker 应继续补任务 payload/输入 artifact 恢复、进度 heartbeat、取消检查、失败脱敏错误、重试策略和结果 artifact 写回；
+- 如果迁移 SQLite/Postgres 或队列系统，应保留当前 `Job` 状态契约和 worker 认领语义。
+
+验证：
+- `pytest tests/test_job_store.py tests/test_pilot_access.py -q` 通过，26 项通过；
+- `python -m compileall -q src scripts tests` 通过；
+- `pytest -q` 通过，320 项通过。

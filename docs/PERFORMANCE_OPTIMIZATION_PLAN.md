@@ -102,11 +102,12 @@ python scripts\benchmark_internal_pilot_performance.py --json
 - 欢迎页已新增“任务状态明细”，可在项目内查看任务状态、进度、worker、最后 heartbeat、stale 标记和错误说明。
 - `Job` 已记录 `worker_id` / `last_heartbeat_at`，`LocalJobStore` 和 `pilot-admin fail-stale-jobs` 可把超时 running 任务元数据标记为 failed；这只是运维恢复入口，不是正式 worker 级中断。
 - `pilot-admin list-jobs` 已可按项目和状态列出任务，并可标记 running 任务是否超过 heartbeat 阈值，作为完整任务状态页前的运维可见性入口。
+- `LocalJobStore.claim_next_queued_job()` 和 `PilotAccessService.claim_next_job_for_worker()` 已提供第一版 worker 认领原语，可按任务类型认领 queued job，写入 worker/heartbeat，并在服务层跳过归档项目。
 
 要做：
 
 - 技术仿真、经济性测算、图表/报告导出统一登记为 `Job`；
-- 前台提交任务、轮询真实 worker 状态、写 heartbeat、显示进度、支持 worker 级取消；技术仿真 worker 应优先按方案块而不是单方案调度，延续当前 `run_batch()` 的分块并行思路；
+- 前台提交任务、轮询真实 worker 状态、定期 heartbeat、显示进度、支持 worker 级取消；技术仿真 worker 应优先按方案块而不是单方案调度，延续当前 `run_batch()` 的分块并行思路；
 - worker 从 `ResultStore`/输入 artifact 读取数据，写回 summary、明细和导出文件；
 - 失败状态写入脱敏错误和审计日志。
 
