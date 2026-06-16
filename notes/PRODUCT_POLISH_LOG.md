@@ -5068,3 +5068,34 @@ benchmark：
 - `git diff --check` 通过，仅有 Windows 换行转换提示；
 - `python -m pytest -q` 通过，359 项通过；
 - `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 通过，`failed_count=0`，包含 `smoke:streamlit`。
+
+### 2026-06-16 技术调度热路径轻量返回结构
+
+本轮继续处理用户持续关注的“大方案池方案遍历等待时间”问题。上一轮已经把 BESS、SOC、并网/上网限额等固定参数移出逐小时循环，但 `run_single_scenario()` 在 summary-first 路径下仍然每小时创建 `DispatchStep` dataclass，再读取属性累计 summary。对成千上万个方案，这属于纯 Python 固定开销。
+
+实现：
+- `dispatch_hour_values_with_limits()` 新增轻量 values 返回路径，复用与 `dispatch_hour_with_limits()` 相同的调度逻辑；
+- `dispatch_hour_with_limits()` 保留兼容接口，改为包装 values 结果为 `DispatchStep`，既有 `dispatch_hour()` 调用方不变；
+- `run_single_scenario()` 逐小时热路径改为直接解包 values，并继续写同一套 hourly ledger 字段或 summary 累计值；
+- `tests/test_bess_dispatch.py` 新增 values 与 dataclass 结果一致性测试；
+- `docs/PERFORMANCE_OPTIMIZATION_PLAN.md` 和 handoff 已同步：`DispatchStep` 轻量返回结构已落地，不再列为后续项。
+
+边界：
+- 不改变储能只由富余可再生充电、不从电网充电、不同时充放电、不向电网放电等 V0.1 调度规则；
+- 不改变 hourly ledger 字段、summary 字段、policy 判断、经济性 V1 或推荐排序；
+- benchmark 受本机负载影响，只作为方向性记录，不作为上线 SLA。
+
+benchmark：
+- 本轮改前当前机器样本：`python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 8 --wind-count 8 --bess-power-count 3 --durations 0,2 --skip-full-retention --json`，189 个方案，`technical_summary_first` 约 3.9455 秒；
+- 本轮改后同一命令重复技术-only 样本：189 个方案，`technical_summary_first` 约 3.3622 秒和 3.6427 秒；带经济性的一次样本为 4.2918 秒，判断为机器负载波动，不单独作为优化结论；
+- 微基准：50 万次 `dispatch_hour_values_with_limits(...)` 约 0.4719 秒，50 万次 `dispatch_hour_with_limits(...)` 约 1.0645 秒；
+- 额外较大样本：`python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 12 --wind-count 12 --bess-power-count 4 --durations 0,2 --skip-full-retention --skip-economy --json`，572 个方案，`technical_summary_first` 约 10.3127 秒。
+
+验证：
+- `python -m pytest tests/test_bess_dispatch.py tests/test_single_scenario.py tests/test_batch_runner.py -q` 通过，52 项通过；
+- `python -m compileall -q src\green_direct\core\bess_dispatch.py src\green_direct\core\single_scenario_simulator.py tests\test_bess_dispatch.py` 通过；
+- `python -m pytest tests/test_bess_dispatch.py tests/test_single_scenario.py tests/test_batch_runner.py tests/test_study_runner.py tests/test_performance_benchmark_script.py -q` 通过，65 项通过；
+- `git diff --check` 通过，仅有 Windows 换行转换提示；
+- `python -m pytest -q` 通过，360 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `python scripts\preflight_internal_pilot_deploy.py --run-smoke --json` 通过，`failed_count=0`，包含 `smoke:streamlit`。

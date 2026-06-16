@@ -27,11 +27,14 @@ class DispatchStep:
     hour_case: str
 
 
+DispatchStepValues = tuple[float, float, float, float, float, float, float, float, float, float, str]
+
+
 def _has_bess(bess_power: float, bess_energy: float) -> bool:
     return bess_power > 0 and bess_energy > 0
 
 
-def dispatch_hour_with_limits(
+def dispatch_hour_values_with_limits(
     *,
     load_energy: float,
     renewable_energy: float,
@@ -46,8 +49,8 @@ def dispatch_hour_with_limits(
     export_limit_energy: float,
     exchange_limit_energy: float,
     remaining_export_cap: float | None = None,
-) -> DispatchStep:
-    """Dispatch one time step with scenario-level limits precomputed."""
+) -> DispatchStepValues:
+    """Dispatch one time step and return raw values without allocating a dataclass."""
 
     if not has_bess:
         bess_energy_start = 0.0
@@ -117,18 +120,55 @@ def dispatch_hour_with_limits(
         else:
             hour_case = "GEN_SHORT_GRID_IMPORT"
 
+    return (
+        max(direct_self_use, 0.0),
+        max(bess_charge, 0.0),
+        max(bess_discharge, 0.0),
+        max(grid_import, 0.0),
+        max(grid_export, 0.0),
+        max(curtail, 0.0),
+        max(curtail_due_to_export_cap, 0.0),
+        max(curtail_due_to_exchange_limit, 0.0),
+        max(exchange_import_shortfall, 0.0),
+        max(bess_energy_end, 0.0),
+        hour_case,
+    )
+
+
+def dispatch_hour_with_limits(
+    *,
+    load_energy: float,
+    renewable_energy: float,
+    has_bess: bool,
+    bess_power_energy_limit: float,
+    bess_energy_start: float,
+    bess_soc_min_energy: float,
+    bess_soc_max_energy: float,
+    eta_charge: float,
+    eta_discharge: float,
+    allow_export: bool,
+    export_limit_energy: float,
+    exchange_limit_energy: float,
+    remaining_export_cap: float | None = None,
+) -> DispatchStep:
+    """Dispatch one time step with scenario-level limits precomputed."""
+
     return DispatchStep(
-        direct_self_use=max(direct_self_use, 0.0),
-        bess_charge=max(bess_charge, 0.0),
-        bess_discharge=max(bess_discharge, 0.0),
-        grid_import=max(grid_import, 0.0),
-        grid_export=max(grid_export, 0.0),
-        curtail=max(curtail, 0.0),
-        curtail_due_to_export_cap=max(curtail_due_to_export_cap, 0.0),
-        curtail_due_to_exchange_limit=max(curtail_due_to_exchange_limit, 0.0),
-        exchange_import_shortfall=max(exchange_import_shortfall, 0.0),
-        bess_energy_end=max(bess_energy_end, 0.0),
-        hour_case=hour_case,
+        *dispatch_hour_values_with_limits(
+            load_energy=load_energy,
+            renewable_energy=renewable_energy,
+            has_bess=has_bess,
+            bess_power_energy_limit=bess_power_energy_limit,
+            bess_energy_start=bess_energy_start,
+            bess_soc_min_energy=bess_soc_min_energy,
+            bess_soc_max_energy=bess_soc_max_energy,
+            eta_charge=eta_charge,
+            eta_discharge=eta_discharge,
+            allow_export=allow_export,
+            export_limit_energy=export_limit_energy,
+            exchange_limit_energy=exchange_limit_energy,
+            remaining_export_cap=remaining_export_cap,
+        )
     )
 
 

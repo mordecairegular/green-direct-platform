@@ -1,6 +1,8 @@
+from dataclasses import astuple
+
 import pytest
 
-from green_direct.core.bess_dispatch import dispatch_hour, dispatch_hour_with_limits
+from green_direct.core.bess_dispatch import dispatch_hour, dispatch_hour_values_with_limits, dispatch_hour_with_limits
 from green_direct.models.params import BessParams
 
 
@@ -174,3 +176,38 @@ def test_precomputed_limit_dispatch_matches_public_dispatch():
     )
 
     assert precomputed == public
+
+
+def test_precomputed_limit_values_match_dispatch_step():
+    step = dispatch_hour_with_limits(
+        load_energy=12,
+        renewable_energy=30,
+        has_bess=True,
+        bess_power_energy_limit=4,
+        bess_energy_start=7,
+        bess_soc_min_energy=2,
+        bess_soc_max_energy=18,
+        eta_charge=0.95,
+        eta_discharge=0.9,
+        allow_export=True,
+        export_limit_energy=6,
+        exchange_limit_energy=5,
+        remaining_export_cap=3,
+    )
+    values = dispatch_hour_values_with_limits(
+        load_energy=12,
+        renewable_energy=30,
+        has_bess=True,
+        bess_power_energy_limit=4,
+        bess_energy_start=7,
+        bess_soc_min_energy=2,
+        bess_soc_max_energy=18,
+        eta_charge=0.95,
+        eta_discharge=0.9,
+        allow_export=True,
+        export_limit_energy=6,
+        exchange_limit_energy=5,
+        remaining_export_cap=3,
+    )
+
+    assert values == astuple(step)

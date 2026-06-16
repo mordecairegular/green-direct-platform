@@ -7,7 +7,7 @@ import pandas as pd
 
 from green_direct.core.bess_dispatch import (
     DispatchStrategy,
-    dispatch_hour_with_limits,
+    dispatch_hour_values_with_limits,
     normalize_dispatch_strategy,
 )
 from green_direct.core.metrics import calculate_summary, calculate_summary_from_values
@@ -299,7 +299,19 @@ def run_single_scenario(
         if annual_export_cap is not None:
             remaining_cap = annual_export_cap - cumulative_export
 
-        step = dispatch_hour_with_limits(
+        (
+            direct_self_use,
+            step_bess_charge,
+            step_bess_discharge,
+            step_grid_import,
+            step_grid_export,
+            step_curtail,
+            step_curtail_due_to_export_cap,
+            step_curtail_due_to_exchange_limit,
+            step_exchange_import_shortfall,
+            step_bess_energy_end,
+            step_hour_case,
+        ) = dispatch_hour_values_with_limits(
             load_energy=dispatch_load_energy,
             renewable_energy=renewable_energy,
             has_bess=has_bess,
@@ -314,29 +326,29 @@ def run_single_scenario(
             remaining_export_cap=remaining_cap,
             exchange_limit_energy=exchange_limit_energy,
         )
-        bess_energy = step.bess_energy_end
+        bess_energy = step_bess_energy_end
         if has_bess:
             soc = bess_energy / scenario_bess_energy
             soc = min(max(soc, bess.soc_min - 1e-12), bess.soc_max + 1e-12)
         else:
             soc = 0.0
-        cumulative_export += step.grid_export
+        cumulative_export += step_grid_export
 
         if data is None:
             total_load_energy += load_energy
             pv_station_use_energy += pv_station_use_power * dt_hours
             wind_station_use_energy += wind_station_use_power * dt_hours
-            direct_self_use_energy += step.direct_self_use
-            bess_discharge_to_load += step.bess_discharge
-            grid_import_energy += step.grid_import
-            grid_export_energy += step.grid_export
-            curtail_energy += step.curtail
-            curtail_due_to_export_cap_energy += step.curtail_due_to_export_cap
-            curtail_due_to_exchange_limit_energy += step.curtail_due_to_exchange_limit
-            exchange_import_shortfall_energy += step.exchange_import_shortfall
-            bess_charge_energy += step.bess_charge
-            max_grid_import_power = max(max_grid_import_power, step.grid_import * dt_inverse)
-            max_grid_export_power = max(max_grid_export_power, step.grid_export * dt_inverse)
+            direct_self_use_energy += direct_self_use
+            bess_discharge_to_load += step_bess_discharge
+            grid_import_energy += step_grid_import
+            grid_export_energy += step_grid_export
+            curtail_energy += step_curtail
+            curtail_due_to_export_cap_energy += step_curtail_due_to_export_cap
+            curtail_due_to_exchange_limit_energy += step_curtail_due_to_exchange_limit
+            exchange_import_shortfall_energy += step_exchange_import_shortfall
+            bess_charge_energy += step_bess_charge
+            max_grid_import_power = max(max_grid_import_power, step_grid_import * dt_inverse)
+            max_grid_export_power = max(max_grid_export_power, step_grid_export * dt_inverse)
 
         if data is not None:
             data["pv_power"][idx] = pv_power
@@ -348,20 +360,20 @@ def run_single_scenario(
             data["wind_station_use_power"][idx] = wind_station_use_power
             data["station_use_power"][idx] = station_use_power
             data["renewable_power"][idx] = renewable_energy * dt_inverse
-            data["direct_self_use_power"][idx] = step.direct_self_use * dt_inverse
-            data["bess_charge_power"][idx] = step.bess_charge * dt_inverse
-            data["bess_discharge_power"][idx] = step.bess_discharge * dt_inverse
-            data["grid_import_power"][idx] = step.grid_import * dt_inverse
-            data["grid_export_power"][idx] = step.grid_export * dt_inverse
-            data["curtail_power"][idx] = step.curtail * dt_inverse
-            data["curtail_due_to_export_cap_power"][idx] = step.curtail_due_to_export_cap * dt_inverse
-            data["curtail_due_to_exchange_limit_power"][idx] = step.curtail_due_to_exchange_limit * dt_inverse
-            data["exchange_import_shortfall_power"][idx] = step.exchange_import_shortfall * dt_inverse
+            data["direct_self_use_power"][idx] = direct_self_use * dt_inverse
+            data["bess_charge_power"][idx] = step_bess_charge * dt_inverse
+            data["bess_discharge_power"][idx] = step_bess_discharge * dt_inverse
+            data["grid_import_power"][idx] = step_grid_import * dt_inverse
+            data["grid_export_power"][idx] = step_grid_export * dt_inverse
+            data["curtail_power"][idx] = step_curtail * dt_inverse
+            data["curtail_due_to_export_cap_power"][idx] = step_curtail_due_to_export_cap * dt_inverse
+            data["curtail_due_to_exchange_limit_power"][idx] = step_curtail_due_to_exchange_limit * dt_inverse
+            data["exchange_import_shortfall_power"][idx] = step_exchange_import_shortfall * dt_inverse
             data["soc_start"][idx] = soc_start
             data["soc_end"][idx] = soc
             data["bess_energy_start"][idx] = bess_energy_start
             data["bess_energy_end"][idx] = bess_energy
-            data["hour_case"][idx] = step.hour_case
+            data["hour_case"][idx] = step_hour_case
 
     if data is not None:
         hourly = pd.DataFrame(data, columns=HOURLY_LEDGER_COLUMNS)

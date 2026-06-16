@@ -30,7 +30,7 @@
 - 06 页已接入固定价/网页组价经济性结果的按需年度现金流后台任务：缺少所选方案现金流时可提交 `economic_study/annual_cashflow` queued job，worker 读取 `technical_summary` 和 `recommendation_inputs` 后为所选方案生成电源侧/同一主体年度现金流 artifact，并由导出页轮询加载；
 - 经济性批量评价已减少 `iterrows()`、重复校验、未保留年度现金流表构造和部分 IRR 求解开销；
 - 经济性批量评价已缓存 `other_operating_revenues` 年度生效表，并把同一方案内每年不变的电源侧收入、VAT 拆分、O&M 和基础折旧移出年度循环，减少大方案池下每方案固定开销；随后又新增电源侧和同一主体批量评价共享上下文，把全方案共用的折现因子、固定资产拆分、其他收入年度表和默认电价口径预处理到批量入口；这些优化不改变 V1 现金流口径。
-- 单方案逐小时调度热路径已新增预计算限额入口：`dispatch_hour()` 保留原接口，`run_single_scenario()` 在循环外预计算 BESS 功率能量限额、SOC 能量边界、并网/上网能量限额、策略枚举和曲线数组，循环内调用 `dispatch_hour_with_limits()`，减少每小时重复参数解析和 pandas Series 构造；不改变 V0.1 调度口径。
+- 单方案逐小时调度热路径已新增预计算限额和轻量返回入口：`dispatch_hour()` 保留原接口，`dispatch_hour_with_limits()` 保留 dataclass 兼容接口，`dispatch_hour_values_with_limits()` 返回原始 values 供 `run_single_scenario()` 热路径直接消费；`run_single_scenario()` 在循环外预计算 BESS 功率能量限额、SOC 能量边界、并网/上网能量限额、策略枚举和曲线数组，循环内避免为每小时创建 `DispatchStep` dataclass，减少每小时重复参数解析、对象创建和 pandas Series 构造；不改变 V0.1 调度口径。
 
 ## 2. 新增基准脚本
 
@@ -141,7 +141,7 @@ python scripts\benchmark_internal_pilot_performance.py --json
 - 同一组输入下经济性 summary 与优化前一致；
 - 年度现金流保留策略不影响推荐排序。
 - 后续可继续把更多 DataFrame/NumPy 批量计算和价格曲线聚合放进共享上下文，避免每个方案重复解析同一组输入。
-- 后续可继续减少单方案热路径里的对象创建，例如评估 `DispatchStep` 在 summary-only 模式下的轻量返回结构；这类优化必须用现有 golden/批量一致性测试证明口径不变。
+- 已减少单方案热路径里的 `DispatchStep` 对象创建：`dispatch_hour_values_with_limits()` 与 `dispatch_hour_with_limits()` 保持同一计算逻辑，现有 golden/批量一致性测试用于证明口径不变；后续可继续评估更少临时变量、更紧凑 summary-only 累加结构或编译化内核。
 
 ## 4. 不做的事
 
