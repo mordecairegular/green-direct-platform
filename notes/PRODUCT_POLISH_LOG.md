@@ -5505,3 +5505,19 @@ profile / benchmark：
 - `python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 4 --wind-count 4 --bess-power-count 2 --durations 0,2 --skip-full-retention --json` 通过，30 个方案技术 summary-first 约 0.4586s，经济性 summary-only 约 0.0915s；
 - `python -m pytest -q` 通过，381 项通过；
 - `git diff --check` 通过，仅有 Windows 换行转换提示。
+
+### 2026-06-17 内部 pilot 后台架构文档校准
+
+本轮回到用户“上线不止前台，还要有后台账户管理控制功能，架构要设想”的要求，对 `docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md` 做一致性校准。此前文档主体方向正确，但部分内容已落后于当前实现：worker 段落仍写成只支持 `technical_study/hourly_detail`，而代码已经支持固定价/网页组价的 `economic_study/annual_cashflow` 按需补算；Render 部署路线也需要更明确区分“单 Web Service + persistent disk 的首次内测”与“未来 Web + Worker + DB/Object Storage 的正式化路线”。
+
+调整：
+- Phase C 改为“技术仿真、经济性测算、图表包和报告导出逐步变为后台 Job”，避免只写 PNG 导出；
+- 新增“当前托管平台公网试用的现实边界”：Render 首次只部署单个 Web Service，`numInstances=1`，`/data/pilot_store` 是受控内测本地 file store，不应直接拆独立 Worker Service 假设共享同一服务磁盘；
+- 新增数据库化两步建议：先做 SQLite/Postgres 适配器，保留现有 `PilotAccessService` / `Job` / `StudyResultRecord` / `JobArtifact` 语义；再做对象存储和正式队列；
+- worker 状态更新为当前支持 `technical_study/hourly_detail` 和 `economic_study/annual_cashflow` 两条最小执行链路，并注明逐时价格曲线现金流仍拒绝补算；
+- “仍未落地”和“下一阶段建议”同步更新为：按需年度现金流已入 Job，下一步是全局任务通知、失败重试、worker 级取消、逐时价格曲线 artifact 化和剩余导出后台化。
+
+边界：
+- 这是架构文档校准，不改变代码、计算口径、部署配置或 UI；
+- 当前本地 JSON store 仍只适合受控小范围内测，不是长期正式数据库；
+- 真实 Render/Cloudflare 部署仍需用户确认 push 后执行。

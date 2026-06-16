@@ -80,7 +80,7 @@ PNG 图表包后台任务也按会话隔离：
    - 支持管理员创建用户、停用用户、维护项目成员、查看任务状态。
 
 3. **Phase C：任务队列与持久化结果**
-   - 技术仿真、经济性测算、PNG 导出都变为后台 `Job`；
+   - 技术仿真、经济性测算、图表包和报告导出逐步变为后台 `Job`；
    - 前台只提交任务、轮询状态、读取结果；
    - 计算进程可以横向扩展；
    - 下载文件从 `ResultStore` 或对象存储读取。
@@ -91,6 +91,19 @@ PNG 图表包后台任务也按会话隔离：
    - 数据库存储优先 SQLite/Postgres，文件产物存放在仓库外受控挂载目录；
    - 明确备份、恢复、清理、回滚和管理员排障流程；
    - 保留“不接真实电力控制系统”的产品边界说明。
+
+当前托管平台公网试用的现实边界：
+
+- 首次 Render 路线只部署单个 Docker Web Service，`render.yaml` 显式绑定 `codex/UI`、`numInstances=1` 和 `autoDeployTrigger: checksPass`；
+- `/data/pilot_store` 是受控内测用的本地 file store + persistent disk，不是长期正式数据库；
+- 不应在 Render 上直接拆第二个独立 Worker Service 并假设它能共享同一个 Web Service disk；
+- 按需逐小时明细和固定价/网页组价年度现金流补算可先由平台管理页“任务运维”、同一服务 Shell 里的 `run-worker-once` 或有限 `run-worker-loop` 处理；
+- 若要真正 Web + Worker 横向扩展，应先把账号、项目、任务、结果索引迁移到 SQLite/Postgres，把大 payload 迁移到对象存储或受控共享文件层，再让 worker 读取同一数据库/对象存储。
+
+下一阶段数据库化建议分两步：
+
+1. **SQLite/Postgres 适配器阶段**：保留现有 `PilotAccessService`、`LocalPilotAdminService`、`Job`、`StudyResultRecord` 和 `JobArtifact` 语义，新增数据库适配器，不改 Streamlit 页面和计算口径；
+2. **对象存储与队列阶段**：artifact payload 放入对象存储或受控 blob store，`Job.input_artifact_ids` 继续作为 worker 输入契约；worker 只通过服务层读取输入、写回 summary/detail/export artifact，并保留审计。
 
 第一版内部试用部署步骤见 `docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md`。该 runbook 记录了环境变量、首个管理员 bootstrap、多人部署启动命令、pilot store 备份/恢复、过期 artifact 清理、冒烟检查和回滚边界。
 
@@ -171,11 +184,11 @@ PNG 图表包后台任务也按会话隔离：
 - 支持 `claim_next_queued_job()`，可按项目和任务类型认领最早 queued 任务并转为 running，写入 `worker_id` 和 heartbeat，作为后续 worker 轮询的本地原语；
 - `Job.input_artifact_ids` 会随 job JSON 持久化；`pilot-admin list-jobs` 已显示输入 artifact 数量，便于运维判断某个 queued/running job 是否带了受控输入引用；
 - 任务请求 payload 可通过 `queue_job_with_input_artifact()` 保存为 `job_input_<job_id>.json`，并以默认 `job_payload` key 挂入 `Job.input_artifact_ids`；外部输入如 `technical_summary`、`config_snapshot`、`input_curve_*` 也会在同一映射中保留；
-- `src/green_direct/services/pilot_worker.py` 已提供第一条 worker 执行路径：`execute_next_worker_job()` 先认领 queued job，再根据 `Job.input_artifact_ids` 读取输入 artifact 并执行；`execute_worker_loop()` 可持续轮询并执行受支持任务；当前仅支持 `technical_study` + `job_payload.task="hourly_detail"`；
+- `src/green_direct/services/pilot_worker.py` 已提供第一条 worker 执行路径：`execute_next_worker_job()` 先认领 queued job，再根据 `Job.input_artifact_ids` 读取输入 artifact 并执行；`execute_worker_loop()` 可持续轮询并执行受支持任务；当前支持 `technical_study` + `job_payload.task="hourly_detail"`，以及 `economic_study` + `job_payload.task="annual_cashflow"`；
 - Streamlit 推荐页、图表概览页和导出/报告页在缺少所选方案逐小时明细时，若当前项目结果已有 `technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，已可提交 `technical_study/hourly_detail` queued job；当前按需明细区域会轮询 queued/running 状态，任务成功后刷新 result record 的 hourly artifact 索引并加载结果；
 - 支持 `list_stale_running_jobs()` 和 `fail_stale_running_jobs()`，可把超过阈值未 heartbeat 的 running 任务标记为 failed；`pilot-admin fail-stale-jobs` 会复用该能力并写 `COMPLETE_JOB` 审计；
 - 路径片段使用白名单校验，防止 `project_id`、`study_id`、`job_id` 被拼接成越权路径；
-- 当前实现只持久化任务状态、本地认领原语、一条最小执行路径和 CLI 轮询 worker；JSON 写入已使用原子替换，任务提交/认领/进度/终态等关键读改写路径已有第一版协作文件锁，但仍不包含正式调度器、重试策略、worker 级取消或完整管理员 UI；后续任务队列或数据库实现应沿用同一 `Job` 契约。
+- 当前实现只持久化任务状态、本地认领原语、两条最小执行路径和 CLI 轮询 worker；JSON 写入已使用原子替换，任务提交/认领/进度/终态等关键读改写路径已有第一版协作文件锁，但仍不包含正式调度器、自动重试策略、worker 级取消或完整管理员 UI；后续任务队列或数据库实现应沿用同一 `Job` 契约。
 - Streamlit 欢迎页已消费该任务状态：可筛选 `queued` / `running` 活动任务、展示任务状态明细并提供最小取消入口。但取消和 stale cleanup 都只改变任务元数据状态，不代表已有 worker 级中断、重试或资源隔离。
 
 已落地的第一步权限与审计服务：
@@ -187,7 +200,7 @@ PNG 图表包后台任务也按会话隔离：
 - `succeed_worker_job()` / `fail_worker_job()` 已作为平台管理员保护的 worker 终态入口，要求 `worker_id` 与 running job 记录一致，并写 `COMPLETE_JOB` 审计；
 - `submit_job()` 已支持并校验 `Job.input_artifact_ids`：若提交的 job 声明了输入 artifact，服务层会要求这些 artifact 已存在于同一 `project_id` / `study_id`，并把引用写入 `SUBMIT_JOB` 审计 metadata；
 - `queue_job_with_input_artifact()` 在 `submit_job()` 前预校验权限和外部 artifact，并写 `STORE_ARTIFACT` 审计；它只提交 queued job，不在 Streamlit 请求内执行计算；
-- `execute_next_worker_job()` / `pilot-admin run-worker-once` / `pilot-admin run-worker-loop` 已可执行两条受支持 worker 链路：`technical_study/hourly_detail` 读取 `job_payload`、`technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，复用 `run_hourly_detail_for_scenario()` 生成单方案逐小时明细，写回 `ArtifactKind.HOURLY_DETAIL`；`economic_study/annual_cashflow` 读取 `technical_summary`、`recommendation_inputs` 和经济 summary artifact，为所选固定价/网页组价方案写回 `ArtifactKind.ANNUAL_CASHFLOW`；两者都会标记 job 成功或失败；
+- `execute_next_worker_job()` / `pilot-admin run-worker-once` / `pilot-admin run-worker-loop` 已可执行两条受支持 worker 链路：`technical_study/hourly_detail` 读取 `job_payload`、`technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，复用 `run_hourly_detail_for_scenario()` 生成单方案逐小时明细，写回 `ArtifactKind.HOURLY_DETAIL`；`economic_study/annual_cashflow` 读取 `technical_summary`、`recommendation_inputs` 和经济 summary artifact，为所选固定价/网页组价方案写回 `ArtifactKind.ANNUAL_CASHFLOW`，并明确拒绝逐时价格曲线现金流补算；两者都会标记 job 成功或失败；
 - `list_accessible_projects()` 已用于 Streamlit 登录后的项目工作区选择，只返回当前用户有有效 membership 的项目；
 - `admin` 可创建/归档项目、授予/停用成员、提交任务、查看任务和产物、取消他人任务；
 - `analyst` 可提交和查看本项目任务，并取消自己提交的任务；
@@ -282,11 +295,12 @@ PNG 图表包后台任务也按会话隔离：
 仍未落地：
 - 正式队列 / worker 级取消重试闭环 / 数据库级并发控制；
 - 技术仿真历史 summary-only 结果基于受控 input artifact 的后台补算已能排队并由 one-shot worker 或最小轮询 worker 执行，当前按需明细区域已有前台轮询、完成提示和自动加载；仍缺全局任务通知、worker 级取消和重试；
+- 固定价/网页组价经济性年度现金流已能按需排队补算并写回 `ArtifactKind.ANNUAL_CASHFLOW`；仍缺逐时价格曲线现金流补算、全量经济性后台化和正式队列；
 - 推荐视角选择/重新排序状态、PNG/Excel/批量导出包、完整报告产物写入 `ResultStore`；
 - 完整项目级任务状态页仍需继续扩展为真正 worker 轮询/重试/取消页面；当前已有项目内任务状态明细。推荐结果重新排序工作台恢复和跨项目搜索仍未落地；结果索引标记/置顶和软删除已有第一版，但仍不是完整历史结果管理页；
 - SQLite/Postgres 或对象存储适配、数据库级并发控制、备份和部署演练；本地 JSON 写入已有原子替换和第一版协作文件锁，但仍不是数据库事务。
 
 下一阶段建议：
 1. 先把当前任务状态明细升级为真正 worker 轮询/重试/取消页面，并完善结果历史恢复/下载页，让用户可以在项目内找回已完成测算；
-2. 再把按需逐小时明细后台体验扩展到全局任务通知、失败重试和 worker 级取消，并把 summary-only 经济运行的按需年度现金流生成纳入 Job 链路；
+2. 再把按需逐小时明细和按需年度现金流后台体验扩展到全局任务通知、失败重试和 worker 级取消，并补逐时价格曲线现金流的 artifact 化输入；
 3. 最后把剩余图表包和报告导出统一变成项目级 artifacts，并接入后台 worker。
