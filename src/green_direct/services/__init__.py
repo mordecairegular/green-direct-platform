@@ -12,6 +12,7 @@ from green_direct.services.pilot_auth import (
 from green_direct.services.pilot_registry import LocalPilotRegistry
 from green_direct.services.pilot_study_persistence import (
     PersistedEconomicStudy,
+    PersistedAnnualCashflowArtifact,
     PersistedExportArtifact,
     PersistedHourlyDetailArtifact,
     PersistedRecommendationStudy,
@@ -19,6 +20,7 @@ from green_direct.services.pilot_study_persistence import (
     QueuedJobWithInputArtifact,
     economic_input_fingerprint,
     persist_economic_study_result,
+    persist_annual_cashflow_artifact,
     persist_export_artifact,
     persist_hourly_detail_artifact,
     persist_recommendation_study_result,
@@ -73,6 +75,7 @@ __all__ = [
     "PilotWorkerExecutionResult",
     "PilotWorkerLoopResult",
     "PersistedEconomicStudy",
+    "PersistedAnnualCashflowArtifact",
     "PersistedExportArtifact",
     "PersistedHourlyDetailArtifact",
     "PersistedRecommendationStudy",
@@ -95,6 +98,7 @@ __all__ = [
     "filter_uploads",
     "inspect_upload",
     "persist_economic_study_result",
+    "persist_annual_cashflow_artifact",
     "persist_export_artifact",
     "persist_hourly_detail_artifact",
     "persist_recommendation_study_result",

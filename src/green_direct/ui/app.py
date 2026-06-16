@@ -2658,11 +2658,18 @@ def _recommendation_input_snapshot_from_payload(payload: bytes) -> Recommendatio
             raise ValueError(f"推荐席位输入缺少字段：{field_name}")
         return float(data[field_name])
 
+    avoided_grid_data = data.get("avoided_grid_params")
+    if avoided_grid_data is None:
+        avoided_grid_data = {"net_avoided_grid_cost_price": data.get("load_side_avoided_charge_price", 0.0)}
+    if not isinstance(avoided_grid_data, dict):
+        raise ValueError("推荐席位输入中的同一主体避免费用参数格式无效。")
+
     min_firr_value = data.get("min_power_side_acceptable_firr")
     return RecommendationInputSnapshot(
         economic_params=EconomicParams(**params_data),
         load_side_avoided_charge_price=required_float("load_side_avoided_charge_price"),
         green_power_settlement_price_with_vat=required_float("green_power_settlement_price_with_vat"),
+        avoided_grid_params=AvoidedGridPurchaseParams(**dict(avoided_grid_data)),
         environmental_value_per_kwh=float(data.get("environmental_value_per_kwh", 0.0)),
         min_power_side_acceptable_firr=None if min_firr_value is None else float(min_firr_value),
     )
@@ -2848,9 +2855,13 @@ def _pilot_restore_economy_summary_result(
             raise ValueError(f"Artifact {artifact_id} 不是年度现金流。")
         restored_cashflows = _annual_cashflows_from_zip_payload(cashflow_download["payload"])
         if cashflow_key == "power":
-            power_annual_cashflows = restored_cashflows
+            power_annual_cashflows.update(restored_cashflows)
         elif cashflow_key == "single_entity":
-            single_entity_annual_cashflows = restored_cashflows
+            single_entity_annual_cashflows.update(restored_cashflows)
+        elif cashflow_key.startswith("power:"):
+            power_annual_cashflows.update(restored_cashflows)
+        elif cashflow_key.startswith("single_entity:"):
+            single_entity_annual_cashflows.update(restored_cashflows)
 
     return {
         "power_summary": power_summary,
@@ -4716,6 +4727,268 @@ def _queue_pilot_hourly_detail_job_if_enabled(st, scenario_id: str) -> Job | Non
     st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
         f"已提交方案 {scenario_id} 的后台逐小时明细补算任务：{queued.job.job_id}。"
         "本页会自动刷新任务状态；worker 完成后将尝试加载逐小时明细。"
+    )
+    return queued.job
+
+
+def _pilot_annual_cashflow_job_input_artifact_ids(st) -> dict[str, str] | None:
+    study_result = st.session_state.get("study_result")
+    if not isinstance(study_result, StudyResult):
+        return None
+    refs = study_result.result_store_refs
+    technical_summary_id = refs.get("technical_summary_artifact_id")
+    recommendation_input_id = refs.get("recommendation_input_artifact_id")
+    if not technical_summary_id or not recommendation_input_id:
+        return None
+    input_artifact_ids = {
+        "technical_summary": str(technical_summary_id),
+        "recommendation_inputs": str(recommendation_input_id),
+    }
+    power_summary_id = refs.get("power_economy_summary_artifact_id")
+    if power_summary_id:
+        input_artifact_ids["power_economy_summary"] = str(power_summary_id)
+    return input_artifact_ids
+
+
+def _can_queue_pilot_annual_cashflow_job(st, scenario_id: str | None) -> bool:
+    study_result = st.session_state.get("study_result")
+    refs = study_result.result_store_refs if isinstance(study_result, StudyResult) else {}
+    return (
+        bool(scenario_id)
+        and _pilot_auth_enabled()
+        and _current_pilot_project_can_submit_jobs(st)
+        and _current_pilot_user_id(st) is not None
+        and _current_pilot_project_id(st) is not None
+        and bool(refs.get("economy_result_id"))
+        and _pilot_annual_cashflow_job_input_artifact_ids(st) is not None
+    )
+
+
+def _pilot_annual_cashflow_job_progress_message(scenario_id: str) -> str:
+    return f"annual cashflow queued: {scenario_id}"
+
+
+def _pilot_annual_cashflow_job_for_scenario(
+    st,
+    scenario_id: str,
+    *,
+    statuses: Iterable[JobStatus | str] | None = None,
+) -> Job | None:
+    actor_user_id = _current_pilot_user_id(st)
+    project_id = _current_pilot_project_id(st)
+    study_result = st.session_state.get("study_result")
+    if not actor_user_id or not project_id or not isinstance(study_result, StudyResult):
+        return None
+    progress_message = _pilot_annual_cashflow_job_progress_message(scenario_id)
+    try:
+        jobs = _pilot_access_service().list_project_jobs(
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            statuses=statuses,
+        )
+    except Exception as exc:  # noqa: BLE001 - duplicate check is best-effort
+        if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
+            return None
+        raise
+    for job in reversed(jobs):
+        if (
+            job.study_id == study_result.study_id
+            and job.job_type == JobType.ECONOMIC_STUDY
+            and job.progress_message == progress_message
+        ):
+            return job
+    return None
+
+
+def _load_pilot_annual_cashflow_artifacts_if_available(st, scenario_id: str) -> bool:
+    if not _pilot_auth_enabled():
+        return False
+    actor_user_id = _current_pilot_user_id(st)
+    project_id = _current_pilot_project_id(st)
+    study_result = st.session_state.get("study_result")
+    if not actor_user_id or not project_id or not isinstance(study_result, StudyResult):
+        return False
+    economy_result_id = str(study_result.result_store_refs.get("economy_result_id") or "")
+    if not economy_result_id:
+        return False
+    try:
+        records = _pilot_access_service().list_study_result_records(
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_result.study_id,
+        )
+    except Exception as exc:  # noqa: BLE001 - export page should remain usable
+        if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
+            return False
+        raise
+    record = next((candidate for candidate in records if candidate.result_id == economy_result_id), None)
+    if record is None:
+        return False
+
+    power_cashflows: dict[str, pd.DataFrame] = {}
+    single_entity_cashflows: dict[str, pd.DataFrame] = {}
+    updated_refs = dict(study_result.result_store_refs)
+    access = _pilot_access_service()
+    for cashflow_key, artifact_id in sorted(record.annual_cashflow_artifact_ids.items()):
+        should_load = cashflow_key in {"power", "single_entity"} or cashflow_key in {
+            f"power:{scenario_id}",
+            f"single_entity:{scenario_id}",
+        }
+        if not should_load:
+            continue
+        artifact = access.load_artifact(
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_result.study_id,
+            artifact_id=artifact_id,
+        )
+        if artifact.kind != ArtifactKind.ANNUAL_CASHFLOW:
+            continue
+        payload = access.read_artifact_payload_for_view(actor_user_id=actor_user_id, artifact=artifact)
+        restored = _annual_cashflows_from_zip_payload(payload)
+        if cashflow_key == "power" or cashflow_key.startswith("power:"):
+            power_cashflows.update(restored)
+            if cashflow_key.startswith("power:"):
+                updated_refs[f"power_annual_cashflow_artifact_id_{scenario_id}"] = str(artifact_id)
+        elif cashflow_key == "single_entity" or cashflow_key.startswith("single_entity:"):
+            single_entity_cashflows.update(restored)
+            if cashflow_key.startswith("single_entity:"):
+                updated_refs[f"single_entity_annual_cashflow_artifact_id_{scenario_id}"] = str(artifact_id)
+
+    loaded = False
+    economy_result = st.session_state.get("economy_v1_result")
+    if isinstance(economy_result, dict) and power_cashflows:
+        annual = dict(economy_result.get("annual_cashflows") or {})
+        annual.update(power_cashflows)
+        economy_result["annual_cashflows"] = annual
+        loaded = str(scenario_id) in annual
+    single_entity_result = st.session_state.get("single_entity_economy_result")
+    if isinstance(single_entity_result, dict) and single_entity_cashflows:
+        annual = dict(single_entity_result.get("annual_cashflows") or {})
+        annual.update(single_entity_cashflows)
+        single_entity_result["annual_cashflows"] = annual
+        loaded = loaded or str(scenario_id) in annual
+    if loaded:
+        st.session_state["study_result"] = replace(study_result, result_store_refs=updated_refs)
+        st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
+            f"已从项目结果库加载方案 {scenario_id} 的年度现金流 artifact。"
+        )
+        _save_runtime_snapshot(st)
+    return loaded
+
+
+def _active_pilot_annual_cashflow_job(st, scenario_id: str) -> Job | None:
+    return _pilot_annual_cashflow_job_for_scenario(
+        st,
+        scenario_id,
+        statuses=ACTIVE_PILOT_JOB_STATUSES,
+    )
+
+
+def _load_completed_pilot_annual_cashflow_job_if_available(st, scenario_id: str) -> bool:
+    if _load_pilot_annual_cashflow_artifacts_if_available(st, scenario_id):
+        return True
+    job = _pilot_annual_cashflow_job_for_scenario(st, scenario_id)
+    if job is None or job.status != JobStatus.SUCCEEDED:
+        return False
+    loaded = _load_pilot_annual_cashflow_artifacts_if_available(st, scenario_id)
+    if not loaded:
+        st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
+            f"方案 {scenario_id} 的后台年度现金流任务已完成，但结果索引暂未找到年度现金流 artifact。"
+        )
+    return loaded
+
+
+def _render_pilot_annual_cashflow_job_status(st, scenario_id: str) -> bool:
+    def render_status() -> None:
+        job = _pilot_annual_cashflow_job_for_scenario(st, scenario_id)
+        if job is None:
+            return
+        if job.status == JobStatus.SUCCEEDED:
+            if _load_completed_pilot_annual_cashflow_job_if_available(st, scenario_id):
+                st.success(f"方案 {scenario_id} 的后台年度现金流已完成并加载。")
+                st.rerun()
+            else:
+                st.warning("后台任务已完成，但暂未加载到年度现金流 artifact；请稍后刷新或在欢迎页查看任务。")
+            return
+        if job.status == JobStatus.FAILED:
+            st.error(f"方案 {scenario_id} 的后台年度现金流补算失败：{job.error_message or '未提供错误信息'}")
+            return
+        if job.status == JobStatus.CANCELED:
+            st.warning(f"方案 {scenario_id} 的后台年度现金流补算任务已取消。")
+            return
+
+        progress_text = _pilot_job_progress_text(job)
+        if job.status == JobStatus.QUEUED:
+            st.info(f"后台年度现金流补算排队中：{job.job_id} · {progress_text}")
+        else:
+            total = int(job.progress_total or 0)
+            current = int(job.progress_current or 0)
+            ratio = 0.05 if total <= 0 else min(1.0, max(0.05, current / total))
+            st.progress(
+                ratio,
+                text=f"后台年度现金流补算运行中：{job.job_id} · {progress_text}",
+            )
+        st.caption("本区域会自动刷新任务状态；worker 完成后会尝试加载年度现金流。")
+
+    job = _pilot_annual_cashflow_job_for_scenario(st, scenario_id)
+    if job is None:
+        return False
+    if job.status in ACTIVE_PILOT_JOB_STATUSES:
+        fragment = getattr(st, "fragment", None)
+        if callable(fragment):
+            fragment(run_every="5s")(render_status)()
+        else:
+            render_status()
+    else:
+        render_status()
+    return job.status == JobStatus.SUCCEEDED
+
+
+def _queue_pilot_annual_cashflow_job_if_enabled(st, scenario_id: str) -> Job | None:
+    if not _can_queue_pilot_annual_cashflow_job(st, scenario_id):
+        return None
+    existing = _active_pilot_annual_cashflow_job(st, scenario_id)
+    if existing is not None:
+        st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
+            f"方案 {scenario_id} 的后台年度现金流补算任务已在队列中：{existing.job_id}"
+        )
+        return existing
+
+    actor_user_id = _current_pilot_user_id(st)
+    project_id = _current_pilot_project_id(st)
+    study_result = st.session_state.get("study_result")
+    input_artifact_ids = _pilot_annual_cashflow_job_input_artifact_ids(st)
+    if not actor_user_id or not project_id or not isinstance(study_result, StudyResult) or input_artifact_ids is None:
+        return None
+    refs = study_result.result_store_refs
+    try:
+        queued = queue_job_with_input_artifact(
+            access_service=_pilot_access_service(),
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            study_id=study_result.study_id,
+            job_type=JobType.ECONOMIC_STUDY,
+            payload={
+                "task": "annual_cashflow",
+                "scenario_id": str(scenario_id),
+                "economy_result_id": str(refs["economy_result_id"]),
+                "perspective": "both",
+                "retention_days": 30,
+            },
+            input_artifact_ids=input_artifact_ids,
+            progress_total=2,
+            progress_message=_pilot_annual_cashflow_job_progress_message(scenario_id),
+        )
+    except Exception as exc:  # noqa: BLE001 - UI should keep summary exports available
+        if isinstance(exc, (PilotAccessError, FileExistsError, FileNotFoundError, ValueError, OSError)):
+            st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = f"后台年度现金流任务提交失败：{exc}"
+            return None
+        raise
+
+    st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
+        f"已提交方案 {scenario_id} 的后台年度现金流补算任务：{queued.job.job_id}。"
+        "本页会自动刷新任务状态；worker 完成后将尝试加载年度现金流。"
     )
     return queued.job
 
@@ -8636,7 +8909,25 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
         if cashflow_missing_notice and (
             selected_id not in power_annual_cashflows or selected_id not in single_entity_annual_cashflows
         ):
-            st.info(f"{cashflow_missing_notice} 当前版本尚未接入年度现金流按需后台补算入口。")
+            if _load_completed_pilot_annual_cashflow_job_if_available(st, selected_id):
+                st.rerun()
+            st.info(cashflow_missing_notice)
+            _render_pilot_annual_cashflow_job_status(st, selected_id)
+            if _can_queue_pilot_annual_cashflow_job(st, selected_id):
+                queue_left, queue_right = st.columns([1.2, 3.8])
+                if queue_left.button("提交后台补现金流", key="export_queue_annual_cashflow", type="secondary"):
+                    job = _queue_pilot_annual_cashflow_job_if_enabled(st, selected_id)
+                    if job is not None:
+                        st.success(f"后台任务已提交：{job.job_id}")
+                        st.rerun()
+                    else:
+                        notice = st.session_state.get(PILOT_RESULT_STORE_NOTICE_KEY) or "后台任务提交失败。"
+                        st.warning(notice)
+                queue_right.caption(
+                    "后台补算会读取项目级技术 summary 和经济参数，生成所选方案电源侧/同一主体年度现金流。"
+                )
+            else:
+                st.caption("当前结果缺少后台补算所需的项目级经济输入 artifact；请重新运行经济性测算后再补算。")
 
         if recommendation_result_for_export is not None:
             try:

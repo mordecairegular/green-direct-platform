@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from io import BytesIO
+from zipfile import ZipFile
 
 import pandas as pd
 
+from green_direct.economy import AvoidedGridPurchaseParams, EconomicParams
 from green_direct.models.params import PolicyParams
 from green_direct.models.pilot_backend import ArtifactKind, AuditAction, JobStatus, JobType, Project, User
 from green_direct.services import (
@@ -14,8 +16,10 @@ from green_direct.services import (
     TechnicalStudyInput,
     execute_next_worker_job,
     execute_worker_loop,
+    persist_economic_study_result,
     persist_technical_study_result,
     queue_job_with_input_artifact,
+    run_economic_study,
     run_technical_study,
 )
 
@@ -149,6 +153,113 @@ def test_worker_executes_hourly_detail_job_from_input_artifacts(tmp_path):
     )
 
 
+def test_worker_executes_annual_cashflow_job_from_saved_economy_inputs(tmp_path):
+    service = _access_service(tmp_path)
+    project = _project_with_admin(service)
+    technical_input = _small_technical_input(retain_hourly_details=False)
+    technical = run_technical_study(technical_input, study_id="study_1")
+    selected_id = str(technical.summary["scenario_id"].iloc[-1])
+    persist_technical_study_result(
+        access_service=service,
+        actor_user_id="admin",
+        project_id=project.project_id,
+        technical_result=technical,
+        technical_input=technical_input,
+    )
+    params = EconomicParams(operation_years=3, self_use_price_with_vat=0.42)
+    avoided = AvoidedGridPurchaseParams(net_avoided_grid_cost_price=0.57)
+    economy = run_economic_study(
+        technical.summary,
+        economic_params=params,
+        avoided_grid_params=avoided,
+        load_side_avoided_charge_price=0.57,
+        green_power_settlement_price_with_vat=0.42,
+        retain_annual_cashflows=False,
+        annual_cashflow_scenario_ids=(),
+    )
+    persisted_economy = persist_economic_study_result(
+        access_service=service,
+        actor_user_id="admin",
+        project_id=project.project_id,
+        study_id="study_1",
+        economic_result=economy,
+    )
+    direct = run_economic_study(
+        technical.summary[technical.summary["scenario_id"].astype(str) == selected_id],
+        economic_params=params,
+        avoided_grid_params=avoided,
+        load_side_avoided_charge_price=0.57,
+        green_power_settlement_price_with_vat=0.42,
+        retain_annual_cashflows=False,
+        annual_cashflow_scenario_ids=[selected_id],
+    )
+    queue_job_with_input_artifact(
+        access_service=service,
+        actor_user_id="admin",
+        project_id=project.project_id,
+        study_id="study_1",
+        job_type=JobType.ECONOMIC_STUDY,
+        payload={
+            "task": "annual_cashflow",
+            "scenario_id": selected_id,
+            "economy_result_id": persisted_economy.result_record.result_id,
+            "perspective": "both",
+            "retention_days": 30,
+        },
+        input_artifact_ids={
+            "technical_summary": "technical_summary",
+            "recommendation_inputs": persisted_economy.recommendation_input_artifact.artifact_id,
+            "power_economy_summary": persisted_economy.power_summary_artifact.artifact_id,
+        },
+        job_id="job_annual_cashflow_worker",
+        progress_total=2,
+        progress_message=f"annual cashflow queued: {selected_id}",
+    )
+
+    result = execute_next_worker_job(
+        access_service=service,
+        actor_user_id="admin",
+        worker_id="worker_1",
+        job_types=[JobType.ECONOMIC_STUDY],
+    )
+
+    assert result is not None
+    assert result.succeeded
+    assert result.job.job_id == "job_annual_cashflow_worker"
+    assert result.job.progress_current == 2
+    assert result.job.progress_total == 2
+    record = service.result_store.load_result_record(
+        project.project_id,
+        "study_1",
+        persisted_economy.result_record.result_id,
+    )
+    assert record.annual_cashflow_artifact_ids["power:" + selected_id] == f"power_annual_cashflow_{selected_id}"
+    assert record.annual_cashflow_artifact_ids["single_entity:" + selected_id] == (
+        f"single_entity_annual_cashflow_{selected_id}"
+    )
+    power_artifact = service.result_store.load_artifact(
+        project.project_id,
+        "study_1",
+        f"power_annual_cashflow_{selected_id}",
+    )
+    assert power_artifact.kind == ArtifactKind.ANNUAL_CASHFLOW
+    assert power_artifact.job_id == "job_annual_cashflow_worker"
+    with ZipFile(BytesIO(service.result_store.read_artifact_payload(power_artifact))) as archive:
+        power_cashflow = pd.read_csv(BytesIO(archive.read(f"{selected_id}.csv")))
+    pd.testing.assert_frame_equal(
+        power_cashflow.reset_index(drop=True),
+        direct.power_annual_cashflows[selected_id].reset_index(drop=True),
+        check_dtype=False,
+    )
+    audit_events = service.result_store.read_audit_log(project.project_id)
+    assert any(
+        event.action == AuditAction.STORE_ARTIFACT
+        and event.job_id == "job_annual_cashflow_worker"
+        and event.target_id == f"power_annual_cashflow_{selected_id}"
+        for event in audit_events
+    )
+
+
 def test_worker_marks_unsupported_job_failed(tmp_path):
     service = _access_service(tmp_path)
     project = _project_with_admin(service)
@@ -172,7 +283,7 @@ def test_worker_marks_unsupported_job_failed(tmp_path):
     assert result is not None
     assert not result.succeeded
     assert result.job.status == JobStatus.FAILED
-    assert "Unsupported worker job type: economic_study" in str(result.job.error_message)
+    assert "economic_study worker currently supports task=annual_cashflow only" in str(result.job.error_message)
 
 
 def test_worker_loop_processes_jobs_until_max_jobs(tmp_path):

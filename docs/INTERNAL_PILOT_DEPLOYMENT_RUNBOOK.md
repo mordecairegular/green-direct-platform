@@ -201,12 +201,13 @@ python -m green_direct.cli pilot-admin claim-next-job `
     --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
     --actor-user-id admin `
     --worker-id pilot-worker-1 `
-    --job-type technical_study
+    --job-type technical_study `
+    --job-type economic_study
 ```
 
 该命令只把一个 matching queued job 标记为 `running`，写入 `worker_id` 和 heartbeat，不会执行技术仿真、经济性测算或导出任务。不要在真实队列中人工随手执行；如果没有 worker 随后接管计算，任务会停留在 `running`，需要再通过 stale cleanup 恢复。
 
-如果 job 是通过 `queue_job_with_input_artifact()` 提交的 `technical_study` + `job_payload.task="hourly_detail"`，可先用一次性 worker 命令演练完整闭环：
+如果 job 是通过 `queue_job_with_input_artifact()` 提交的 `technical_study` + `job_payload.task="hourly_detail"`，或 `economic_study` + `job_payload.task="annual_cashflow"`，可先用一次性 worker 命令演练完整闭环：
 
 ```powershell
 $env:PYTHONPATH = "src"
@@ -214,10 +215,11 @@ python -m green_direct.cli pilot-admin run-worker-once `
     --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
     --actor-user-id admin `
     --worker-id pilot-worker-1 `
-    --job-type technical_study
+    --job-type technical_study `
+    --job-type economic_study
 ```
 
-`run-worker-once` 会认领一个 matching queued job，读取 `job_payload`、`technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，补算单方案逐小时明细，写回 `ArtifactKind.HOURLY_DETAIL`，并标记任务成功或失败。当前它只支持该按需 hourly detail 任务，不支持全量技术仿真、经济性测算、推荐、图表包或报告导出。
+`run-worker-once` 会认领一个 matching queued job。对 `technical_study/hourly_detail`，它读取 `job_payload`、`technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，补算单方案逐小时明细，写回 `ArtifactKind.HOURLY_DETAIL`；对 `economic_study/annual_cashflow`，它读取 `technical_summary`、`recommendation_inputs` 和经济 summary artifact，为所选方案写回电源侧/同一主体 `ArtifactKind.ANNUAL_CASHFLOW`。当前年度现金流 worker 仅支持固定价/网页组价经济性结果，逐时价格曲线结果需等价格曲线 artifact 化后再补；全量技术仿真、全量经济性测算、推荐、图表包或报告导出仍未后台化。
 
 完成管理员 bootstrap 后，也可以启动最小轮询 worker，让它持续认领受支持的 queued job：
 
@@ -228,6 +230,7 @@ python -m green_direct.cli pilot-admin run-worker-loop `
     --actor-user-id admin `
     --worker-id pilot-worker-1 `
     --job-type technical_study `
+    --job-type economic_study `
     --poll-interval-seconds 5
 ```
 

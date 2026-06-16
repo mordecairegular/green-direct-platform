@@ -111,6 +111,7 @@ docker compose --profile worker up -d green-direct-worker
 ```
 
 托管平台 Render 的本地 disk 路线下，首次内测可先用同步补算 fallback 或在同一服务 shell 中执行一次性 `run-worker-once` 做排障；不要把本地 file store 版误拆成多个无法共享状态的服务。
+当前最小 worker 覆盖按需逐小时明细和固定价/网页组价按需年度现金流；逐时价格曲线现金流、全量技术仿真、全量经济性、图表包和完整报告仍未后台化。
 
 ## 4. Cloudflare 入口
 

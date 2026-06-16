@@ -82,7 +82,7 @@ python -m pytest -q
    - `Job.worker_id` / `last_heartbeat_at`、`pilot-admin list-jobs` 和 `pilot-admin fail-stale-jobs` 是否能先查看超时 running 元数据、再转为 failed，并保留项目级审计；
    - `queue_job_with_input_artifact()` 是否先校验权限和外部 artifact，再把非空请求 payload 保存为 `ArtifactKind.JOB_INPUT`，并把 `job_payload` 与外部输入引用一起写入 `Job.input_artifact_ids`；
    - Streamlit 缺少所选方案 hourly detail 时，是否只在当前用户可提交项目任务且存在 `technical_summary`、`config_snapshot`、三条 `input_curve_*` artifact 时显示/提交后台补算；重复点击是否复用同一研究/方案的活动任务提示，而不是排出一串重复 job；
-   - `execute_next_worker_job()`、`execute_worker_loop()`、`pilot-admin run-worker-once` 和 `pilot-admin run-worker-loop` 是否只执行受支持的 `technical_study/hourly_detail` job，是否复用 `run_hourly_detail_for_scenario()`，成功后写回 `ArtifactKind.HOURLY_DETAIL` 并审计，失败时是否标记 failed 而不是卡在 running；`run-worker-loop` 的 `max_jobs` / `idle_exit_after` 是否能让脚本安全退出；
+   - `execute_next_worker_job()`、`execute_worker_loop()`、`pilot-admin run-worker-once` 和 `pilot-admin run-worker-loop` 是否只执行受支持的 `technical_study/hourly_detail` 与 `economic_study/annual_cashflow` job；前者是否复用 `run_hourly_detail_for_scenario()` 并写回 `ArtifactKind.HOURLY_DETAIL`，后者是否读取 `technical_summary` / `recommendation_inputs` 并只为所选方案写回 `ArtifactKind.ANNUAL_CASHFLOW`；失败时是否标记 failed 而不是卡在 running；`run-worker-loop` 的 `max_jobs` / `idle_exit_after` 是否能让脚本安全退出；
    - `LocalJobStore.claim_next_queued_job()`、`PilotAccessService.claim_next_job_for_worker()`、`update_worker_job_progress()`、`succeed_worker_job()`、`fail_worker_job()`、`pilot-admin claim-next-job`、`heartbeat-job`、`complete-worker-job` 和 `fail-worker-job` 是否只更新任务元数据、校验 worker、支持任务类型过滤，并跳过归档项目；命令是否明确不执行真实计算；
    - `pilot-admin list-audit-events` 是否只能由平台管理员读取，并能分别抽查全局审计和项目级审计；
    - 长任务失败、取消、重复点击、页面切换后的状态是否可恢复或可解释。

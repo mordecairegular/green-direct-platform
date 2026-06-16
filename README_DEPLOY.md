@@ -149,7 +149,7 @@ green_direct_pilot_store -> /data/pilot_store
 
 ## 4.1 后台 Worker
 
-按需逐小时明细补算已经可以提交为项目级 queued job。完成平台管理员 bootstrap 后，可启动可选 worker profile，让后台进程持续认领受支持任务：
+按需逐小时明细补算、按需年度现金流补算已经可以提交为项目级 queued job。完成平台管理员 bootstrap 后，可启动可选 worker profile，让后台进程持续认领受支持任务：
 
 ```powershell
 docker compose --profile worker up -d green-direct-worker
@@ -164,7 +164,7 @@ $env:GREEN_DIRECT_WORKER_POLL_INTERVAL_SECONDS = "5"
 docker compose --profile worker up -d green-direct-worker
 ```
 
-该 worker 当前只执行 `technical_study/hourly_detail` 任务。它不是正式队列系统，不提供 worker 级取消、重试、资源隔离或多 worker 并发锁；本地 JSON store 版试用期建议最多启动一个 worker。
+该 worker 当前只执行 `technical_study/hourly_detail` 和 `economic_study/annual_cashflow` 任务。后者仅支持固定价/网页组价经济性结果，逐时价格曲线结果需等价格曲线 artifact 化后再补。它不是正式队列系统，不提供 worker 级取消、重试、资源隔离或多 worker 并发锁；本地 JSON store 版试用期建议最多启动一个 worker。
 
 ## 5. 账号与权限
 

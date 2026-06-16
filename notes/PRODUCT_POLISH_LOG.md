@@ -4839,3 +4839,26 @@ benchmark：
 - `python scripts\preflight_internal_pilot_deploy.py --json` 通过；
 - `python -m compileall -q src\green_direct\ui\app.py tests\test_ui_import.py scripts\preflight_internal_pilot_deploy.py` 通过；
 - `python -m pytest -q` 通过，344 项通过。
+
+### 2026-06-16 按需年度现金流后台 Job
+
+本轮把上一节留下的“summary-first 经济性结果无法补未常驻年度现金流”推进为第一条可执行后台链路。目标是支持大方案池下默认只常驻少量现金流，同时用户在 06 导出页选择任意固定价/网页组价方案后，可以提交后台任务补生成年度现金流。
+
+实现：
+- `RecommendationInputSnapshot` 新增 `avoided_grid_params`，`recommendation_inputs.json` 也同步保存完整 `AvoidedGridPurchaseParams`；旧 artifact 没有该字段时按 `load_side_avoided_charge_price` 构造兼容参数；
+- 新增 `persist_annual_cashflow_artifact()`，可把单个方案的电源侧或同一主体年度现金流保存为 `ArtifactKind.ANNUAL_CASHFLOW` ZIP，并以 `power:<scenario_id>` / `single_entity:<scenario_id>` 挂回既有经济结果 record；
+- `_pilot_restore_economy_summary_result()` 可同时识别老的 `power` / `single_entity` 整包和新的按需单方案 key；
+- `pilot_worker` 新增 `economic_study` + `job_payload.task="annual_cashflow"` 执行路径，读取 `technical_summary`、`recommendation_inputs` 和可选 `power_economy_summary`，复用 `run_economic_study(..., annual_cashflow_scenario_ids=[scenario_id])` 生成所选方案现金流；
+- 06 导出页在所选方案未常驻现金流时，可提交后台年度现金流补算任务，并轮询任务状态；worker 成功后自动加载新 artifact 回当前 `economy_v1_result` / `single_entity_economy_result`；
+- `docker-compose.yml` worker profile 默认同时轮询 `technical_study` 和 `economic_study`。
+
+边界：
+- 本轮只支持固定价/网页组价经济性结果；若 `power_economy_summary.price_mode == "hourly_curve"`，worker 会拒绝并标记失败。逐时价格曲线现金流补算需要先把价格曲线和相关输入完整 artifact 化；
+- 这不是全量经济性后台化，也不是正式队列、重试系统、worker 级取消或多 worker 并发锁。
+
+验证：
+- `python -m pytest tests/test_pilot_worker.py tests/test_pilot_study_persistence.py::test_persist_economic_study_result_writes_versioned_artifacts_and_record tests/test_ui_import.py::test_pilot_restore_economy_summary_uses_view_permission_without_export tests/test_ui_import.py::test_queue_annual_cashflow_job_uses_saved_economy_artifacts tests/test_ui_import.py::test_completed_annual_cashflow_job_loads_artifacts tests/test_deployment_artifacts.py -q` 通过，15 项通过；
+- `python -m compileall -q src\green_direct\services\study_runner.py src\green_direct\services\pilot_study_persistence.py src\green_direct\services\pilot_worker.py src\green_direct\services\__init__.py src\green_direct\ui\app.py tests\test_pilot_worker.py tests\test_pilot_study_persistence.py tests\test_ui_import.py tests\test_deployment_artifacts.py` 通过；
+- `git diff --check` 通过；
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `python -m pytest -q` 通过，347 项通过。

@@ -615,6 +615,7 @@ def test_persist_economic_study_result_writes_versioned_artifacts_and_record(tmp
     assert "single_entity_firr_pre_tax" in single_entity_payload
     assert recommendation_input_payload["load_side_avoided_charge_price"] == 0.5
     assert recommendation_input_payload["green_power_settlement_price_with_vat"] == 0.4
+    assert recommendation_input_payload["avoided_grid_params"]["net_avoided_grid_cost_price"] is None
     assert "economic_params" in recommendation_input_payload
 
 

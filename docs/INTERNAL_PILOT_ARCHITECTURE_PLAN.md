@@ -187,7 +187,7 @@ PNG 图表包后台任务也按会话隔离：
 - `succeed_worker_job()` / `fail_worker_job()` 已作为平台管理员保护的 worker 终态入口，要求 `worker_id` 与 running job 记录一致，并写 `COMPLETE_JOB` 审计；
 - `submit_job()` 已支持并校验 `Job.input_artifact_ids`：若提交的 job 声明了输入 artifact，服务层会要求这些 artifact 已存在于同一 `project_id` / `study_id`，并把引用写入 `SUBMIT_JOB` 审计 metadata；
 - `queue_job_with_input_artifact()` 在 `submit_job()` 前预校验权限和外部 artifact，并写 `STORE_ARTIFACT` 审计；它只提交 queued job，不在 Streamlit 请求内执行计算；
-- `execute_next_worker_job()` / `pilot-admin run-worker-once` / `pilot-admin run-worker-loop` 已可执行第一条受支持 worker 链路：读取 `job_payload`、`technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，复用 `run_hourly_detail_for_scenario()` 生成单方案逐小时明细，写回 `ArtifactKind.HOURLY_DETAIL` 并标记 job 成功或失败；
+- `execute_next_worker_job()` / `pilot-admin run-worker-once` / `pilot-admin run-worker-loop` 已可执行两条受支持 worker 链路：`technical_study/hourly_detail` 读取 `job_payload`、`technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，复用 `run_hourly_detail_for_scenario()` 生成单方案逐小时明细，写回 `ArtifactKind.HOURLY_DETAIL`；`economic_study/annual_cashflow` 读取 `technical_summary`、`recommendation_inputs` 和经济 summary artifact，为所选固定价/网页组价方案写回 `ArtifactKind.ANNUAL_CASHFLOW`；两者都会标记 job 成功或失败；
 - `list_accessible_projects()` 已用于 Streamlit 登录后的项目工作区选择，只返回当前用户有有效 membership 的项目；
 - `admin` 可创建/归档项目、授予/停用成员、提交任务、查看任务和产物、取消他人任务；
 - `analyst` 可提交和查看本项目任务，并取消自己提交的任务；

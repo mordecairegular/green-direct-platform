@@ -15,6 +15,7 @@ from typing import Iterable
 
 import pandas as pd
 
+from green_direct.economy import AvoidedGridPurchaseParams, EconomicParams, OtherOperatingRevenueItem
 from green_direct.models.params import (
     BessParams,
     DataCleaningParams,
@@ -24,8 +25,16 @@ from green_direct.models.params import (
 )
 from green_direct.models.pilot_backend import ArtifactKind, Job, JobArtifact, JobStatus, JobType
 from green_direct.services.pilot_access import PilotAccessService
-from green_direct.services.pilot_study_persistence import persist_hourly_detail_artifact
-from green_direct.services.study_runner import TechnicalStudyInput, run_hourly_detail_for_scenario
+from green_direct.services.pilot_study_persistence import (
+    persist_annual_cashflow_artifact,
+    persist_hourly_detail_artifact,
+)
+from green_direct.services.study_runner import (
+    RecommendationInputSnapshot,
+    TechnicalStudyInput,
+    run_economic_study,
+    run_hourly_detail_for_scenario,
+)
 
 
 @dataclass(frozen=True)
@@ -133,6 +142,24 @@ def _load_csv_artifact(
         expected_kind=expected_kind,
     )
     return pd.read_csv(BytesIO(payload))
+
+
+def _optional_csv_artifact(
+    access_service: PilotAccessService,
+    *,
+    job: Job,
+    artifact_key: str,
+    expected_kind: ArtifactKind,
+) -> pd.DataFrame:
+    artifact_id = job.input_artifact_ids.get(artifact_key)
+    if not artifact_id:
+        return pd.DataFrame()
+    return _load_csv_artifact(
+        access_service,
+        job=job,
+        artifact_key=artifact_key,
+        expected_kind=expected_kind,
+    )
 
 
 def _dataclass_snapshot_kwargs(model_cls, raw: object) -> dict[str, object]:
@@ -249,6 +276,80 @@ def _required_text(payload: dict, key: str) -> str:
     return value
 
 
+def _economic_params_from_payload(data: dict) -> EconomicParams:
+    params_data = data.get("economic_params") or {}
+    if not isinstance(params_data, dict):
+        raise ValueError("recommendation_inputs is missing economic_params.")
+    params_data = dict(params_data)
+    raw_revenues = params_data.get("other_operating_revenues", ())
+    if raw_revenues is None:
+        params_data["other_operating_revenues"] = ()
+    elif isinstance(raw_revenues, (list, tuple)):
+        revenues: list[OtherOperatingRevenueItem] = []
+        for item in raw_revenues:
+            if isinstance(item, OtherOperatingRevenueItem):
+                revenues.append(item)
+                continue
+            if not isinstance(item, dict):
+                raise ValueError("other_operating_revenues must contain objects.")
+            revenue_data = dict(item)
+            specific_years = revenue_data.get("specific_years", ())
+            if specific_years is None:
+                revenue_data["specific_years"] = ()
+            elif isinstance(specific_years, (list, tuple)):
+                revenue_data["specific_years"] = tuple(int(year) for year in specific_years)
+            else:
+                raise ValueError("other_operating_revenues specific_years must be a list.")
+            revenues.append(OtherOperatingRevenueItem(**revenue_data))
+        params_data["other_operating_revenues"] = tuple(revenues)
+    else:
+        raise ValueError("other_operating_revenues must be a list.")
+    return EconomicParams(**params_data)
+
+
+def _recommendation_input_snapshot_from_artifact(
+    access_service: PilotAccessService,
+    *,
+    job: Job,
+) -> RecommendationInputSnapshot:
+    payload = _read_artifact_payload(
+        access_service,
+        job=job,
+        artifact_id=_job_input_artifact_id(job, "recommendation_inputs"),
+        expected_kind=ArtifactKind.RECOMMENDATION_INPUT,
+    )
+    data = json.loads(payload.decode("utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("recommendation_inputs artifact must contain a JSON object.")
+    avoided_grid_data = data.get("avoided_grid_params")
+    if avoided_grid_data is None:
+        avoided_grid_data = {
+            "net_avoided_grid_cost_price": data.get("load_side_avoided_charge_price", 0.0)
+        }
+    if not isinstance(avoided_grid_data, dict):
+        raise ValueError("recommendation_inputs.avoided_grid_params must be an object.")
+    min_firr = data.get("min_power_side_acceptable_firr")
+    return RecommendationInputSnapshot(
+        economic_params=_economic_params_from_payload(data),
+        avoided_grid_params=AvoidedGridPurchaseParams(**dict(avoided_grid_data)),
+        load_side_avoided_charge_price=float(data["load_side_avoided_charge_price"]),
+        green_power_settlement_price_with_vat=float(data["green_power_settlement_price_with_vat"]),
+        environmental_value_per_kwh=float(data.get("environmental_value_per_kwh", 0.0)),
+        min_power_side_acceptable_firr=None if min_firr is None else float(min_firr),
+    )
+
+
+def _assert_supported_economy_price_mode(power_summary: pd.DataFrame, scenario_id: str) -> None:
+    if power_summary.empty or "price_mode" not in power_summary.columns or "scenario_id" not in power_summary.columns:
+        return
+    rows = power_summary[power_summary["scenario_id"].astype(str) == str(scenario_id)]
+    if rows.empty:
+        return
+    price_modes = {str(value) for value in rows["price_mode"].dropna().tolist()}
+    if "hourly_curve" in price_modes:
+        raise ValueError("annual_cashflow worker does not yet support hourly_curve economy results.")
+
+
 def _execute_hourly_detail_job(
     *,
     access_service: PilotAccessService,
@@ -338,6 +439,137 @@ def _execute_hourly_detail_job(
     )
 
 
+def _execute_annual_cashflow_job(
+    *,
+    access_service: PilotAccessService,
+    actor_user_id: str,
+    worker_id: str,
+    job: Job,
+) -> PilotWorkerExecutionResult:
+    payload = _load_job_payload(access_service, job=job)
+    if str(payload.get("task", "")).strip() != "annual_cashflow":
+        raise ValueError("economic_study worker currently supports task=annual_cashflow only.")
+    scenario_id = _required_text(payload, "scenario_id")
+    economy_result_id = _required_text(payload, "economy_result_id")
+    perspective = str(payload.get("perspective") or "both").strip()
+    if perspective not in {"both", "power", "single_entity"}:
+        raise ValueError("perspective must be 'both', 'power', or 'single_entity'.")
+    retention_days = int(payload.get("retention_days", 30))
+
+    access_service.update_worker_job_progress(
+        actor_user_id=actor_user_id,
+        worker_id=worker_id,
+        project_id=job.project_id,
+        study_id=job.study_id,
+        job_id=job.job_id,
+        current=0,
+        total=2,
+        message="loading annual cashflow inputs",
+    )
+    technical_summary = _load_csv_artifact(
+        access_service,
+        job=job,
+        artifact_key="technical_summary",
+        expected_kind=ArtifactKind.TECHNICAL_SUMMARY,
+        default_artifact_id="technical_summary",
+    )
+    if "scenario_id" not in technical_summary.columns:
+        raise ValueError("technical_summary is missing scenario_id.")
+    selected_summary = technical_summary[technical_summary["scenario_id"].astype(str) == str(scenario_id)]
+    if selected_summary.empty:
+        raise ValueError(f"Scenario {scenario_id} not found in technical_summary.")
+    power_summary = _optional_csv_artifact(
+        access_service,
+        job=job,
+        artifact_key="power_economy_summary",
+        expected_kind=ArtifactKind.ECONOMY_SUMMARY,
+    )
+    _assert_supported_economy_price_mode(power_summary, scenario_id)
+    recommendation_inputs = _recommendation_input_snapshot_from_artifact(access_service, job=job)
+
+    access_service.update_worker_job_progress(
+        actor_user_id=actor_user_id,
+        worker_id=worker_id,
+        project_id=job.project_id,
+        study_id=job.study_id,
+        job_id=job.job_id,
+        current=1,
+        total=2,
+        message="running annual cashflow evaluation",
+    )
+    economic_result = run_economic_study(
+        selected_summary.copy(),
+        economic_params=recommendation_inputs.economic_params,
+        avoided_grid_params=recommendation_inputs.avoided_grid_params,
+        load_side_avoided_charge_price=recommendation_inputs.load_side_avoided_charge_price,
+        green_power_settlement_price_with_vat=recommendation_inputs.green_power_settlement_price_with_vat,
+        environmental_value_per_kwh=recommendation_inputs.environmental_value_per_kwh,
+        min_power_side_acceptable_firr=recommendation_inputs.min_power_side_acceptable_firr,
+        retain_annual_cashflows=False,
+        annual_cashflow_scenario_ids=[scenario_id],
+    )
+
+    stored_artifacts: list[JobArtifact] = []
+    if perspective in {"both", "power"}:
+        annual = economic_result.power_annual_cashflows.get(str(scenario_id))
+        if annual is None or annual.empty:
+            raise ValueError(f"Power-side annual cashflow was not generated for {scenario_id}.")
+        persisted = persist_annual_cashflow_artifact(
+            access_service=access_service,
+            actor_user_id=job.requested_by_user_id,
+            project_id=job.project_id,
+            study_id=job.study_id,
+            scenario_id=scenario_id,
+            perspective="power",
+            annual_cashflow=annual,
+            economy_result_id=economy_result_id,
+            retention_days=retention_days,
+            artifact_job_id=job.job_id,
+        )
+        stored_artifacts.append(persisted.artifact)
+    if perspective in {"both", "single_entity"}:
+        annual = economic_result.single_entity_annual_cashflows.get(str(scenario_id))
+        if annual is None or annual.empty:
+            raise ValueError(f"Single-entity annual cashflow was not generated for {scenario_id}.")
+        persisted = persist_annual_cashflow_artifact(
+            access_service=access_service,
+            actor_user_id=job.requested_by_user_id,
+            project_id=job.project_id,
+            study_id=job.study_id,
+            scenario_id=scenario_id,
+            perspective="single_entity",
+            annual_cashflow=annual,
+            economy_result_id=economy_result_id,
+            retention_days=retention_days,
+            artifact_job_id=job.job_id,
+        )
+        stored_artifacts.append(persisted.artifact)
+
+    access_service.update_worker_job_progress(
+        actor_user_id=actor_user_id,
+        worker_id=worker_id,
+        project_id=job.project_id,
+        study_id=job.study_id,
+        job_id=job.job_id,
+        current=2,
+        total=2,
+        message="annual cashflow artifact ready",
+    )
+    completed = access_service.succeed_worker_job(
+        actor_user_id=actor_user_id,
+        worker_id=worker_id,
+        project_id=job.project_id,
+        study_id=job.study_id,
+        job_id=job.job_id,
+    )
+    artifact_ids = ", ".join(artifact.artifact_id for artifact in stored_artifacts)
+    return PilotWorkerExecutionResult(
+        job=completed,
+        artifact=stored_artifacts[-1] if stored_artifacts else None,
+        message=f"Stored annual cashflow artifact(s): {artifact_ids}",
+    )
+
+
 def execute_claimed_worker_job(
     *,
     access_service: PilotAccessService,
@@ -353,6 +585,13 @@ def execute_claimed_worker_job(
         raise ValueError("Job is assigned to another worker.")
     if job.job_type == JobType.TECHNICAL_STUDY:
         return _execute_hourly_detail_job(
+            access_service=access_service,
+            actor_user_id=actor_user_id,
+            worker_id=worker_id,
+            job=job,
+        )
+    if job.job_type == JobType.ECONOMIC_STUDY:
+        return _execute_annual_cashflow_job(
             access_service=access_service,
             actor_user_id=actor_user_id,
             worker_id=worker_id,

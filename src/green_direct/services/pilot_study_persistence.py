@@ -79,6 +79,16 @@ class PersistedHourlyDetailArtifact:
 
 
 @dataclass(frozen=True)
+class PersistedAnnualCashflowArtifact:
+    """Project-scoped persistence refs for one on-demand annual cashflow ZIP."""
+
+    perspective: str
+    scenario_id: str
+    artifact: JobArtifact
+    result_record: StudyResultRecord
+
+
+@dataclass(frozen=True)
 class PersistedExportArtifact:
     """Project-scoped persistence refs for one explicit report/chart export."""
 
@@ -125,6 +135,7 @@ def economic_input_fingerprint(economic_result: EconomicStudyResult) -> str:
     return _stable_hash(
         {
             "economic_params": asdict(inputs.economic_params),
+            "avoided_grid_params": asdict(inputs.avoided_grid_params),
             "load_side_avoided_charge_price": inputs.load_side_avoided_charge_price,
             "green_power_settlement_price_with_vat": inputs.green_power_settlement_price_with_vat,
             "environmental_value_per_kwh": inputs.environmental_value_per_kwh,
@@ -179,10 +190,11 @@ def _frame_csv(frame) -> str:
 def _recommendation_inputs_json(economic_result: EconomicStudyResult) -> str:
     inputs = economic_result.recommendation_inputs
     payload = {
-        "economic_params": asdict(inputs.economic_params),
-        "load_side_avoided_charge_price": inputs.load_side_avoided_charge_price,
-        "green_power_settlement_price_with_vat": inputs.green_power_settlement_price_with_vat,
-        "environmental_value_per_kwh": inputs.environmental_value_per_kwh,
+            "economic_params": asdict(inputs.economic_params),
+            "avoided_grid_params": asdict(inputs.avoided_grid_params),
+            "load_side_avoided_charge_price": inputs.load_side_avoided_charge_price,
+            "green_power_settlement_price_with_vat": inputs.green_power_settlement_price_with_vat,
+            "environmental_value_per_kwh": inputs.environmental_value_per_kwh,
         "min_power_side_acceptable_firr": inputs.min_power_side_acceptable_firr,
     }
     return json.dumps(
@@ -595,6 +607,81 @@ def persist_hourly_detail_artifact(
     )
 
     return PersistedHourlyDetailArtifact(
+        scenario_id=scenario_key,
+        artifact=artifact,
+        result_record=saved_record,
+    )
+
+
+def persist_annual_cashflow_artifact(
+    *,
+    access_service: PilotAccessService,
+    actor_user_id: str,
+    project_id: str,
+    study_id: str,
+    scenario_id: str,
+    perspective: str,
+    annual_cashflow,
+    economy_result_id: str,
+    retention_days: int = 30,
+    artifact_job_id: str | None = None,
+) -> PersistedAnnualCashflowArtifact:
+    """Persist one on-demand annual cashflow ZIP and attach it to an economy result index."""
+
+    access_service.require_project_job_submit(actor_user_id=actor_user_id, project_id=project_id)
+    scenario_key = validate_path_segment(str(scenario_id).strip(), "scenario_id")
+    perspective_key = str(perspective).strip()
+    if perspective_key not in {"power", "single_entity"}:
+        raise ValueError("perspective must be 'power' or 'single_entity'.")
+    if getattr(annual_cashflow, "empty", False):
+        raise ValueError("annual_cashflow must not be empty.")
+
+    record = access_service.result_store.load_result_record(project_id, study_id, economy_result_id)
+    artifact_owner_job_id = artifact_job_id or record.created_by_job_id
+    retention_policy, expires_at = _artifact_expiry(retention_days)
+    artifact_id = f"{perspective_key}_annual_cashflow_{scenario_key}"
+    artifact = access_service.result_store.store_artifact(
+        artifact_id=artifact_id,
+        project_id=project_id,
+        study_id=study_id,
+        job_id=artifact_owner_job_id,
+        kind=ArtifactKind.ANNUAL_CASHFLOW,
+        payload=_annual_cashflows_zip({scenario_key: annual_cashflow}),
+        filename=f"{artifact_id}.zip",
+        content_type="application/zip",
+        retention_policy=retention_policy,
+        expires_at=expires_at,
+        overwrite=True,
+    )
+    next_record = replace(
+        record,
+        annual_cashflow_artifact_ids={
+            **record.annual_cashflow_artifact_ids,
+            f"{perspective_key}:{scenario_key}": artifact.artifact_id,
+        },
+    )
+    saved_record = access_service.result_store.save_result_record(next_record, overwrite=True)
+    access_service.result_store.append_audit_log(
+        AuditLog(
+            event_id=f"audit_{uuid4().hex[:16]}",
+            actor_user_id=actor_user_id,
+            action=AuditAction.STORE_ARTIFACT,
+            project_id=project_id,
+            study_id=study_id,
+            job_id=artifact_owner_job_id,
+            target_type="artifact",
+            target_id=artifact.artifact_id,
+            metadata={
+                "kind": artifact.kind.value,
+                "perspective": perspective_key,
+                "scenario_id": scenario_key,
+                "retention_policy": artifact.retention_policy.value,
+                "attached_result_id": economy_result_id,
+            },
+        )
+    )
+    return PersistedAnnualCashflowArtifact(
+        perspective=perspective_key,
         scenario_id=scenario_key,
         artifact=artifact,
         result_record=saved_record,

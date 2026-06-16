@@ -27,6 +27,7 @@
 - 推荐页、图表页和导出页已支持当前会话内对单方案按需补算逐小时明细；
 - `run_economic_study(..., retain_annual_cashflows=False, annual_cashflow_scenario_ids=...)` 已支持只常驻经济性 summary 或指定方案年度现金流；未保留年度现金流的方案已不再构造完整年度现金流 `DataFrame`，只保留计算 summary 指标所需的现金流数组；
 - Streamlit 03 页已接入经济性现金流保留策略：默认 `GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD=1000`，超过阈值时仍计算全量经济性 summary、FIRR/NPV 和推荐排序，但只常驻前 `GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT=20` 个方案年度现金流；06 页会解释未常驻现金流的方案为什么没有年度现金流下载按钮；
+- 06 页已接入固定价/网页组价经济性结果的按需年度现金流后台任务：缺少所选方案现金流时可提交 `economic_study/annual_cashflow` queued job，worker 读取 `technical_summary` 和 `recommendation_inputs` 后为所选方案生成电源侧/同一主体年度现金流 artifact，并由导出页轮询加载；
 - 经济性批量评价已减少 `iterrows()`、重复校验、未保留年度现金流表构造和部分 IRR 求解开销；
 - 经济性批量评价已缓存 `other_operating_revenues` 年度生效表，并把同一方案内每年不变的电源侧收入、VAT 拆分、O&M 和基础折旧移出年度循环，减少大方案池下每方案固定开销；随后又新增电源侧和同一主体批量评价共享上下文，把全方案共用的折现因子、固定资产拆分、其他收入年度表和默认电价口径预处理到批量入口；这些优化不改变 V1 现金流口径。
 
@@ -131,7 +132,7 @@ python scripts\benchmark_internal_pilot_performance.py --json
 - 将电源侧和同一主体批量评价的全方案共享参数预处理成批量上下文，避免每个方案重复解析同一组经济参数；（已完成第一版）
 - 保留 FIRR 精确口径，但对常规单符号变化现金流使用快速路径；
 - 推荐排序只依赖经济性 summary；
-- UI 已在大方案池下只为前 N 个方案保留完整年度现金流；后续应把推荐方案、报告方案或用户指定方案的年度现金流补算改为按需后台 Job。
+- UI 已在大方案池下只为前 N 个方案保留完整年度现金流；固定价/网页组价结果已支持用户指定方案按需后台补年度现金流。后续应补逐时价格曲线模式的价格曲线 artifact、全局任务通知和正式队列。
 
 验收：
 

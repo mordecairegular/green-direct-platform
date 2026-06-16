@@ -294,6 +294,7 @@ class RecommendationInputSnapshot:
     economic_params: EconomicParams
     load_side_avoided_charge_price: float
     green_power_settlement_price_with_vat: float
+    avoided_grid_params: AvoidedGridPurchaseParams = field(default_factory=AvoidedGridPurchaseParams)
     environmental_value_per_kwh: float = 0.0
     min_power_side_acceptable_firr: float | None = 0.07
 
@@ -302,6 +303,7 @@ class RecommendationInputSnapshot:
             "economic_params": self.economic_params,
             "load_side_avoided_charge_price": self.load_side_avoided_charge_price,
             "green_power_settlement_price_with_vat": self.green_power_settlement_price_with_vat,
+            "avoided_grid_params": self.avoided_grid_params,
             "environmental_value_per_kwh": self.environmental_value_per_kwh,
             "min_power_side_acceptable_firr": self.min_power_side_acceptable_firr,
         }
@@ -509,6 +511,7 @@ def run_economic_study(
             economic_params=economic_params,
             load_side_avoided_charge_price=load_side_avoided_charge_price,
             green_power_settlement_price_with_vat=green_power_settlement_price_with_vat,
+            avoided_grid_params=avoided_grid_params,
             environmental_value_per_kwh=environmental_value_per_kwh,
             min_power_side_acceptable_firr=min_power_side_acceptable_firr,
         ),

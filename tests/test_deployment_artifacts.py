@@ -26,6 +26,9 @@ def test_docker_compose_defaults_to_internal_pilot_safety():
     assert "green_direct_pilot_store:/data/pilot_store" in service["volumes"]
     assert compose["volumes"]["green_direct_pilot_store"]["name"] == "green_direct_pilot_store"
     assert service["ports"] == ["8503:8503"]
+    worker_command = compose["services"]["green-direct-worker"]["command"]
+    assert "technical_study" in worker_command
+    assert "economic_study" in worker_command
 
 
 def test_dockerfile_defaults_to_safe_server_mode():

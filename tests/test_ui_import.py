@@ -349,7 +349,7 @@ def test_pilot_technical_result_helper_persists_and_attaches_refs(tmp_path, monk
 
 def test_pilot_economy_and_recommendation_helpers_persist_refs_and_dedupe(tmp_path, monkeypatch):
     import green_direct.ui.app as app
-    from green_direct.economy import EconomicParams
+    from green_direct.economy import AvoidedGridPurchaseParams, EconomicParams
     from green_direct.models.pilot_backend import JobType, Project, User
     from green_direct.services.study_runner import (
         EconomicStudyResult,
@@ -719,7 +719,7 @@ def test_pilot_restore_technical_summary_rebuilds_summary_only_session(tmp_path)
 
 def test_pilot_restore_economy_summary_uses_view_permission_without_export(tmp_path, monkeypatch):
     import green_direct.ui.app as app
-    from green_direct.economy import EconomicParams
+    from green_direct.economy import AvoidedGridPurchaseParams, EconomicParams
     from green_direct.models.pilot_backend import ArtifactKind, AuditAction, Project, ProjectRole, StudyResultRecord, User
 
     monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
@@ -927,6 +927,8 @@ def test_pilot_restore_economy_summary_uses_view_permission_without_export(tmp_p
     assert recommendation_inputs["environmental_value_per_kwh"] == 0.02
     assert recommendation_inputs["min_power_side_acceptable_firr"] == 0.06
     assert isinstance(recommendation_inputs["economic_params"], EconomicParams)
+    assert isinstance(recommendation_inputs["avoided_grid_params"], AvoidedGridPurchaseParams)
+    assert recommendation_inputs["avoided_grid_params"].net_avoided_grid_cost_price == 0.51
     assert recommendation_inputs["economic_params"].operation_years == 20
     assert recommendation_inputs["economic_params"].other_operating_revenues[0].specific_years == (1, 2)
     assert "download_payloads" not in dummy.session_state
@@ -2310,6 +2312,242 @@ def test_completed_hourly_detail_job_refreshes_result_ref_and_loads_artifact(tmp
     assert dummy.session_state["study_result"].result_store_refs["hourly_detail_artifact_id_S0002"] == (
         "hourly_detail_S0002"
     )
+
+
+def test_queue_annual_cashflow_job_uses_saved_economy_artifacts(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import ArtifactKind, JobStatus, Project, User
+    from green_direct.services import StudyResult
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+
+    access = app._pilot_access_service()
+    access.registry.save_user(User("admin", "admin@example.local", "Admin"))
+    project = access.create_project(
+        actor_user_id="admin",
+        project=Project("project_1", "Internal pilot project"),
+    )
+    access.result_store.store_artifact(
+        artifact_id="technical_summary",
+        project_id=project.project_id,
+        study_id="study-ui-economy-worker",
+        job_id="job_tech",
+        kind=ArtifactKind.TECHNICAL_SUMMARY,
+        payload="scenario_id,pv_capacity,wind_capacity,bess_power,bess_energy\nS0002,1,0,0,0\n",
+        filename="technical_summary.csv",
+        content_type="text/csv",
+    )
+    access.result_store.store_artifact(
+        artifact_id="recommendation_inputs_job_1",
+        project_id=project.project_id,
+        study_id="study-ui-economy-worker",
+        job_id="job_economy",
+        kind=ArtifactKind.RECOMMENDATION_INPUT,
+        payload=json.dumps(
+            {
+                "economic_params": {},
+                "avoided_grid_params": {"net_avoided_grid_cost_price": 0.55},
+                "load_side_avoided_charge_price": 0.55,
+                "green_power_settlement_price_with_vat": 0.40,
+            },
+            ensure_ascii=False,
+        ),
+        filename="recommendation_inputs.json",
+        content_type="application/json",
+    )
+    access.result_store.store_artifact(
+        artifact_id="economy_summary_job_1",
+        project_id=project.project_id,
+        study_id="study-ui-economy-worker",
+        job_id="job_economy",
+        kind=ArtifactKind.ECONOMY_SUMMARY,
+        payload="scenario_id,price_mode\nS0002,fixed_price\n",
+        filename="power_economy_summary.csv",
+        content_type="text/csv",
+    )
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.PILOT_USER_ID_KEY: "admin",
+                app.PILOT_ACTIVE_PROJECT_ID_KEY: project.project_id,
+                app.PILOT_ACTIVE_PROJECT_ROLE_KEY: "admin",
+                "study_result": StudyResult(
+                    study_id="study-ui-economy-worker",
+                    result_store_refs={
+                        "economy_result_id": "economy_result_job_1",
+                        "technical_summary_artifact_id": "technical_summary",
+                        "recommendation_input_artifact_id": "recommendation_inputs_job_1",
+                        "power_economy_summary_artifact_id": "economy_summary_job_1",
+                    },
+                ),
+            }
+
+    dummy = DummyStreamlit()
+    job = app._queue_pilot_annual_cashflow_job_if_enabled(dummy, "S0002")
+
+    assert job is not None
+    assert job.status == JobStatus.QUEUED
+    assert job.job_type.value == "economic_study"
+    assert job.progress_message == "annual cashflow queued: S0002"
+    assert job.input_artifact_ids["technical_summary"] == "technical_summary"
+    assert job.input_artifact_ids["recommendation_inputs"] == "recommendation_inputs_job_1"
+    assert job.input_artifact_ids["power_economy_summary"] == "economy_summary_job_1"
+    payload_artifact = access.result_store.load_artifact(
+        project.project_id,
+        "study-ui-economy-worker",
+        job.input_artifact_ids["job_payload"],
+    )
+    payload = json.loads(access.result_store.read_artifact_payload(payload_artifact).decode("utf-8"))
+    assert payload_artifact.kind == ArtifactKind.JOB_INPUT
+    assert payload == {
+        "task": "annual_cashflow",
+        "scenario_id": "S0002",
+        "economy_result_id": "economy_result_job_1",
+        "perspective": "both",
+        "retention_days": 30,
+    }
+
+
+def test_completed_annual_cashflow_job_loads_artifacts(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import ArtifactKind, JobStatus, Project, StudyResultRecord, User
+    from green_direct.services import StudyResult, persist_annual_cashflow_artifact
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+    monkeypatch.setattr(app, "_save_runtime_snapshot", lambda st: None)
+
+    access = app._pilot_access_service()
+    access.registry.save_user(User("admin", "admin@example.local", "Admin", is_platform_admin=True))
+    project = access.create_project(
+        actor_user_id="admin",
+        project=Project("project_1", "Internal pilot project"),
+    )
+    access.result_store.store_artifact(
+        artifact_id="technical_summary",
+        project_id=project.project_id,
+        study_id="study-ui-economy-worker",
+        job_id="job_tech",
+        kind=ArtifactKind.TECHNICAL_SUMMARY,
+        payload="scenario_id,pv_capacity,wind_capacity,bess_power,bess_energy\nS0002,1,0,0,0\n",
+        filename="technical_summary.csv",
+        content_type="text/csv",
+    )
+    access.result_store.store_artifact(
+        artifact_id="recommendation_inputs_job_1",
+        project_id=project.project_id,
+        study_id="study-ui-economy-worker",
+        job_id="job_economy",
+        kind=ArtifactKind.RECOMMENDATION_INPUT,
+        payload=json.dumps(
+            {
+                "economic_params": {},
+                "avoided_grid_params": {"net_avoided_grid_cost_price": 0.55},
+                "load_side_avoided_charge_price": 0.55,
+                "green_power_settlement_price_with_vat": 0.40,
+            },
+            ensure_ascii=False,
+        ),
+        filename="recommendation_inputs.json",
+        content_type="application/json",
+    )
+    access.result_store.store_artifact(
+        artifact_id="economy_summary_job_1",
+        project_id=project.project_id,
+        study_id="study-ui-economy-worker",
+        job_id="job_economy",
+        kind=ArtifactKind.ECONOMY_SUMMARY,
+        payload="scenario_id,price_mode\nS0002,fixed_price\n",
+        filename="power_economy_summary.csv",
+        content_type="text/csv",
+    )
+    access.result_store.save_result_record(
+        StudyResultRecord(
+            result_id="economy_result_job_1",
+            project_id=project.project_id,
+            study_id="study-ui-economy-worker",
+            created_by_job_id="job_economy",
+            economy_summary_artifact_id="economy_summary_job_1",
+            recommendation_input_artifact_id="recommendation_inputs_job_1",
+        )
+    )
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.PILOT_USER_ID_KEY: "admin",
+                app.PILOT_ACTIVE_PROJECT_ID_KEY: project.project_id,
+                app.PILOT_ACTIVE_PROJECT_ROLE_KEY: "admin",
+                "study_result": StudyResult(
+                    study_id="study-ui-economy-worker",
+                    result_store_refs={
+                        "economy_result_id": "economy_result_job_1",
+                        "technical_summary_artifact_id": "technical_summary",
+                        "recommendation_input_artifact_id": "recommendation_inputs_job_1",
+                        "power_economy_summary_artifact_id": "economy_summary_job_1",
+                    },
+                ),
+                "economy_v1_result": {"summary": pd.DataFrame(), "annual_cashflows": {}},
+                "single_entity_economy_result": {"summary": pd.DataFrame(), "annual_cashflows": {}},
+            }
+
+    dummy = DummyStreamlit()
+    queued = app._queue_pilot_annual_cashflow_job_if_enabled(dummy, "S0002")
+    assert queued is not None
+    claimed = access.claim_next_job_for_worker(
+        actor_user_id="admin",
+        worker_id="worker_1",
+        job_types=["economic_study"],
+    )
+    assert claimed is not None
+    power_annual = pd.DataFrame({"scenario_id": ["S0002", "S0002"], "year": [0, 1], "net_cash_flow": [-10.0, 3.0]})
+    single_annual = pd.DataFrame({"scenario_id": ["S0002", "S0002"], "year": [0, 1], "net_cash_flow": [-9.0, 4.0]})
+    persist_annual_cashflow_artifact(
+        access_service=access,
+        actor_user_id="admin",
+        project_id=project.project_id,
+        study_id="study-ui-economy-worker",
+        scenario_id="S0002",
+        perspective="power",
+        annual_cashflow=power_annual,
+        economy_result_id="economy_result_job_1",
+        artifact_job_id=claimed.job_id,
+    )
+    persist_annual_cashflow_artifact(
+        access_service=access,
+        actor_user_id="admin",
+        project_id=project.project_id,
+        study_id="study-ui-economy-worker",
+        scenario_id="S0002",
+        perspective="single_entity",
+        annual_cashflow=single_annual,
+        economy_result_id="economy_result_job_1",
+        artifact_job_id=claimed.job_id,
+    )
+    completed = access.succeed_worker_job(
+        actor_user_id="admin",
+        worker_id="worker_1",
+        project_id=project.project_id,
+        study_id="study-ui-economy-worker",
+        job_id=claimed.job_id,
+    )
+    assert completed.status == JobStatus.SUCCEEDED
+
+    loaded = app._load_completed_pilot_annual_cashflow_job_if_available(dummy, "S0002")
+
+    assert loaded is True
+    assert dummy.session_state["economy_v1_result"]["annual_cashflows"]["S0002"]["net_cash_flow"].tolist() == [
+        -10.0,
+        3.0,
+    ]
+    assert dummy.session_state["single_entity_economy_result"]["annual_cashflows"]["S0002"][
+        "net_cash_flow"
+    ].tolist() == [-9.0, 4.0]
+    refs = dummy.session_state["study_result"].result_store_refs
+    assert refs["power_annual_cashflow_artifact_id_S0002"] == "power_annual_cashflow_S0002"
+    assert refs["single_entity_annual_cashflow_artifact_id_S0002"] == "single_entity_annual_cashflow_S0002"
 
 
 def test_partial_hourly_retention_clears_price_curve():
