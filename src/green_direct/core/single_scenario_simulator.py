@@ -9,7 +9,6 @@ import pandas as pd
 
 from green_direct.core.bess_dispatch import (
     DispatchStrategy,
-    dispatch_bess_hour_summary_values_with_limits,
     dispatch_bess_hour_values_with_limits,
     dispatch_hour_values_with_limits,
     normalize_dispatch_strategy,
@@ -441,6 +440,167 @@ def _run_no_bess_hourly_detail(
     return pd.DataFrame(data, columns=HOURLY_LEDGER_COLUMNS)
 
 
+def _run_bess_summary_only(
+    *,
+    load_energy_values: np.ndarray,
+    renewable_energy_values: np.ndarray,
+    dispatch_load_energy_values: np.ndarray,
+    pv_station_use_values: np.ndarray,
+    wind_station_use_values: np.ndarray,
+    scenario: Scenario,
+    bess: BessParams,
+    policy: PolicyParams,
+    dt_hours: float,
+    dt_inverse: float,
+    annual_export_cap: float | None,
+    export_limit_energy: float,
+    exchange_limit_energy: float,
+    has_exchange_limit: bool,
+    bess_power_energy_limit: float,
+    bess_soc_min_energy: float,
+    bess_soc_max_energy: float,
+    initial_bess_energy: float,
+    eta_charge: float,
+    eta_discharge: float,
+    allow_export: bool,
+    total_renewable_generation: float,
+) -> dict[str, object]:
+    """Summary-only BESS path that avoids per-hour tuple helper calls."""
+
+    cumulative_export = 0.0
+    bess_energy = initial_bess_energy
+    direct_self_use_energy = 0.0
+    bess_discharge_to_load = 0.0
+    grid_import_energy = 0.0
+    grid_export_energy = 0.0
+    curtail_energy = 0.0
+    curtail_due_to_export_cap_energy = 0.0
+    curtail_due_to_exchange_limit_energy = 0.0
+    exchange_import_shortfall_energy = 0.0
+    bess_charge_energy = 0.0
+    max_grid_import_energy = 0.0
+    max_grid_export_energy = 0.0
+
+    for idx in range(len(load_energy_values)):
+        renewable_energy = float(renewable_energy_values[idx])
+        dispatch_load_energy = float(dispatch_load_energy_values[idx])
+
+        if renewable_energy >= dispatch_load_energy:
+            direct_self_use = dispatch_load_energy
+            surplus = renewable_energy - dispatch_load_energy
+            charge_space_input = (bess_soc_max_energy - bess_energy) / eta_charge
+            if charge_space_input < 0.0:
+                charge_space_input = 0.0
+            step_bess_charge = surplus
+            if bess_power_energy_limit < step_bess_charge:
+                step_bess_charge = bess_power_energy_limit
+            if charge_space_input < step_bess_charge:
+                step_bess_charge = charge_space_input
+            step_bess_energy_end = bess_energy + step_bess_charge * eta_charge
+
+            surplus_after_charge = surplus - step_bess_charge
+            if has_exchange_limit and exchange_limit_energy < export_limit_energy:
+                export_limit = exchange_limit_energy
+            else:
+                export_limit = export_limit_energy
+            if allow_export:
+                export_before_annual_cap = surplus_after_charge
+                if export_limit < export_before_annual_cap:
+                    export_before_annual_cap = export_limit
+            else:
+                export_before_annual_cap = 0.0
+            if annual_export_cap is not None:
+                remaining_cap = annual_export_cap - cumulative_export
+                if remaining_cap < 0.0:
+                    remaining_cap = 0.0
+                step_grid_export = export_before_annual_cap
+                if remaining_cap < step_grid_export:
+                    step_grid_export = remaining_cap
+            else:
+                step_grid_export = export_before_annual_cap
+            step_curtail = surplus_after_charge - step_grid_export
+            step_curtail_due_to_export_cap = export_before_annual_cap - step_grid_export
+            if step_curtail_due_to_export_cap < 0.0:
+                step_curtail_due_to_export_cap = 0.0
+            if has_exchange_limit and exchange_limit_energy < surplus_after_charge:
+                step_curtail_due_to_exchange_limit = surplus_after_charge - exchange_limit_energy
+            else:
+                step_curtail_due_to_exchange_limit = 0.0
+            step_bess_discharge = 0.0
+            step_grid_import = 0.0
+            step_exchange_import_shortfall = 0.0
+        else:
+            direct_self_use = renewable_energy
+            deficit = dispatch_load_energy - renewable_energy
+            available_discharge = (bess_energy - bess_soc_min_energy) * eta_discharge
+            if available_discharge < 0.0:
+                available_discharge = 0.0
+            step_bess_discharge = deficit
+            if bess_power_energy_limit < step_bess_discharge:
+                step_bess_discharge = bess_power_energy_limit
+            if available_discharge < step_bess_discharge:
+                step_bess_discharge = available_discharge
+            step_bess_energy_end = bess_energy - step_bess_discharge / eta_discharge
+
+            raw_grid_import = deficit - step_bess_discharge
+            if has_exchange_limit:
+                if exchange_limit_energy < raw_grid_import:
+                    step_grid_import = exchange_limit_energy
+                else:
+                    step_grid_import = raw_grid_import
+                step_exchange_import_shortfall = raw_grid_import - step_grid_import
+            else:
+                step_grid_import = raw_grid_import
+                step_exchange_import_shortfall = 0.0
+            step_grid_export = 0.0
+            step_curtail = 0.0
+            step_curtail_due_to_export_cap = 0.0
+            step_curtail_due_to_exchange_limit = 0.0
+            step_bess_charge = 0.0
+
+        bess_energy = step_bess_energy_end
+        cumulative_export += step_grid_export
+        direct_self_use_energy += direct_self_use
+        bess_discharge_to_load += step_bess_discharge
+        grid_import_energy += step_grid_import
+        grid_export_energy += step_grid_export
+        curtail_energy += step_curtail
+        curtail_due_to_export_cap_energy += step_curtail_due_to_export_cap
+        curtail_due_to_exchange_limit_energy += step_curtail_due_to_exchange_limit
+        exchange_import_shortfall_energy += step_exchange_import_shortfall
+        bess_charge_energy += step_bess_charge
+        if step_grid_import > max_grid_import_energy:
+            max_grid_import_energy = step_grid_import
+        if step_grid_export > max_grid_export_energy:
+            max_grid_export_energy = step_grid_export
+
+    final_soc = bess_energy / scenario.bess_energy
+    final_soc = min(max(final_soc, bess.soc_min - 1e-12), bess.soc_max + 1e-12)
+    return calculate_summary_from_values(
+        scenario,
+        bess,
+        policy,
+        total_load_energy=float(load_energy_values.sum()),
+        total_renewable_generation=total_renewable_generation,
+        pv_station_use_energy=float(pv_station_use_values.sum() * dt_hours),
+        wind_station_use_energy=float(wind_station_use_values.sum() * dt_hours),
+        direct_self_use_energy=direct_self_use_energy,
+        bess_discharge_to_load=bess_discharge_to_load,
+        grid_import_energy=grid_import_energy,
+        grid_export_energy=grid_export_energy,
+        curtail_energy=curtail_energy,
+        curtail_due_to_export_cap_energy=curtail_due_to_export_cap_energy,
+        curtail_due_to_exchange_limit_energy=curtail_due_to_exchange_limit_energy,
+        exchange_import_shortfall_energy=exchange_import_shortfall_energy,
+        bess_charge_energy=bess_charge_energy,
+        final_bess_energy=bess_energy,
+        initial_bess_energy=initial_bess_energy,
+        max_grid_import_power=max_grid_import_energy * dt_inverse,
+        max_grid_export_power=max_grid_export_energy * dt_inverse,
+        final_soc=final_soc,
+    )
+
+
 def run_single_scenario(
     curves: pd.DataFrame,
     scenario: Scenario,
@@ -586,56 +746,71 @@ def run_single_scenario(
     renewable_energy_values = renewable_power_values * dt_hours
     dispatch_load_energy_values = (load_values + station_use_deficit_values) * dt_hours
 
-    cumulative_export = 0.0
-    data: dict[str, object] | None = None
-    if retain_hourly_detail:
-        data = {
-            "scenario_id": np.full(n, scenario.scenario_id, dtype=object),
-            "timestamp": timestamps,
-            "hour_index": np.arange(n),
-            "load_power": load_values.copy(),
-            "pv_power": pv_power_values.copy(),
-            "wind_power": wind_power_values.copy(),
-            "pv_generation_power": pv_generation_values.copy(),
-            "wind_generation_power": wind_generation_values.copy(),
-            "renewable_generation_power": renewable_generation_values.copy(),
-            "pv_station_use_power": pv_station_use_values.copy(),
-            "wind_station_use_power": wind_station_use_values.copy(),
-            "station_use_power": station_use_values.copy(),
-            "renewable_power": renewable_power_values.copy(),
-            "direct_self_use_power": np.zeros(n),
-            "bess_charge_power": np.zeros(n),
-            "bess_discharge_power": np.zeros(n),
-            "grid_import_power": np.zeros(n),
-            "grid_export_power": np.zeros(n),
-            "curtail_power": np.zeros(n),
-            "curtail_due_to_export_cap_power": np.zeros(n),
-            "curtail_due_to_exchange_limit_power": np.zeros(n),
-            "exchange_import_shortfall_power": np.zeros(n),
-            "soc_start": np.zeros(n),
-            "soc_end": np.zeros(n),
-            "bess_energy_start": np.zeros(n),
-            "bess_energy_end": np.zeros(n),
-            "hour_case": np.empty(n, dtype=object),
-        }
+    if not retain_hourly_detail:
+        summary = _run_bess_summary_only(
+            load_energy_values=load_energy_values,
+            renewable_energy_values=renewable_energy_values,
+            dispatch_load_energy_values=dispatch_load_energy_values,
+            pv_station_use_values=pv_station_use_values,
+            wind_station_use_values=wind_station_use_values,
+            scenario=scenario,
+            bess=bess,
+            policy=policy,
+            dt_hours=dt_hours,
+            dt_inverse=dt_inverse,
+            annual_export_cap=annual_export_cap,
+            export_limit_energy=export_limit_energy,
+            exchange_limit_energy=exchange_limit_energy,
+            has_exchange_limit=has_exchange_limit,
+            bess_power_energy_limit=bess_power_energy_limit,
+            bess_soc_min_energy=bess_soc_min_energy,
+            bess_soc_max_energy=bess_soc_max_energy,
+            initial_bess_energy=initial_bess_energy,
+            eta_charge=eta_charge,
+            eta_discharge=eta_discharge,
+            allow_export=allow_export,
+            total_renewable_generation=total_renewable_generation,
+        )
+        summary["dispatch_strategy"] = dispatch_strategy.value
+        return ScenarioResult(
+            summary=summary,
+            hourly_detail=_empty_hourly_detail(shared=_share_empty_hourly_detail),
+            warnings=[],
+            diagnostics=diagnostics,
+        )
 
-    total_load_energy = float(load_energy_values.sum())
-    pv_station_use_energy = float(pv_station_use_values.sum() * dt_hours)
-    wind_station_use_energy = float(wind_station_use_values.sum() * dt_hours)
-    direct_self_use_energy = 0.0
-    bess_discharge_to_load = 0.0
-    grid_import_energy = 0.0
-    grid_export_energy = 0.0
-    curtail_energy = 0.0
-    curtail_due_to_export_cap_energy = 0.0
-    curtail_due_to_exchange_limit_energy = 0.0
-    exchange_import_shortfall_energy = 0.0
-    bess_charge_energy = 0.0
-    max_grid_import_energy = 0.0
-    max_grid_export_energy = 0.0
+    cumulative_export = 0.0
+    data: dict[str, object] = {
+        "scenario_id": np.full(n, scenario.scenario_id, dtype=object),
+        "timestamp": timestamps,
+        "hour_index": np.arange(n),
+        "load_power": load_values.copy(),
+        "pv_power": pv_power_values.copy(),
+        "wind_power": wind_power_values.copy(),
+        "pv_generation_power": pv_generation_values.copy(),
+        "wind_generation_power": wind_generation_values.copy(),
+        "renewable_generation_power": renewable_generation_values.copy(),
+        "pv_station_use_power": pv_station_use_values.copy(),
+        "wind_station_use_power": wind_station_use_values.copy(),
+        "station_use_power": station_use_values.copy(),
+        "renewable_power": renewable_power_values.copy(),
+        "direct_self_use_power": np.zeros(n),
+        "bess_charge_power": np.zeros(n),
+        "bess_discharge_power": np.zeros(n),
+        "grid_import_power": np.zeros(n),
+        "grid_export_power": np.zeros(n),
+        "curtail_power": np.zeros(n),
+        "curtail_due_to_export_cap_power": np.zeros(n),
+        "curtail_due_to_exchange_limit_power": np.zeros(n),
+        "exchange_import_shortfall_power": np.zeros(n),
+        "soc_start": np.zeros(n),
+        "soc_end": np.zeros(n),
+        "bess_energy_start": np.zeros(n),
+        "bess_energy_end": np.zeros(n),
+        "hour_case": np.empty(n, dtype=object),
+    }
 
     for idx in range(n):
-        load_energy = float(load_energy_values[idx])
         renewable_energy = float(renewable_energy_values[idx])
         dispatch_load_energy = float(dispatch_load_energy_values[idx])
         bess_energy_start = bess_energy
@@ -643,137 +818,64 @@ def run_single_scenario(
         if annual_export_cap is not None:
             remaining_cap = annual_export_cap - cumulative_export
 
-        if data is None:
-            (
-                direct_self_use,
-                step_bess_charge,
-                step_bess_discharge,
-                step_grid_import,
-                step_grid_export,
-                step_curtail,
-                step_curtail_due_to_export_cap,
-                step_curtail_due_to_exchange_limit,
-                step_exchange_import_shortfall,
-                step_bess_energy_end,
-            ) = dispatch_bess_hour_summary_values_with_limits(
-                load_energy=dispatch_load_energy,
-                renewable_energy=renewable_energy,
-                bess_power_energy_limit=bess_power_energy_limit,
-                bess_energy_start=bess_energy_start,
-                bess_soc_min_energy=bess_soc_min_energy,
-                bess_soc_max_energy=bess_soc_max_energy,
-                eta_charge=eta_charge,
-                eta_discharge=eta_discharge,
-                allow_export=allow_export,
-                export_limit_energy=export_limit_energy,
-                remaining_export_cap=remaining_cap,
-                exchange_limit_energy=exchange_limit_energy,
-                has_exchange_limit=has_exchange_limit,
-            )
-        else:
-            soc_start = soc
-            (
-                direct_self_use,
-                step_bess_charge,
-                step_bess_discharge,
-                step_grid_import,
-                step_grid_export,
-                step_curtail,
-                step_curtail_due_to_export_cap,
-                step_curtail_due_to_exchange_limit,
-                step_exchange_import_shortfall,
-                step_bess_energy_end,
-                step_hour_case,
-            ) = dispatch_bess_hour_values_with_limits(
-                load_energy=dispatch_load_energy,
-                renewable_energy=renewable_energy,
-                bess_power_energy_limit=bess_power_energy_limit,
-                bess_energy_start=bess_energy_start,
-                bess_soc_min_energy=bess_soc_min_energy,
-                bess_soc_max_energy=bess_soc_max_energy,
-                eta_charge=eta_charge,
-                eta_discharge=eta_discharge,
-                allow_export=allow_export,
-                export_limit_energy=export_limit_energy,
-                remaining_export_cap=remaining_cap,
-                exchange_limit_energy=exchange_limit_energy,
-                has_exchange_limit=has_exchange_limit,
-                clamp_outputs=False,
-            )
+        soc_start = soc
+        (
+            direct_self_use,
+            step_bess_charge,
+            step_bess_discharge,
+            step_grid_import,
+            step_grid_export,
+            step_curtail,
+            step_curtail_due_to_export_cap,
+            step_curtail_due_to_exchange_limit,
+            step_exchange_import_shortfall,
+            step_bess_energy_end,
+            step_hour_case,
+        ) = dispatch_bess_hour_values_with_limits(
+            load_energy=dispatch_load_energy,
+            renewable_energy=renewable_energy,
+            bess_power_energy_limit=bess_power_energy_limit,
+            bess_energy_start=bess_energy_start,
+            bess_soc_min_energy=bess_soc_min_energy,
+            bess_soc_max_energy=bess_soc_max_energy,
+            eta_charge=eta_charge,
+            eta_discharge=eta_discharge,
+            allow_export=allow_export,
+            export_limit_energy=export_limit_energy,
+            remaining_export_cap=remaining_cap,
+            exchange_limit_energy=exchange_limit_energy,
+            has_exchange_limit=has_exchange_limit,
+            clamp_outputs=False,
+        )
         bess_energy = step_bess_energy_end
-        if data is not None:
-            soc = bess_energy / scenario_bess_energy
-            soc = min(max(soc, bess.soc_min - 1e-12), bess.soc_max + 1e-12)
+        soc = bess_energy / scenario_bess_energy
+        soc = min(max(soc, bess.soc_min - 1e-12), bess.soc_max + 1e-12)
         cumulative_export += step_grid_export
 
-        if data is None:
-            direct_self_use_energy += direct_self_use
-            bess_discharge_to_load += step_bess_discharge
-            grid_import_energy += step_grid_import
-            grid_export_energy += step_grid_export
-            curtail_energy += step_curtail
-            curtail_due_to_export_cap_energy += step_curtail_due_to_export_cap
-            curtail_due_to_exchange_limit_energy += step_curtail_due_to_exchange_limit
-            exchange_import_shortfall_energy += step_exchange_import_shortfall
-            bess_charge_energy += step_bess_charge
-            if step_grid_import > max_grid_import_energy:
-                max_grid_import_energy = step_grid_import
-            if step_grid_export > max_grid_export_energy:
-                max_grid_export_energy = step_grid_export
+        data["direct_self_use_power"][idx] = direct_self_use * dt_inverse
+        data["bess_charge_power"][idx] = step_bess_charge * dt_inverse
+        data["bess_discharge_power"][idx] = step_bess_discharge * dt_inverse
+        data["grid_import_power"][idx] = step_grid_import * dt_inverse
+        data["grid_export_power"][idx] = step_grid_export * dt_inverse
+        data["curtail_power"][idx] = step_curtail * dt_inverse
+        data["curtail_due_to_export_cap_power"][idx] = step_curtail_due_to_export_cap * dt_inverse
+        data["curtail_due_to_exchange_limit_power"][idx] = step_curtail_due_to_exchange_limit * dt_inverse
+        data["exchange_import_shortfall_power"][idx] = step_exchange_import_shortfall * dt_inverse
+        data["soc_start"][idx] = soc_start
+        data["soc_end"][idx] = soc
+        data["bess_energy_start"][idx] = bess_energy_start
+        data["bess_energy_end"][idx] = bess_energy
+        data["hour_case"][idx] = step_hour_case
 
-        if data is not None:
-            data["direct_self_use_power"][idx] = direct_self_use * dt_inverse
-            data["bess_charge_power"][idx] = step_bess_charge * dt_inverse
-            data["bess_discharge_power"][idx] = step_bess_discharge * dt_inverse
-            data["grid_import_power"][idx] = step_grid_import * dt_inverse
-            data["grid_export_power"][idx] = step_grid_export * dt_inverse
-            data["curtail_power"][idx] = step_curtail * dt_inverse
-            data["curtail_due_to_export_cap_power"][idx] = step_curtail_due_to_export_cap * dt_inverse
-            data["curtail_due_to_exchange_limit_power"][idx] = step_curtail_due_to_exchange_limit * dt_inverse
-            data["exchange_import_shortfall_power"][idx] = step_exchange_import_shortfall * dt_inverse
-            data["soc_start"][idx] = soc_start
-            data["soc_end"][idx] = soc
-            data["bess_energy_start"][idx] = bess_energy_start
-            data["bess_energy_end"][idx] = bess_energy
-            data["hour_case"][idx] = step_hour_case
-
-    if data is not None:
-        _zero_close_hourly_arrays(data)
-        hourly = pd.DataFrame(data, columns=HOURLY_LEDGER_COLUMNS)
-        summary = calculate_summary(
-            hourly,
-            scenario,
-            bess,
-            policy,
-            initial_bess_energy=initial_bess_energy,
-            dt_hours=dt_hours,
-        )
-    else:
-        hourly = _empty_hourly_detail(shared=_share_empty_hourly_detail)
-        final_soc = bess_energy / scenario_bess_energy
-        final_soc = min(max(final_soc, bess.soc_min - 1e-12), bess.soc_max + 1e-12)
-        summary = calculate_summary_from_values(
-            scenario,
-            bess,
-            policy,
-            total_load_energy=total_load_energy,
-            total_renewable_generation=total_renewable_generation,
-            pv_station_use_energy=pv_station_use_energy,
-            wind_station_use_energy=wind_station_use_energy,
-            direct_self_use_energy=direct_self_use_energy,
-            bess_discharge_to_load=bess_discharge_to_load,
-            grid_import_energy=grid_import_energy,
-            grid_export_energy=grid_export_energy,
-            curtail_energy=curtail_energy,
-            curtail_due_to_export_cap_energy=curtail_due_to_export_cap_energy,
-            curtail_due_to_exchange_limit_energy=curtail_due_to_exchange_limit_energy,
-            exchange_import_shortfall_energy=exchange_import_shortfall_energy,
-            bess_charge_energy=bess_charge_energy,
-            final_bess_energy=bess_energy,
-            initial_bess_energy=initial_bess_energy,
-            max_grid_import_power=max_grid_import_energy * dt_inverse,
-            max_grid_export_power=max_grid_export_energy * dt_inverse,
-            final_soc=final_soc,
-        )
+    _zero_close_hourly_arrays(data)
+    hourly = pd.DataFrame(data, columns=HOURLY_LEDGER_COLUMNS)
+    summary = calculate_summary(
+        hourly,
+        scenario,
+        bess,
+        policy,
+        initial_bess_energy=initial_bess_energy,
+        dt_hours=dt_hours,
+    )
     summary["dispatch_strategy"] = dispatch_strategy.value
     return ScenarioResult(summary=summary, hourly_detail=hourly, warnings=[], diagnostics=diagnostics)

@@ -5826,3 +5826,24 @@ profile / benchmark：
 边界：
 - 不改变 V0.1 BESS 充放电顺序、SOC 能量滚动、功率/容量约束、上网/下网限制、summary 字段、经济性 V1 或推荐排序；
 - 这仍是 Python 热路径微优化，不等于解决成千上万方案全部等待问题；后续仍应推进后台 Job、worker 级取消/重试、数据库/对象存储和更大规模计算内核优化。
+
+### 2026-06-17 含储能 summary-only 内联累加器
+
+上一轮 profile 后，剩余热点已经非常集中：有储能 summary-only 仍每小时调用 `dispatch_bess_hour_summary_values_with_limits()`，产生大量函数调用、tuple 打包/解包和跨函数局部变量搬运。完整逐小时明细仍需要 `hour_case`、`soc_start`、`soc_end` 和完整 ledger，但 summary-only 只需要全年累加值。
+
+实现：
+- 新增 `_run_bess_summary_only()`，只用于有储能且 `retain_hourly_detail=False` 的路径；
+- 该累加器在同一个循环内完成 BESS 充放电、上网/弃电/下网限制和 summary 指标累加，不再每小时调用 tuple-return dispatch helper；
+- 完整逐小时明细路径仍调用 `dispatch_bess_hour_values_with_limits()`，继续生成 `hour_case`、SOC 和完整 hourly ledger；
+- `tests/test_single_scenario.py` 调整为验证 BESS summary-only hot path 不调用逐小时 dispatch helper，同时与完整明细 summary 保持一致。
+
+验证与反馈环：
+- `python -m pytest tests\test_bess_dispatch.py tests\test_single_scenario.py tests\test_batch_runner.py -q` 通过，68 项通过；
+- `python -m compileall -q src\green_direct\core\single_scenario_simulator.py tests\test_single_scenario.py` 通过；
+- 48 个 8760 小时含储能方案、summary-only、无常驻逐小时明细的同参数 cProfile：函数调用数约从 430,117 降到 9,733，cProfile 总耗时约从 0.524s 降到 0.255s；
+- 同一直接计时三次约从 0.3479s / 0.3439s / 0.3459s 到 0.2010s / 0.1979s / 0.2155s；
+- 带 `tracemalloc` 的 benchmark 同参数技术 summary-first 约从 15.7857s 到 4.0213s，峰值 Python heap 仍约 1.09MB。
+
+边界：
+- 不改变 V0.1 BESS 调度顺序、SOC 能量滚动、功率/容量约束、年度上网比例 cap、交换功率限制、summary 字段、经济性 V1 或推荐排序；
+- 为了性能，summary-only 现在与完整明细路径各有一套等价循环；后续如果改 BESS 口径，必须同时更新完整明细路径、summary-only 累加器和一致性测试。

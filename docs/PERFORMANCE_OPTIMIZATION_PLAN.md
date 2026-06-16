@@ -42,6 +42,7 @@
 - 含储能批量 hot path 已跳过 `dispatch_bess_hour_values_with_limits()` 的最终防御性输出夹紧：public dispatch helper 默认仍保留 `max(..., 0.0)` 语义，批量 simulator 在已验证非负输入和预计算限额条件下传入 `clamp_outputs=False`，避免每小时重复执行一组冗余 `max()`。
 - 含储能 summary-only 热路径已新增只返回数值的 `dispatch_bess_hour_summary_values_with_limits()`，不再为未保留逐小时明细的方案计算 `hour_case` 字符串；summary-only 也不再逐小时计算/夹紧 `soc_start` / `soc_end`，只在结束时计算一次 `final_soc`。
 - 含储能 summary-only 热路径已把 BESS helper 内部热点 `max()` / `min()` 改为等价条件比较，并把最大下网/上网功率的循环内 `max()` 改为先跟踪最大电量、结束后一次性换算功率，减少每小时 Python 函数调用。
+- 含储能 summary-only 热路径已进一步内联为 `_run_bess_summary_only()` 累加器，不再每小时调用 tuple-return dispatch helper；完整逐小时明细路径仍使用 `dispatch_bess_hour_values_with_limits()` 生成 `hour_case`、SOC 和完整 ledger。
 
 ## 2. 新增基准脚本
 
@@ -154,7 +155,7 @@ python scripts\benchmark_internal_pilot_performance.py --json
 - 同一组输入下经济性 summary 与优化前一致；
 - 年度现金流保留策略不影响推荐排序。
 - 后续可继续把更多 DataFrame/NumPy 批量计算和价格曲线聚合放进共享上下文，避免每个方案重复解析同一组输入。
-- 已减少单方案热路径里的 `DispatchStep` 对象创建：`dispatch_hour_values_with_limits()` 与 `dispatch_hour_with_limits()` 保持同一计算逻辑，现有 golden/批量一致性测试用于证明口径不变；已将批量 runner 不消费的逐方案 diagnostics 变为可跳过，并把 hourly numeric cleanup 前移到 numpy 数组；无储能 summary-only 和无储能 retained hourly detail 场景已走 NumPy 快路径；有储能场景已把与 SOC 无关的曲线派生量移出逐小时循环，批量入口已复用同一份曲线数组；有储能热路径新增 `dispatch_bess_hour_values_with_limits()`，绕过通用 `has_bess` 分支，并在未配置电网交换功率限制时跳过 `min(..., inf)` 型计算；批量 hot path 还会跳过 public helper 的最终防御性输出夹紧，减少每小时冗余 `max()` 调用；含储能 summary-only 场景使用不生成 `hour_case` 的数值 helper，只在循环结束计算一次 `final_soc`，并将 helper 内 `max()` / `min()` 和最大功率维护改为等价条件比较。后续可继续评估有储能 summary-only 的更紧凑累加结构、dispatch 内核瘦身或编译化内核。
+- 已减少单方案热路径里的 `DispatchStep` 对象创建：`dispatch_hour_values_with_limits()` 与 `dispatch_hour_with_limits()` 保持同一计算逻辑，现有 golden/批量一致性测试用于证明口径不变；已将批量 runner 不消费的逐方案 diagnostics 变为可跳过，并把 hourly numeric cleanup 前移到 numpy 数组；无储能 summary-only 和无储能 retained hourly detail 场景已走 NumPy 快路径；有储能场景已把与 SOC 无关的曲线派生量移出逐小时循环，批量入口已复用同一份曲线数组；有储能热路径新增 `dispatch_bess_hour_values_with_limits()`，绕过通用 `has_bess` 分支，并在未配置电网交换功率限制时跳过 `min(..., inf)` 型计算；批量 hot path 还会跳过 public helper 的最终防御性输出夹紧，减少每小时冗余 `max()` 调用；含储能 summary-only 场景已内联为 `_run_bess_summary_only()` 累加器，不生成 `hour_case`，不逐小时调用 tuple-return helper，只在循环结束计算一次 `final_soc`。后续可继续评估 dispatch 内核编译化或后台 Job 化。
 
 ## 4. 不做的事
 
