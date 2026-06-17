@@ -40,7 +40,14 @@
 
 截至 2026-06-17，本地 `codex/UI` 分支的最近 checkpoint 为：
 
-- 最新提交主题：`perf(economy): trim summary hot path`
+- 最新提交主题：`feat(ui): add support bundle download`
+- `3dc52f1 feat(pilot): add sanitized support bundle`
+- `48a81ba docs(pilot): add feedback triage checklist`
+- `96ca727 perf(core): cache shared curve totals`
+- `4147924 chore(perf): add direct benchmark timing mode`
+- `a5c458a docs(deploy): add owner go-live checklist`
+- `3e5ff3b chore(release): prepare local trial package`
+- `perf(economy): trim summary hot path`
 - `9de4638 perf(batch): stream scenario generation`
 - `a5a75fd chore(perf): make parallel worker default configurable`
 - `807fb1b chore(deploy): require private github source`
@@ -59,7 +66,7 @@ python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json
 
 当前已知状态：
 
-- `python -m pytest -q` 最近一次全量记录为 `400 passed`；
+- `python -m pytest -q` 最近一次全量记录为 `409 passed`；
 - `tests\test_batch_runner.py` 最近一次专项结果为 `18 passed`；
 - study runner + UI 性能提示相关专项最近一次结果为 `14 passed`；
 - 部署静态 preflight 通过，已覆盖 Docker/Compose/Render 关键默认值、Web/worker 环境变量、`.dockerignore`、Git tracked 推送源安全和大文件检查；
@@ -68,6 +75,7 @@ python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json
 - 本项目已经具备 Render Blueprint / Docker / persistent disk / Cloudflare Access 的首发路线材料，但尚未完成目标托管平台实机部署演练；
 - 不要为了接入 Vercel 或 Cloudflare Pages/Workers 直接把当前 Streamlit 长进程改成 serverless/edge 应用。短期公网内测优先保持 Docker Web Service 路线。
 - `run_batch()` 已通过 `iter_scenarios()` 流式消费方案池，串行和并行 chunk 都不再先物化完整 `Scenario` list；这只是方案池对象生成和调度层优化，不改变 V0.1 技术调度、经济性或推荐口径。
+- 已新增脱敏 support bundle：平台管理员可用 `pilot-admin support-bundle` 或 Streamlit `平台管理 -> 审计日志 -> 脱敏排查包` 生成 JSON，供 Claude Code / Codex 排查内测问题。该包不读取 artifact payload，不输出登录名、显示名、项目名、artifact storage URI、result label、audit metadata value 或绝对 store 路径；不要让用户改发原始曲线、完整 artifact payload 或未脱敏日志。
 
 如果 Claude Code 接手时当前分支仍领先 upstream，先报告：
 
@@ -105,6 +113,8 @@ python scripts\preflight_internal_pilot_deploy.py --summary
 
 ```text
 请按“内部 10-20 人试用上线前审查”全面 review/debug 当前项目。
+
+如果用户提供内测问题材料，请优先使用平台管理员生成的脱敏 support bundle；不要索要或转发原始曲线、完整 artifact payload、密码、token 或未脱敏服务器日志。
 
 审查范围：
 1. 当前工作区；

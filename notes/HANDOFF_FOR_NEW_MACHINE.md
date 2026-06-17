@@ -93,7 +93,7 @@
 
 2026-06-17 当前部署前事实状态：
 - 最新性能 checkpoint 提交主题为 `perf(economy): trim summary hot path`；上一批量方案性能 checkpoint 提交主题为 `perf(batch): stream scenario generation`；最新部署/运维 checkpoint 提交主题为 `chore(perf): make parallel worker default configurable`；此前连续部署/性能 checkpoint 包括 `807fb1b chore(deploy): require private github source`、`428fcfa chore(deploy): align browser path defaults`、`86b9319 chore(deploy): check runtime dependency sync`、`d6e8cb6 chore(deploy): verify render pilot disk`、`805f601 chore(deploy): require pilot backup materials`、`d6c33d4 perf(core): inline bess summary accumulation`、`fd8ca63 perf(core): reduce bess summary dispatch calls`、`511c0d4 perf(core): skip bess hour case in summaries`、`725f465 chore(deploy): lock pilot runtime env checks`、`68d43f8 docs(pilot): sharpen claudecode launch prompts`、`345f3a9 perf(economy): fast path temporary replacement irr dips` 和 `b28d4c5 perf(core): skip redundant bess output clamps`；
-- `python -m pytest -q` 最近一次全量结果为 `400 passed`；
+- `python -m pytest -q` 最近一次全量结果为 `409 passed`；
 - `python -m pytest tests\test_bess_dispatch.py tests\test_single_scenario.py tests\test_batch_runner.py -q` 最近一次针对 BESS summary-only hot path 结果为 `68 passed`；
 - 最近一次 BESS summary-only profile 小切片把 48 个 8760 小时含储能方案、summary-only、无常驻明细的 cProfile 函数调用数约从 2,112,037 降到 430,117，cProfile 总耗时约从 0.753s 降到 0.430s；该优化只减少 `max()` / `min()` 和最大功率维护的 Python 调用，不改变 V0.1 dispatch 口径；
 - 随后一轮把有储能 summary-only 路径内联为 `_run_bess_summary_only()` 累加器，同参数 cProfile 函数调用数约从 430,117 降到 9,733，直接计时约从 0.34s 到 0.20s，带 `tracemalloc` benchmark 约从 15.7857s 到 4.0213s；完整逐小时明细路径仍调用 `dispatch_bess_hour_values_with_limits()`。后续若改 BESS 调度口径，必须同步更新完整明细路径、summary-only 累加器和一致性测试；
@@ -122,7 +122,7 @@
 - 因此当前最快交付路径是先发送本地试用 ZIP 给同事；公网 Route A 仍是第二条线，需经用户确认后推送当前分支到私有 GitHub，等待 GitHub Actions 质量门通过，再按 Render/Cloudflare checklist 做真实部署演练；
 - 公网 Route A 的非程序员负责人短操作单已补充为 `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md`，并纳入 `preflight_internal_pilot_deploy.py --summary` 的通过提示和 REQUIRED_FILES。当前静态 preflight 通过后会提示先运行 `--require-git-sync --summary`、`--require-github-private --summary`，再按短操作单执行。
 - 技术仿真批量热路径继续做了一个微切片：`PreparedCurveData` 缓存 `load_power_sum`、`pv_positive_pu_sum`、`wind_positive_pu_sum`，summary-only 路径用这些批量共享统计计算总负荷电量和新能源可发电量，避免每方案重复扫描同一曲线。该切片不改变风光负值站用电、BESS SOC、summary 字段或推荐排序；单次 benchmark 未观察到显著加速，价值主要是减少重复工作并让后续 hot path 更清晰。
-- 公网内测排障新增脱敏 support bundle：`build_pilot_support_bundle()` 和 `pilot-admin support-bundle` 会聚合账号/项目/成员/任务/result/artifact/audit 元数据与 doctor 摘要，要求平台管理员执行，可按项目输出 JSON；它不读取 artifact payload，不输出登录名、显示名、项目名、artifact storage URI、result label、audit metadata value 或绝对 store 路径。后续让 Claude Code / Codex review/debug 时，优先让管理员生成该 bundle，而不是让用户贴原始曲线、完整 artifact payload 或未脱敏日志。
+- 公网内测排障新增脱敏 support bundle：`build_pilot_support_bundle()`、`pilot-admin support-bundle` 和 Streamlit `平台管理 -> 审计日志 -> 脱敏排查包` 会聚合账号/项目/成员/任务/result/artifact/audit 元数据与 doctor 摘要，要求平台管理员执行，可按项目输出 JSON；它不读取 artifact payload，不输出登录名、显示名、项目名、artifact storage URI、result label、audit metadata value 或绝对 store 路径。后续让 Claude Code / Codex review/debug 时，优先让管理员生成该 bundle，而不是让用户贴原始曲线、完整 artifact payload 或未脱敏日志。
 
 若用户提出 Vercel、Cloudflare Pages/Workers 等成熟平台，请先区分平台角色：当前 Streamlit 长进程 + pilot store 形态不适合直接部署到 serverless/edge runtime；短期公网内测推荐 Render/Fly/Railway/Cloud Run 等容器服务托管应用本体，Cloudflare 负责域名、HTTPS 和 Access 门禁。若要改架构，优先把本地 store 换成数据库/对象存储和后台 worker，再考虑前端重写。
 

@@ -6187,12 +6187,15 @@ profile / benchmark：
 调整：
 - 新增 `src/green_direct/services/pilot_support_bundle.py`，提供 `build_pilot_support_bundle()`，聚合账号状态计数、平台管理员数量、项目/成员元数据、任务状态、artifact 元数据、result 索引布尔摘要、最近审计动作和 `pilot_store_doctor` 摘要；
 - 新增 `pilot-admin support-bundle`，要求平台管理员权限，可按 `--project-id` 限定项目，并可用 `--output` 写出 JSON；
+- Streamlit 平台管理页的“审计日志”tab 新增“脱敏排查包”下载区，平台管理员可直接在网页按全局或单项目下载 JSON，降低非程序员负责人排障门槛；
 - support bundle 不读取 artifact payload，不输出 password hash、session token、login name、display name、project name、artifact storage URI、result label、audit metadata value 或绝对 store 路径；
 - `docs/PUBLIC_BETA_FEEDBACK_TRIAGE.md`、`docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md`、`docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md` 和 `docs/SOFTWARE_OVERVIEW_AND_INTERFACE.md` 已补该命令和边界说明。
 
 验证：
 - `python -m pytest tests\test_pilot_support_bundle.py -q` 通过，4 项通过；
-- `python -m compileall -q src\green_direct\services\pilot_support_bundle.py src\green_direct\cli.py tests\test_pilot_support_bundle.py` 通过。
+- `python -m pytest tests\test_ui_import.py::test_platform_admin_support_bundle_download_is_sanitized tests\test_ui_import.py::test_streamlit_platform_admin_can_create_user tests\test_ui_import.py::test_streamlit_platform_admin_can_create_and_archive_project tests\test_pilot_support_bundle.py -q` 通过，7 项通过；
+- `python -m pytest -q` 通过，409 项通过；
+- `python -m compileall -q src\green_direct\ui\app.py src\green_direct\services\pilot_support_bundle.py tests\test_ui_import.py` 通过。
 
 边界：
 - 这是内测排障材料标准化，不是正式工单系统、集中日志、监控告警或安全审计平台；

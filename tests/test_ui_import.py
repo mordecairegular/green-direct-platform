@@ -1629,6 +1629,83 @@ def test_platform_admin_audit_frame_serializes_metadata():
     assert frame.loc[0, "metadata"] == '{"a":1,"b":2}'
 
 
+def test_platform_admin_support_bundle_download_is_sanitized(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from datetime import datetime, timezone
+
+    from green_direct.models.pilot_backend import ArtifactKind, AuditAction, AuditLog, Project, ProjectRole, User
+
+    monkeypatch.setenv(app.PILOT_AUTH_ENV, "1")
+    monkeypatch.setenv(app.PILOT_STORE_DIR_ENV, str(tmp_path))
+
+    access = app._pilot_access_service()
+    access.registry.save_user(
+        User("admin", "admin-secret@example.local", "Sensitive Admin Name", is_platform_admin=True)
+    )
+    access.registry.save_user(User("analyst", "analyst-secret@example.local", "Sensitive Analyst Name"))
+    access.registry.save_project(Project("project_1", "Sensitive Project Name", created_by_user_id="admin"))
+    access.registry.grant_project_role(project_id="project_1", user_id="admin", role=ProjectRole.ADMIN)
+    access.registry.grant_project_role(project_id="project_1", user_id="analyst", role=ProjectRole.ANALYST)
+    access.result_store.store_artifact(
+        artifact_id="input_curve_load",
+        project_id="project_1",
+        study_id="study_1",
+        job_id="job_1",
+        kind=ArtifactKind.INPUT_CURVE,
+        payload="secret uploaded curve payload",
+        filename="sensitive_curve.csv",
+        content_type="text/csv",
+    )
+    access.result_store.append_audit_log(
+        AuditLog(
+            event_id="event_1",
+            actor_user_id="analyst",
+            action=AuditAction.UPLOAD_INPUT,
+            project_id="project_1",
+            study_id="study_1",
+            job_id="job_1",
+            target_type="artifact",
+            target_id="input_curve_load",
+            metadata={"file_name": "sensitive_curve.csv"},
+        )
+    )
+
+    generated_at = datetime(2026, 6, 17, 10, 30, tzinfo=timezone.utc)
+    download = app._platform_admin_support_bundle_download(
+        actor_user_id="admin",
+        project_id="project_1",
+        recent_limit=10,
+        generated_at=generated_at,
+    )
+    text = download["payload"].decode("utf-8")
+    bundle = json.loads(text)
+
+    assert download["file_name"] == "green_direct_support_bundle_project_1_20260617_103000Z.json"
+    assert download["mime"] == "application/json"
+    assert bundle["project_id"] == "project_1"
+    assert bundle["counts"]["artifacts"] == 1
+    assert bundle["audit"]["recent"][0]["metadata_keys"] == ["file_name"]
+    assert "admin-secret@example.local" not in text
+    assert "analyst-secret@example.local" not in text
+    assert "Sensitive Admin Name" not in text
+    assert "Sensitive Analyst Name" not in text
+    assert "Sensitive Project Name" not in text
+    assert "secret uploaded curve payload" not in text
+    assert "sensitive_curve.csv" not in text
+    assert str(tmp_path.resolve()) not in text
+
+    assert app._platform_admin_support_bundle_file_name(None, generated_at) == (
+        "green_direct_support_bundle_all-projects_20260617_103000Z.json"
+    )
+    with pytest.raises(app.PilotAdminError, match="platform accounts"):
+        app._platform_admin_support_bundle_download(
+            actor_user_id="analyst",
+            project_id="project_1",
+            recent_limit=10,
+            generated_at=generated_at,
+        )
+
+
 def test_platform_admin_worker_once_uses_supported_scope_and_reports_result(monkeypatch):
     import green_direct.ui.app as app
     from green_direct.models.pilot_backend import JobStatus, JobType

@@ -173,7 +173,7 @@ Cloudflare Access 是第一层门禁，应用内账号是第二层门禁，两�
 
 发链接前，先准备好反馈收集入口。建议直接复制 `docs/PUBLIC_BETA_FEEDBACK_TRIAGE.md` 的反馈模板，建立一个首轮反馈表，并指定谁负责每天查看 P0/P1。
 
-如果需要把问题交给 Claude Code / Codex 排查，先在服务器 Shell 生成脱敏排查包：
+如果需要把问题交给 Claude Code / Codex 排查，平台管理员可先在网页 `平台管理 -> 审计日志 -> 脱敏排查包` 下载 JSON；也可在服务器 Shell 生成：
 
 ```bash
 python -m green_direct.cli pilot-admin support-bundle \

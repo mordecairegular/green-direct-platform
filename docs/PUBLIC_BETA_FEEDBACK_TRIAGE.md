@@ -84,6 +84,10 @@ python -m green_direct.cli pilot-admin doctor `
 
 生成脱敏排查包，适合交给 Claude Code / Codex 做 review/debug：
 
+网页入口：平台管理员登录后进入 `平台管理 -> 审计日志 -> 脱敏排查包`，选择全局或指定项目后下载 JSON。
+
+服务器 Shell 入口：
+
 ```bash
 python -m green_direct.cli pilot-admin support-bundle \
   --store-dir /data/pilot_store \

@@ -79,6 +79,7 @@ from green_direct.services import (
     UploadFileInfo,
     UploadPolicy,
     UploadValidationError,
+    build_pilot_support_bundle,
     build_recommendation_study,
     execute_next_worker_job,
     filter_uploads,
@@ -3734,6 +3735,80 @@ def _render_platform_admin_audit_log(
     st.caption("审计记录为只读视图；metadata 使用紧凑 JSON 展示，便于复制排查。")
 
 
+def _platform_admin_support_bundle_file_name(project_id: str | None, generated_at: datetime) -> str:
+    scope = str(project_id).strip() if project_id else "all-projects"
+    safe_scope = re.sub(r"[^A-Za-z0-9_.-]+", "-", scope).strip("-") or "project"
+    timestamp = generated_at.astimezone(timezone.utc).strftime("%Y%m%d_%H%M%SZ")
+    return f"green_direct_support_bundle_{safe_scope}_{timestamp}.json"
+
+
+def _platform_admin_support_bundle_download(
+    *,
+    actor_user_id: str,
+    project_id: str | None,
+    recent_limit: int,
+    generated_at: datetime | None = None,
+) -> dict[str, bytes | str]:
+    timestamp = generated_at or datetime.now(timezone.utc)
+    _pilot_admin_service().list_users(actor_user_id=actor_user_id)
+    bundle = build_pilot_support_bundle(
+        _pilot_store_dir(),
+        project_id=project_id,
+        recent_limit=recent_limit,
+        generated_at=timestamp,
+    )
+    payload = json.dumps(bundle, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
+    return {
+        "payload": payload,
+        "file_name": _platform_admin_support_bundle_file_name(project_id, timestamp),
+        "mime": "application/json",
+    }
+
+
+def _render_platform_admin_support_bundle(
+    st,
+    *,
+    actor_user_id: str,
+    projects: list[Project],
+) -> None:
+    st.markdown("### 脱敏排查包")
+    st.caption("用于把首轮内测问题交给 Claude Code / Codex 排查；不包含原始曲线、artifact payload、登录名、显示名、项目名或审计 metadata 值。")
+    projects_by_id = {project.project_id: project for project in projects}
+    project_options = ["__all__"] + [project.project_id for project in projects]
+    selected_project = st.selectbox(
+        "排查包范围",
+        project_options,
+        format_func=lambda value: "全局 + 所有项目" if value == "__all__" else projects_by_id[str(value)].name,
+        key="pilot_admin_support_bundle_project_scope",
+    )
+    limit = st.number_input(
+        "排查包最近记录数",
+        min_value=1,
+        max_value=500,
+        value=50,
+        step=10,
+        key="pilot_admin_support_bundle_limit",
+    )
+    project_id = None if selected_project == "__all__" else str(selected_project)
+    try:
+        download = _platform_admin_support_bundle_download(
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            recent_limit=int(limit),
+        )
+    except Exception as exc:  # noqa: BLE001 - support bundle errors should be visible
+        _handle_platform_admin_error(st, exc)
+        return
+    st.download_button(
+        "下载脱敏排查包 JSON",
+        data=download["payload"],
+        file_name=str(download["file_name"]),
+        mime=str(download["mime"]),
+        key="pilot_admin_support_bundle_download",
+    )
+    st.caption("发送给外部 agent 前，仍建议管理员人工快速浏览一次。")
+
+
 def _handle_platform_admin_error(st, exc: Exception) -> None:
     if isinstance(exc, (PilotAdminError, PilotAccessError, PilotAuthError, FileExistsError, FileNotFoundError, ValueError)):
         st.error(str(exc))
@@ -4025,6 +4100,12 @@ def _render_platform_admin_page(st) -> None:
         _render_platform_admin_worker_ops(st, actor_user_id=actor_user_id, projects=projects)
 
     with audit_tab:
+        _render_platform_admin_support_bundle(
+            st,
+            actor_user_id=actor_user_id,
+            projects=projects,
+        )
+        st.markdown("### 审计日志")
         _render_platform_admin_audit_log(
             st,
             admin_service=admin_service,
