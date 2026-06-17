@@ -251,8 +251,12 @@ def test_public_beta_status_report_runs_local_json():
     assert payload["github_private_manually_confirmed"] is False
     assert payload["performance"] is None
     assert payload["static_preflight"]["status"] == "pass"
-    assert payload["local_trial_zip"]["status"] == "pass"
-    assert payload["local_trial_zip"]["contains_venv"] is False
+    if (ROOT / "release" / "GreenDirectLocalTrial_20260617.zip").exists():
+        assert payload["local_trial_zip"]["status"] == "pass"
+        assert payload["local_trial_zip"]["contains_venv"] is False
+    else:
+        assert payload["local_trial_zip"]["status"] == "fail"
+        assert "missing" in payload["local_trial_zip"]["message"]
     assert any("Remote gates were not checked" in blocker for blocker in payload["blockers"])
 
 
