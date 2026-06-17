@@ -42,6 +42,7 @@
 - 批量 summary-only 热路径已复用共享空 hourly ledger，避免未保留逐小时明细的每个方案都新建一个空 pandas DataFrame；公开单方案默认调用仍返回带列名的空表。
 - 有储能场景已把光伏/风电出力、正负出力拆分、站用电、净可用绿电、调度负荷和逐小时电量等与 SOC 无关的数组移到循环外预计算；逐小时循环内仍保留同一套 BESS SOC 滚动和 dispatch helper，不改变 V0.1 调度口径。
 - 批量技术仿真已复用 `PreparedCurveData`，同一批次只从输入 `DataFrame` 提取一次 timestamp、负荷、光伏和风电数组；每个方案复用这些数组，避免重复 DataFrame 取列和 `to_numpy()` 转换。
+- `PreparedCurveData` 已缓存负荷总和、光伏正标幺总和和风电正标幺总和，summary-only 路径不再为每个方案重复扫描同一条曲线计算 `total_load_energy` 和 `total_renewable_generation`。
 - 含储能批量 hot path 已跳过 `dispatch_bess_hour_values_with_limits()` 的最终防御性输出夹紧：public dispatch helper 默认仍保留 `max(..., 0.0)` 语义，批量 simulator 在已验证非负输入和预计算限额条件下传入 `clamp_outputs=False`，避免每小时重复执行一组冗余 `max()`。
 - 含储能 summary-only 热路径已新增只返回数值的 `dispatch_bess_hour_summary_values_with_limits()`，不再为未保留逐小时明细的方案计算 `hour_case` 字符串；summary-only 也不再逐小时计算/夹紧 `soc_start` / `soc_end`，只在结束时计算一次 `final_soc`。
 - 含储能 summary-only 热路径已把 BESS helper 内部热点 `max()` / `min()` 改为等价条件比较，并把最大下网/上网功率的循环内 `max()` 改为先跟踪最大电量、结束后一次性换算功率，减少每小时 Python 函数调用。

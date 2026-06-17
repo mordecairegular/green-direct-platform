@@ -5,6 +5,7 @@ from green_direct.core.bess_dispatch import DispatchStrategy, dispatch_hour_valu
 from green_direct.core.single_scenario_simulator import (
     HOURLY_LEDGER_COLUMNS,
     collect_single_scenario_input_diagnostics,
+    prepare_curve_data,
     run_single_scenario,
 )
 from green_direct.models.diagnostics import DiagnosticSeverity
@@ -224,6 +225,23 @@ def test_public_summary_only_calls_do_not_share_empty_hourly_detail_by_default()
     assert first.hourly_detail.empty
     assert list(first.hourly_detail.columns) == HOURLY_LEDGER_COLUMNS
     assert first.hourly_detail is not second.hourly_detail
+
+
+def test_prepared_curve_data_caches_batch_shared_positive_sums():
+    curves = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2020-01-01", periods=3, freq="h"),
+            "load_power": [10, 20, 30],
+            "pv_pu": [-0.2, 0.5, 1.2],
+            "wind_pu": [0.1, -0.4, 0.3],
+        }
+    )
+
+    prepared = prepare_curve_data(curves)
+
+    assert prepared.load_power_sum == pytest.approx(60)
+    assert prepared.pv_positive_pu_sum == pytest.approx(1.7)
+    assert prepared.wind_positive_pu_sum == pytest.approx(0.4)
 
 
 

@@ -6140,3 +6140,22 @@ profile / benchmark：
 - 这不是新的经济性算法，不改变电源侧 V1、同一主体税前模型、FIRR 多根判断、payback、推荐排序或技术调度；
 - `--no-tracemalloc` 只用于更接近真实等待时间的计时；需要观察内存峰值时仍应使用默认口径；
 - 后续真正优化仍应继续针对 IRR/NPV、年度循环、价格曲线聚合和后台 Job 化推进。
+
+### 2026-06-17 技术仿真批量共享曲线统计缓存
+
+本轮继续推进方案遍历性能，但只做不改变 V0.1 调度口径的微切片。`PreparedCurveData` 已经让批量运行复用 timestamp、负荷、光伏和风电数组；本轮把同一批次所有方案共享的负荷总和、光伏正标幺总和、风电正标幺总和也放入该对象，避免每个方案重复扫描同一曲线计算 `total_load_energy` 和 `total_renewable_generation`。
+
+调整：
+- `PreparedCurveData` 新增 `load_power_sum`、`pv_positive_pu_sum`、`wind_positive_pu_sum`；
+- `run_single_scenario()` 用缓存值计算 summary-only 所需的总负荷电量和新能源可发电量；
+- `_run_no_bess_summary_only()` 和 `_run_bess_summary_only()` 接收 `total_load_energy`，不再在每个方案里重复对负荷电量数组求和；
+- `tests/test_single_scenario.py` 新增正负标幺混合样本，确认缓存只统计正标幺发电部分。
+
+验证与反馈环：
+- `python -m pytest tests\test_single_scenario.py tests\test_batch_runner.py -q` 通过，58 项通过；
+- `python -m compileall -q src\green_direct\core\single_scenario_simulator.py tests\test_single_scenario.py` 通过；
+- `python scripts\benchmark_internal_pilot_performance.py --hours 8760 --pv-count 12 --wind-count 12 --bess-power-count 4 --durations 0,2 --skip-full-retention --skip-economy --retain-detail-count 0 --parallel-workers 1 --no-tracemalloc --json` 得到 572 个年度方案 summary-first 约 `1.952s`；同参数改前一次样本约 `1.8573s`，差异在本机单次噪声内，不把本轮描述为显著加速。
+
+边界：
+- 这只是批量共享曲线统计缓存，不改变风光负值站用电、年度上网 cap、BESS SOC 滚动、summary 字段、经济性 V1 或推荐排序；
+- 当前直计时已显示 572 个 8760 小时 summary-first 方案约 2 秒量级，后续用户体感瓶颈更应关注完整明细保留、价格曲线聚合、导出、多人并发和后台 Job。

@@ -95,6 +95,9 @@ class PreparedCurveData:
     load_values: np.ndarray
     pv_pu_values: np.ndarray
     wind_pu_values: np.ndarray
+    load_power_sum: float
+    pv_positive_pu_sum: float
+    wind_positive_pu_sum: float
 
 
 def prepare_curve_data(curves: pd.DataFrame) -> PreparedCurveData:
@@ -102,11 +105,17 @@ def prepare_curve_data(curves: pd.DataFrame) -> PreparedCurveData:
     missing = required - set(curves.columns)
     if missing:
         raise ValueError(f"Missing required curve columns: {', '.join(sorted(missing))}")
+    load_values = curves["load_power"].to_numpy(dtype=float)
+    pv_pu_values = curves["pv_pu"].to_numpy(dtype=float)
+    wind_pu_values = curves["wind_pu"].to_numpy(dtype=float)
     return PreparedCurveData(
         timestamps=curves["timestamp"].to_numpy(),
-        load_values=curves["load_power"].to_numpy(dtype=float),
-        pv_pu_values=curves["pv_pu"].to_numpy(dtype=float),
-        wind_pu_values=curves["wind_pu"].to_numpy(dtype=float),
+        load_values=load_values,
+        pv_pu_values=pv_pu_values,
+        wind_pu_values=wind_pu_values,
+        load_power_sum=float(load_values.sum()),
+        pv_positive_pu_sum=float(np.maximum(pv_pu_values, 0.0).sum()),
+        wind_positive_pu_sum=float(np.maximum(wind_pu_values, 0.0).sum()),
     )
 
 
@@ -237,6 +246,7 @@ def _run_no_bess_summary_only(
     export_limit_energy: float,
     exchange_limit_energy: float,
     total_renewable_generation: float,
+    total_load_energy: float,
 ) -> dict[str, object]:
     """Vectorized summary-only path for scenarios with no SOC state."""
 
@@ -257,7 +267,7 @@ def _run_no_bess_summary_only(
         scenario,
         bess,
         policy,
-        total_load_energy=float(values["load_energy"].sum()),
+        total_load_energy=total_load_energy,
         total_renewable_generation=total_renewable_generation,
         pv_station_use_energy=float(values["pv_station_use_power"].sum() * dt_hours),
         wind_station_use_energy=float(values["wind_station_use_power"].sum() * dt_hours),
@@ -464,6 +474,7 @@ def _run_bess_summary_only(
     eta_discharge: float,
     allow_export: bool,
     total_renewable_generation: float,
+    total_load_energy: float,
 ) -> dict[str, object]:
     """Summary-only BESS path that avoids per-hour tuple helper calls."""
 
@@ -580,7 +591,7 @@ def _run_bess_summary_only(
         scenario,
         bess,
         policy,
-        total_load_energy=float(load_energy_values.sum()),
+        total_load_energy=total_load_energy,
         total_renewable_generation=total_renewable_generation,
         pv_station_use_energy=float(pv_station_use_values.sum() * dt_hours),
         wind_station_use_energy=float(wind_station_use_values.sum() * dt_hours),
@@ -671,10 +682,11 @@ def run_single_scenario(
     pv_pu_values = curve_data.pv_pu_values
     wind_pu_values = curve_data.wind_pu_values
     n = len(load_values)
+    total_load_energy = curve_data.load_power_sum * dt_hours
     total_renewable_generation = float(
         (
-            pv_capacity * np.maximum(pv_pu_values, 0.0).sum()
-            + wind_capacity * np.maximum(wind_pu_values, 0.0).sum()
+            pv_capacity * curve_data.pv_positive_pu_sum
+            + wind_capacity * curve_data.wind_positive_pu_sum
         )
         * dt_hours
     )
@@ -697,6 +709,7 @@ def run_single_scenario(
             export_limit_energy=export_limit_energy,
             exchange_limit_energy=exchange_limit_energy,
             total_renewable_generation=total_renewable_generation,
+            total_load_energy=total_load_energy,
         )
         summary["dispatch_strategy"] = dispatch_strategy.value
         return ScenarioResult(
@@ -770,6 +783,7 @@ def run_single_scenario(
             eta_discharge=eta_discharge,
             allow_export=allow_export,
             total_renewable_generation=total_renewable_generation,
+            total_load_energy=total_load_energy,
         )
         summary["dispatch_strategy"] = dispatch_strategy.value
         return ScenarioResult(
