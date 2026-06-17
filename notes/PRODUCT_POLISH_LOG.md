@@ -6013,3 +6013,23 @@ profile / benchmark：
 - 这是方案池对象生成和 chunk 调度的内存/启动阶段优化，不改变任何单方案技术调度、summary 字段、排序字段、经济性或推荐口径；
 - 对 8760 小时含储能大样本，总耗时仍主要由逐小时 BESS SOC 滚动决定，流式 iterator 不会神奇消除线性计算量；
 - 后续大幅改善用户等待体验仍要靠后台 Job、真实 worker、取消/heartbeat、以及更深层的调度内核优化。
+
+### 2026-06-17 Claude Code 上线/UI 提示词同步最新部署状态
+
+本轮继续收口“把项目交给 Claude Code 做上线前 review/debug 和 UI 提升”的交接材料。此前 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md` 的 checkpoint 摘要仍停留在较早部署/性能提交和旧测试数量，容易让下一位 agent 误判当前分支状态、重复审查已完成的 Render/Cloudflare 路线，或把 Vercel 当成首发主机。
+
+调整：
+- 更新最近 checkpoint 为 `9de4638 perf(batch): stream scenario generation`、`a5a75fd chore(perf): make parallel worker default configurable`、`807fb1b chore(deploy): require private github source`、`428fcfa chore(deploy): align browser path defaults` 和 `86b9319 chore(deploy): check runtime dependency sync`；
+- 把 `--require-git-sync` 的当前预期失败写清楚为本地 `codex/UI` ahead `origin/codex/UI` 135、behind 0、工作树干净；
+- 把流式方案迭代的边界写进提示词：只优化方案池对象生成和 chunk 调度，不改变 V0.1 技术调度、经济性或推荐口径；
+- UI 审查提示词新增边界：不要为了截图关闭 pilot auth 或把 `GREEN_DIRECT_ENABLE_PILOT_AUTH=0` 当成公网默认；首轮 UI 小切片不要重写为 Next.js/React、不要为 Vercel 首发改前端、不要新增营销首页、不要绕过项目/成员/导出权限和审计服务层。
+
+验证：
+- `python scripts\preflight_internal_pilot_deploy.py --json` 通过，`failed_count=0`；
+- `python -m pytest tests\test_deployment_artifacts.py -q` 通过，12 项通过；
+- `python -m pytest -q` 通过，396 项通过；
+- `git diff --check` 仅有 Windows LF/CRLF 提示，无空白错误。
+
+边界：
+- 这是提示词和交接材料更新，不等于已经完成 Claude Code 的实际 review/UI 审查，也不等于已完成 Render/Cloudflare 实机部署；
+- 真实发布仍需用户确认 push 当前分支到 GitHub 私有仓库，并按首次发布作战单执行 Render 和 Cloudflare 控制台步骤。

@@ -40,26 +40,32 @@
 
 截至 2026-06-17，本地 `codex/UI` 分支的最近 checkpoint 为：
 
-- `725f465 chore(deploy): lock pilot runtime env checks`
-- `abe7936 fix(deploy): align streamlit upload limit`
-- `83e28d9 chore(deploy): check tracked files before pilot push`
-- `869ccc3 perf(core): specialize bess dispatch hot path`
+- `9de4638 perf(batch): stream scenario generation`
+- `a5a75fd chore(perf): make parallel worker default configurable`
+- `807fb1b chore(deploy): require private github source`
+- `428fcfa chore(deploy): align browser path defaults`
+- `86b9319 chore(deploy): check runtime dependency sync`
 
 本地已验证：
 
 ```powershell
-python -m pytest -q
+python -m pytest tests\test_batch_runner.py -q
+python -m pytest tests\test_study_runner.py tests\test_ui_import.py::test_technical_workload_estimate_scales_with_detail_retention_and_workers tests\test_ui_import.py::test_scenario_count_limit_notice_blocks_oversized_pool -q
+python -m compileall -q src\green_direct\batch\scenario_generator.py src\green_direct\batch\batch_runner.py scripts\benchmark_internal_pilot_performance.py tests\test_batch_runner.py
 python scripts\preflight_internal_pilot_deploy.py --json
 python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json
 ```
 
 当前已知状态：
 
-- 全量测试最近一次结果为 `387 passed`；
+- `python -m pytest -q` 最近一次全量记录为 `396 passed`；
+- `tests\test_batch_runner.py` 最近一次专项结果为 `18 passed`；
+- study runner + UI 性能提示相关专项最近一次结果为 `14 passed`；
 - 部署静态 preflight 通过，已覆盖 Docker/Compose/Render 关键默认值、Web/worker 环境变量、`.dockerignore`、Git tracked 推送源安全和大文件检查；
-- `--require-git-sync` 只应在本地分支尚未推送时失败 `git:sync`，例如本地 `codex/UI` ahead `origin/codex/UI`；推送前不要把这个失败误判为配置错误；
+- `--require-git-sync` 当前只应在本地分支尚未推送时失败 `git:sync`，最近状态为本地 `codex/UI` ahead `origin/codex/UI` 135、behind 0、工作树干净；推送前不要把这个失败误判为配置错误；
 - 本项目已经具备 Render Blueprint / Docker / persistent disk / Cloudflare Access 的首发路线材料，但尚未完成目标托管平台实机部署演练；
 - 不要为了接入 Vercel 或 Cloudflare Pages/Workers 直接把当前 Streamlit 长进程改成 serverless/edge 应用。短期公网内测优先保持 Docker Web Service 路线。
+- `run_batch()` 已通过 `iter_scenarios()` 流式消费方案池，串行和并行 chunk 都不再先物化完整 `Scenario` list；这只是方案池对象生成和调度层优化，不改变 V0.1 技术调度、经济性或推荐口径。
 
 如果 Claude Code 接手时当前分支仍领先 upstream，先报告：
 
@@ -198,6 +204,8 @@ streamlit run src/green_direct/ui/app.py
 
 然后用浏览器实际检查 01-06 页，至少覆盖桌面宽屏和窄屏/手机宽度。窄屏建议至少检查约 `390 x 844` 或接近手机浏览器宽度。若当前环境无法打开浏览器，请说明限制，并基于已有截图和代码审查，不要臆造浏览器已通过。历史截图只能作为线索，不能替代当前运行截图；如果代码已变更，应重新截图或明确“未重新截图”。
 
+如果本地启用了 pilot auth，请先用仓库现有脚本或 `pilot-admin bootstrap` 建临时测试账号；不要为了 UI 截图关闭多用户门禁或把 `GREEN_DIRECT_ENABLE_PILOT_AUTH=0` 当成公网内测默认。UI 审查应覆盖登录后项目选择/创建、六步工作流和平台管理入口的可见性边界。
+
 目标体验按页面拆解：
 1. 01 项目启动：让用户快速知道输入是否齐备、结果是否可用、下一步该做什么；
 2. 02 方案仿真：让曲线上传、方案池、政策约束、性能设置更清晰，避免把全量枚举表作为主入口；
@@ -223,6 +231,12 @@ streamlit run src/green_direct/ui/app.py
 5. 图表页代表方案复核：减少围绕全量枚举的选择压力，让图表回答“为什么推荐/风险在哪”。
 
 若没有强 P0/P1 上线风险，建议第一轮 UI 落地优先选第 1 项或第 2 项；不要一次性重做全部六页。
+
+首轮 UI 小切片不要做：
+1. 不要把 Streamlit 改成 Next.js/React，也不要为了 Vercel 首发重写前端；
+2. 不要新增营销首页、hero 页或装饰性大图；
+3. 不要把图表/导出/推荐做成需要全量逐小时明细常驻的路径；
+4. 不要绕过现有项目、成员、导出权限和审计服务层。
 
 输出要求：
 1. 先列 UI Findings，按 P0/P1/P2 排序；
