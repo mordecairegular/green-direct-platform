@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableExtensions EnableDelayedExpansion
 
 cd /d "%~dp0"
 
@@ -28,7 +28,7 @@ if exist ".venv\Scripts\python.exe" (
     exit /b 1
   )
   echo Creating local Python environment...
-  %BOOTSTRAP_PY% -m venv .venv
+  !BOOTSTRAP_PY! -m venv .venv
   if errorlevel 1 (
     echo Failed to create .venv.
     pause

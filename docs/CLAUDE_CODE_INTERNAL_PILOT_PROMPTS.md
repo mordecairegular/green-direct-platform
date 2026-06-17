@@ -40,7 +40,8 @@
 
 截至 2026-06-17，本地 `codex/UI` 分支的最近 checkpoint 为：
 
-- 最新提交主题：`chore(perf): benchmark retained economy cashflows`
+- 最新提交主题：`chore(release): script local trial package`
+- `16f234b chore(perf): benchmark retained economy cashflows`
 - `c5d9051 feat(ui): add support bundle download`
 - `3dc52f1 feat(pilot): add sanitized support bundle`
 - `48a81ba docs(pilot): add feedback triage checklist`
@@ -63,6 +64,7 @@ python -m pytest tests\test_study_runner.py tests\test_ui_import.py::test_techni
 python -m pytest tests\test_performance_benchmark_script.py -q
 python -m compileall -q src\green_direct\batch\scenario_generator.py src\green_direct\batch\batch_runner.py scripts\benchmark_internal_pilot_performance.py tests\test_batch_runner.py
 python scripts\benchmark_internal_pilot_performance.py --economy-only-summary-rows 5000 --economy-retain-cashflow-count 20 --no-tracemalloc --json
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_local_trial_package.ps1 -KeepExpanded
 python scripts\preflight_internal_pilot_deploy.py --json
 python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json
 ```
@@ -81,7 +83,7 @@ python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json
 - `run_batch()` 已通过 `iter_scenarios()` 流式消费方案池，串行和并行 chunk 都不再先物化完整 `Scenario` list；这只是方案池对象生成和调度层优化，不改变 V0.1 技术调度、经济性或推荐口径。
 - `benchmark_internal_pilot_performance.py` 已支持 `--economy-retain-cashflow-count N`，用于模拟当前 UI “全量计算经济性 summary、只为少量方案保留年度现金流”的策略；5,000 行 synthetic economic summary 在关闭 `tracemalloc` 时，不保留年度现金流约 `0.7366s`，保留电源侧/同一主体各 20 个年度现金流约 `0.7986s`。
 - 已新增脱敏 support bundle：平台管理员可用 `pilot-admin support-bundle` 或 Streamlit `平台管理 -> 审计日志 -> 脱敏排查包` 生成 JSON，供 Claude Code / Codex 排查内测问题。该包不读取 artifact payload，不输出登录名、显示名、项目名、artifact storage URI、result label、audit metadata value 或绝对 store 路径；不要让用户改发原始曲线、完整 artifact payload 或未脱敏日志。
-- 用户已明确：本地程序分发如果继续推进，应尽可能保留当前 Streamlit 网页操作逻辑和界面逻辑；报告导出功能不需要打包，欢迎页不是阻塞项，不要优先重写成独立桌面 GUI。
+- 用户已明确：本地程序分发如果继续推进，应尽可能保留当前 Streamlit 网页操作逻辑和界面逻辑；报告导出功能不需要打包，欢迎页不是阻塞项，不要优先重写成独立桌面 GUI。`scripts/build_local_trial_package.ps1` 可重新生成 `release/GreenDirectLocalTrial_YYYYMMDD.zip`，发送给同事前应重新运行，避免旧 ZIP 落后于当前源码；`START_GREEN_DIRECT_LOCAL_TRIAL.bat -CheckOnly` 已在新分发目录验证通过，首次在线安装依赖可能需要 5-10 分钟，中断后可重新双击继续。
 
 如果 Claude Code 接手时当前分支仍领先 upstream，先报告：
 

@@ -6,17 +6,25 @@
 
 发送 `release/GreenDirectLocalTrial_YYYYMMDD.zip`。
 
+重新生成当前日期本地试用包：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_local_trial_package.ps1
+```
+
+如需保留解压后的构建目录用于检查，可追加 `-KeepExpanded`。生成的 ZIP 位于 `release/`，该目录不进入 Git。
+
 同事使用步骤：
 
 1. 解压 ZIP 到本地目录；
 2. 双击 `START_GREEN_DIRECT_LOCAL_TRIAL.bat`；
-3. 首次运行会自动创建 `.venv` 并安装运行依赖；
+3. 首次运行会自动创建 `.venv` 并安装运行依赖，通常需要几分钟，网络较慢时可能需要 5-10 分钟；
 4. 浏览器会自动打开本地地址，通常是 `http://localhost:8503`；
 5. 使用期间不要关闭启动窗口。
 
 如果电脑已经准备好 Python 环境，也可以双击 `START_GREEN_DIRECT_APP.bat` 直接启动。
 
-本地试用包要求同事电脑已安装 Python 3.10 或更新版本；如果没有 Python 或首次运行网络无法安装依赖，需要另做离线包或免安装 EXE。
+本地试用包要求同事电脑已安装 Python 3.10 或更新版本；如果没有 Python 或首次运行网络无法安装依赖，需要另做离线包或免安装 EXE。如果首次安装中断，重新双击启动文件即可继续检查和补装依赖。
 
 ## 本次本地版保留什么
 
@@ -39,8 +47,10 @@
 - `config/`、`samples/` 中的 CSV 模板；
 - `README.md`、`docs/USER_QUICK_GUIDE.md`。
 
+上述内容已由 `scripts/build_local_trial_package.ps1` 自动复制并压缩；不要手工拖拽文件打包，避免漏掉最新源码或启动脚本。
+
 ## 给同事的最短话术
 
 ```text
-请解压后双击 START_GREEN_DIRECT_LOCAL_TRIAL.bat。第一次启动会安装依赖，可能需要几分钟。浏览器打开后按 01-06 页顺序试用；如只想体验，可以先用 Demo。使用期间不要关闭黑色启动窗口。
+请解压后双击 START_GREEN_DIRECT_LOCAL_TRIAL.bat。第一次启动会安装依赖，通常需要几分钟，网络较慢时可能需要 5-10 分钟。浏览器打开后按 01-06 页顺序试用；如只想体验，可以先用 Demo。使用期间不要关闭黑色启动窗口。
 ```

@@ -6222,3 +6222,23 @@ profile / benchmark：
 边界：
 - 这是 benchmark 覆盖增强，不改变经济性 V1 现金流口径、FIRR/NPV/payback、推荐排序或技术调度；
 - 当前样本说明“只保留少量现金流”额外成本较小；后续性能风险仍主要在全量现金流保留、逐时价格曲线聚合、导出和后台 Job 化。
+
+### 2026-06-17 本地试用包改为脚本化构建
+
+用户已明确：如果先走本地程序分发，应尽可能保留当前网页使用的操作逻辑和界面逻辑；报告导出不需要打包，欢迎页也不是阻塞项。检查发现早前生成的 `release/GreenDirectLocalTrial_20260617.zip` 已落后于当前源码，包内缺少后续新增的 support bundle 服务文件，`app.py` 也不是最新版本。
+
+调整：
+- 新增 `scripts/build_local_trial_package.ps1`，从当前工作区复制 `src/`、启动脚本、运行依赖、配置、示例 CSV 和用户说明；
+- 自动生成 `release/GreenDirectLocalTrial_YYYYMMDD.zip`，并写入 `BUILD_INFO.txt` 记录构建时间、Git commit 和构建时 `git status`；
+- `docs/LOCAL_TRIAL_DISTRIBUTION.md` 改为要求用脚本构建，不再建议手工拖拽文件打包。
+- 修正 `START_GREEN_DIRECT_LOCAL_TRIAL.bat` 首次运行路径：启用 delayed expansion，避免包内没有 `.venv` 时 `%BOOTSTRAP_PY%` 在括号块内过早展开导致 `.venv` 创建失败。
+
+验证：
+- 重新生成 `release/GreenDirectLocalTrial_20260617.zip`，包内 `app.py` 和 `pilot_support_bundle.py` 与当前源码哈希一致；
+- 在新生成的分发目录执行 `START_GREEN_DIRECT_LOCAL_TRIAL.bat -CheckOnly`，首次安装路径可继续补装依赖，二次检查通过并返回 code 0，没有启动长进程；
+- 由于首次在线安装依赖在本机可超过 5 分钟，用户说明已补充“网络较慢时可能需要 5-10 分钟；中断后可重新双击继续”。
+
+边界：
+- 该 ZIP 仍是本地单机试用包，不包含公网多人账号后台、Render/Cloudflare 链路、离线依赖或免安装 EXE；
+- 该调整不改变 Streamlit UI、技术仿真、经济性 V1、推荐排序或公网部署策略；
+- 每次准备发给同事前，都应重新运行构建脚本，避免发送旧源码包。
