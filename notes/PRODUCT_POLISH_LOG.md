@@ -6033,3 +6033,26 @@ profile / benchmark：
 边界：
 - 这是提示词和交接材料更新，不等于已经完成 Claude Code 的实际 review/UI 审查，也不等于已完成 Render/Cloudflare 实机部署；
 - 真实发布仍需用户确认 push 当前分支到 GitHub 私有仓库，并按首次发布作战单执行 Render 和 Cloudflare 控制台步骤。
+
+### 2026-06-17 经济性 summary-only 热路径继续瘦身
+
+本轮继续推进“成千上万个方案经济性测算等待久”的专项，但只做不改变 V1 现金流口径的小切片。profile 显示 5,000 行 synthetic technical summary、固定价、双经济视角、`retain_annual_cashflows=False` 时，主要热点仍在每方案 FIRR bisection/NPV；同时 summary 字段读取时的缺失值判断和 IRR 正负现金流扫描也有可见开销。
+
+调整：
+- `_value()` / `_override_value()` 使用 `_is_missing_scalar()`，对 `int` / `float` / NumPy 数字标量走 `math.isnan()` 快路径，只有非数字标量才回退 `pd.isna()`；
+- `_calculate_irr()` 新增 `_cashflow_sign_profile()`，一次遍历同时得到非零现金流、是否有正/负值和正负号变化次数，避免重复构造列表与多次 `any()` 扫描；
+- `scripts/benchmark_internal_pilot_performance.py` 新增 `--economy-only-summary-rows`，可直接生成 synthetic technical summary 压测经济性 summary-only，避免技术仿真耗时干扰经济性优化判断；
+- `tests/test_performance_benchmark_script.py` 覆盖新 benchmark 入口，`tests/test_economy_v1.py` 覆盖 `None` / `NaN` / `pd.NA` 仍按默认值处理。
+
+验证与反馈环：
+- `python -m pytest tests\test_economy_v1.py tests\test_single_entity_economy.py -q` 通过，33 项通过；
+- `python -m pytest tests\test_economy_v1.py tests\test_single_entity_economy.py tests\test_study_runner.py tests\test_performance_benchmark_script.py -q` 通过，47 项通过；
+- `python -m pytest -q` 通过，398 项通过；
+- `python -m compileall -q src\green_direct\economy\economic_evaluator.py scripts\benchmark_internal_pilot_performance.py tests\test_economy_v1.py tests\test_performance_benchmark_script.py` 通过；
+- 5,000 行 synthetic economic summary direct timing 约从本轮基线 0.8741s 降到 0.7352s；
+- `python scripts\benchmark_internal_pilot_performance.py --economy-only-summary-rows 500 --json` 通过，500 行经济性 summary-only 在 tracemalloc 口径下约 1.1987s、峰值 Python heap 约 1.009MB。
+
+边界：
+- 这不是新的财务模型，不改变电源侧 V1、同一主体税前模型、FIRR 多根判断、payback、推荐排序或技术调度；
+- benchmark 脚本使用 `tracemalloc` 时会显著放大经济性热路径耗时，适合前后对比，不应直接等同于用户真实等待；
+- 后续经济性更大幅优化仍要针对 IRR bisection/NPV、年度循环和双视角批量化继续推进。

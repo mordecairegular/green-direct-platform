@@ -9,7 +9,7 @@ from green_direct.economy import (
     evaluate_batch_economy,
     evaluate_scenario_economy,
 )
-from green_direct.economy.economic_evaluator import _calculate_irr, _npv
+from green_direct.economy.economic_evaluator import _calculate_irr, _npv, _override_value, _value
 
 
 def _summary(**overrides):
@@ -208,6 +208,24 @@ def test_npv_matches_discounted_cashflow_sum():
     assert _npv(cashflows, rate) == pytest.approx(
         sum(value / ((1 + rate) ** index) for index, value in enumerate(cashflows))
     )
+
+
+def test_summary_value_helpers_use_defaults_for_missing_scalars():
+    data = {
+        "none_value": None,
+        "nan_value": float("nan"),
+        "pd_na_value": pd.NA,
+        "zero_value": 0.0,
+    }
+
+    assert _value(data, "none_value", 7.0) == 7.0
+    assert _value(data, "nan_value", 7.0) == 7.0
+    assert _value(data, "pd_na_value", 7.0) == 7.0
+    assert _value(data, "zero_value", 7.0) == 0.0
+    assert _override_value(data, "none_value", 9.0) == 9.0
+    assert _override_value(data, "nan_value", 9.0) == 9.0
+    assert _override_value(data, "pd_na_value", 9.0) == 9.0
+    assert _override_value(data, "zero_value", 9.0) == 0.0
 
 
 def test_irr_uses_fast_path_for_single_sign_change_cashflow(monkeypatch):

@@ -104,6 +104,29 @@ def _scenario_grid(
     }
 
 
+def _synthetic_summary(row_count: int) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for index in range(row_count):
+        wind_capacity = float((index % 20) + 1)
+        pv_capacity = float((index % 25) + 1)
+        bess_power = float(index % 8)
+        bess_energy = bess_power * 2.0 if bess_power > 0 else 0.0
+        rows.append(
+            {
+                "scenario_id": f"S{index + 1:05d}",
+                "wind_capacity": wind_capacity,
+                "pv_capacity": pv_capacity,
+                "bess_power": bess_power,
+                "bess_energy": bess_energy,
+                "grid_export_energy": 3000.0 + (index % 200) * 10.0 + wind_capacity * 90.0,
+                "self_use_energy": 18000.0 + (index % 300) * 20.0 + pv_capacity * 120.0,
+                "annual_equivalent_cycles": 250.0 if bess_energy > 0 else 0.0,
+                "replacement_year": math.inf,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def _measure(name: str, func: Callable[[], Any]) -> tuple[Any, dict[str, Any]]:
     gc.collect()
     tracemalloc.start()
@@ -161,6 +184,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--parallel-workers", type=_positive_int, default=1)
     parser.add_argument("--warn-threshold", type=_positive_int, default=5000)
     parser.add_argument("--retain-detail-count", type=_nonnegative_int, default=20)
+    parser.add_argument(
+        "--economy-only-summary-rows",
+        type=_positive_int,
+        default=None,
+        help="Benchmark economy summary-only on a synthetic technical summary and skip technical simulation.",
+    )
     parser.add_argument("--skip-full-retention", action="store_true")
     parser.add_argument("--skip-economy", action="store_true")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
@@ -169,6 +198,45 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.economy_only_summary_rows is not None and args.skip_economy:
+        raise SystemExit("--economy-only-summary-rows cannot be combined with --skip-economy.")
+
+    if args.economy_only_summary_rows is not None:
+        summary = _synthetic_summary(args.economy_only_summary_rows)
+        payload: dict[str, Any] = {
+            "config": {
+                "hours": None,
+                "scenario_count": args.economy_only_summary_rows,
+                "parallel_workers": None,
+                "retain_detail_count": 0,
+                "durations": [],
+                "economy_only_summary_rows": args.economy_only_summary_rows,
+            },
+            "benchmarks": [],
+        }
+        economy_result, record = _measure(
+            "economy_summary_no_annual_cashflows",
+            lambda: run_economic_study(
+                summary,
+                economic_params=EconomicParams(),
+                avoided_grid_params=AvoidedGridPurchaseParams(net_avoided_grid_cost_price=0.55),
+                load_side_avoided_charge_price=0.55,
+                green_power_settlement_price_with_vat=0.40,
+                retain_annual_cashflows=False,
+            ),
+        )
+        record["stats"] = _economy_stats(economy_result)
+        payload["benchmarks"].append(record)
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print("# Internal Pilot Performance Benchmark")
+            print()
+            print(json.dumps(payload["config"], ensure_ascii=False))
+            print()
+            print(_render_table(payload))
+        return 0
+
     curves = _synthetic_curves(args.hours)
     grid = _scenario_grid(
         pv_count=args.pv_count,

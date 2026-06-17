@@ -44,16 +44,24 @@ def split_amount_with_vat(
     return amount_without_vat, amount - amount_without_vat
 
 
+def _is_missing_scalar(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return math.isnan(float(value))
+    return bool(pd.isna(value))
+
+
 def _value(summary: Mapping[str, Any], key: str, default: float = 0.0) -> float:
     value = summary.get(key, default)
-    if value is None or pd.isna(value):
+    if _is_missing_scalar(value):
         return default
     return float(value)
 
 
 def _override_value(summary: Mapping[str, Any], key: str, default: float) -> float:
     value = summary.get(key)
-    if value is None or pd.isna(value):
+    if _is_missing_scalar(value):
         return default
     return float(value)
 
@@ -344,6 +352,25 @@ def _sign_change_count(values: list[float]) -> int:
     return sum(1 for previous, current in zip(signs, signs[1:]) if previous != current)
 
 
+def _cashflow_sign_profile(values: list[float]) -> tuple[list[float], bool, bool, int]:
+    nonzero: list[float] = []
+    has_positive = False
+    has_negative = False
+    previous_sign: int | None = None
+    sign_changes = 0
+    for value in values:
+        if abs(value) <= 1e-9:
+            continue
+        nonzero.append(value)
+        current_sign = 1 if value > 0 else -1
+        has_positive = has_positive or current_sign > 0
+        has_negative = has_negative or current_sign < 0
+        if previous_sign is not None and previous_sign != current_sign:
+            sign_changes += 1
+        previous_sign = current_sign
+    return nonzero, has_positive, has_negative, sign_changes
+
+
 def _looks_like_temporary_replacement_dip(values: list[float]) -> bool:
     """Return True for common replacement dips that should still have one IRR root."""
 
@@ -371,15 +398,15 @@ def _looks_like_temporary_replacement_dip(values: list[float]) -> bool:
 
 
 def _calculate_irr(cashflows: list[float]) -> tuple[float | None, str]:
-    nonzero = [value for value in cashflows if abs(value) > 1e-9]
+    nonzero, has_positive, has_negative, sign_changes = _cashflow_sign_profile(cashflows)
     if not nonzero:
         return None, "IRR 无法可靠计算：现金流全为0。"
-    if not any(value > 0 for value in nonzero):
+    if not has_positive:
         return None, "IRR 无法可靠计算：现金流全为非正值，项目没有形成正向净现金流。"
-    if not any(value < 0 for value in nonzero):
+    if not has_negative:
         return None, "IRR 无法可靠计算：现金流全为非负值，项目缺少初始投资流出。"
 
-    if _sign_change_count(nonzero) == 1:
+    if sign_changes == 1:
         root = _bisect_irr_root(cashflows, -0.9999, 10.0)
         if root is not None:
             return root, "ok"

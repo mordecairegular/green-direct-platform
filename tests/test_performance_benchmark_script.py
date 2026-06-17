@@ -40,3 +40,30 @@ def test_internal_pilot_performance_benchmark_runs_json():
         "economy_summary_no_annual_cashflows",
     ]
     assert payload["benchmarks"][0]["stats"]["hourly_detail_count"] == 0
+
+
+def test_internal_pilot_performance_benchmark_runs_economy_only_json():
+    root = Path(__file__).resolve().parents[1]
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts" / "benchmark_internal_pilot_performance.py"),
+            "--economy-only-summary-rows",
+            "12",
+            "--json",
+        ],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(completed.stdout)
+
+    assert payload["config"]["scenario_count"] == 12
+    assert payload["config"]["economy_only_summary_rows"] == 12
+    assert [record["case"] for record in payload["benchmarks"]] == [
+        "economy_summary_no_annual_cashflows",
+    ]
+    assert payload["benchmarks"][0]["stats"]["power_summary_rows"] == 12
+    assert payload["benchmarks"][0]["stats"]["single_entity_summary_rows"] == 12

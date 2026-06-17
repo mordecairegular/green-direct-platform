@@ -35,6 +35,7 @@
 - 经济性批量评价已缓存 `other_operating_revenues` 年度生效表，并把同一方案内每年不变的电源侧收入、VAT 拆分、O&M 和基础折旧移出年度循环，减少大方案池下每方案固定开销；随后又新增电源侧和同一主体批量评价共享上下文，把全方案共用的折现因子、固定资产拆分、其他收入年度表和默认电价口径预处理到批量入口；批量 summary-only 内部复用空年度现金流表哨兵，公开单方案调用仍保持独立空表语义；这些优化不改变 V1 现金流口径。
 - FIRR 求解已为常见储能更换临时现金流下凹增加快路径：当现金流是“初始投资为负、运营期主要为正、中间更换年短暂小幅转负、紧接后续现金流可覆盖该下凹、之后恢复为正”时，直接用同一个 bisection 根求解，不再扫描完整候选利率网格；真正末尾转负、下凹后恢复不足或大幅非传统现金流仍回退到原多根扫描并保留多 IRR 拒绝语义。
 - FIRR 多根 fallback 的候选利率扫描已改为 NumPy 批量 NPV 和符号穿越区间识别：候选利率列表、唯一根/多根判定和最终 bisection 求根语义不变，但不再为每个方案逐候选点执行 Python NPV 热循环；5,000 行 synthetic economic summary 的 `run_economic_study(..., retain_annual_cashflows=False)` 直接计时约从 18.3s 降到 1.0s。
+- 经济性 summary-only 热路径继续瘦身：summary 字段读取的缺失值判断对数字标量走快速路径，IRR 正负现金流扫描合并为单次遍历；不改变 FNPV/FIRR/payback 口径。5,000 行 synthetic economic summary、固定价、双经济视角、`retain_annual_cashflows=False` 的直接计时约从 0.8741s 降到 0.7352s。
 - 单方案逐小时调度热路径已新增预计算限额和轻量返回入口：`dispatch_hour()` 保留原接口，`dispatch_hour_with_limits()` 保留 dataclass 兼容接口，`dispatch_hour_values_with_limits()` 返回原始 values 供 `run_single_scenario()` 热路径直接消费；`run_single_scenario()` 在循环外预计算 BESS 功率能量限额、SOC 能量边界、并网/上网能量限额、策略枚举和曲线数组，循环内避免为每小时创建 `DispatchStep` dataclass，减少每小时重复参数解析、对象创建和 pandas Series 构造；不改变 V0.1 调度口径。
 - 无储能方案已接入 NumPy 快路径。该类方案没有 SOC 滚动状态，不需要逐小时创建 dispatch 调用；summary-only 分支直接按数组计算直供、下网、上网、弃电、年上网比例 cap、站用电和电网交换限额汇总，再复用 `calculate_summary_from_values()`；保留逐小时明细时也用同一组数组构造 `HourlyEnergyLedger`，再复用 `calculate_summary()`。该优化仅影响无储能分支，不改变有储能 SOC 滚动口径。
 - 批量技术仿真已在 hot path 关闭逐方案 `InputDiagnostics` 构造；单方案公开调用默认仍保留 diagnostics。保留逐小时明细的场景已把 tiny float / `-0.0` 清零从 pandas DataFrame 后处理移到 DataFrame 构造前的 numpy 数组处理，减少 `mask/_where` 开销；不改变 hourly ledger 字段或 summary 口径。
@@ -71,6 +72,14 @@ python scripts\benchmark_internal_pilot_performance.py --hours 168 --pv-count 4 
 ```powershell
 python scripts\benchmark_internal_pilot_performance.py --json
 ```
+
+可只压测经济性 summary-only，避免技术仿真耗时干扰判断：
+
+```powershell
+python scripts\benchmark_internal_pilot_performance.py --economy-only-summary-rows 5000 --json
+```
+
+注意：该脚本为了同时报告峰值 Python heap 使用 `tracemalloc`，经济性热路径会被明显放大；它适合同一命令前后横向比较，真实用户等待时间应另用 direct timing 或应用运行观测确认。
 
 注意：该脚本是决策辅助，不是固定性能门槛测试。不同电脑、Python 版本、进程数和后台负载都会影响结果。后续做性能优化时，应把优化前后的命令、参数、耗时和峰值内存记录到 `notes/PRODUCT_POLISH_LOG.md`。
 

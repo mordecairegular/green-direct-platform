@@ -40,6 +40,7 @@
 
 截至 2026-06-17，本地 `codex/UI` 分支的最近 checkpoint 为：
 
+- 最新提交主题：`perf(economy): trim summary hot path`
 - `9de4638 perf(batch): stream scenario generation`
 - `a5a75fd chore(perf): make parallel worker default configurable`
 - `807fb1b chore(deploy): require private github source`
@@ -58,11 +59,11 @@ python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json
 
 当前已知状态：
 
-- `python -m pytest -q` 最近一次全量记录为 `396 passed`；
+- `python -m pytest -q` 最近一次全量记录为 `398 passed`；
 - `tests\test_batch_runner.py` 最近一次专项结果为 `18 passed`；
 - study runner + UI 性能提示相关专项最近一次结果为 `14 passed`；
 - 部署静态 preflight 通过，已覆盖 Docker/Compose/Render 关键默认值、Web/worker 环境变量、`.dockerignore`、Git tracked 推送源安全和大文件检查；
-- `--require-git-sync` 当前只应在本地分支尚未推送时失败 `git:sync`，最近状态为本地 `codex/UI` ahead `origin/codex/UI` 135、behind 0、工作树干净；推送前不要把这个失败误判为配置错误；
+- `--require-git-sync` 当前只应在本地分支尚未推送时失败 `git:sync`，最近状态为本地 `codex/UI` ahead `origin/codex/UI` 136、behind 0、工作树干净；推送前不要把这个失败误判为配置错误；
 - 本项目已经具备 Render Blueprint / Docker / persistent disk / Cloudflare Access 的首发路线材料，但尚未完成目标托管平台实机部署演练；
 - 不要为了接入 Vercel 或 Cloudflare Pages/Workers 直接把当前 Streamlit 长进程改成 serverless/edge 应用。短期公网内测优先保持 Docker Web Service 路线。
 - `run_batch()` 已通过 `iter_scenarios()` 流式消费方案池，串行和并行 chunk 都不再先物化完整 `Scenario` list；这只是方案池对象生成和调度层优化，不改变 V0.1 技术调度、经济性或推荐口径。
