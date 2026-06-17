@@ -609,6 +609,69 @@ def _github_private_checks(checks: list[dict[str, str]]) -> None:
     )
 
 
+def _next_action_for_failed_check(check: dict[str, str]) -> str:
+    name = check["name"]
+    if name == "git:clean":
+        return "Commit, stash, or intentionally discard local changes before a deploy."
+    if name == "git:sync":
+        return "Synchronize the deploy branch with GitHub, usually `git push origin codex/UI` after review."
+    if name in {"git:branch", "git:upstream-branch", "render:branch"}:
+        return "Align the current branch, upstream branch, and render.yaml branch before importing in Render."
+    if name == "github:visibility":
+        return "Install/login GitHub CLI and rerun, or manually confirm the GitHub repository is Private."
+    if name == "github:origin":
+        return "Point remote.origin.url at the private GitHub repository that Render will import."
+    if name.startswith("pilot-store:"):
+        return "Fix the pilot store path or metadata, then rerun doctor before bootstrap/deploy."
+    if name == "smoke:streamlit":
+        return "Inspect the smoke output and Streamlit startup logs before publishing a link."
+    if name.startswith("git-tracked:"):
+        return "Remove local runtime, secret, backup, database, log, archive, or oversized files from Git tracking."
+    if name.startswith("render:"):
+        return "Fix render.yaml so Render imports the intended Docker Web Service and persistent disk settings."
+    if name.startswith("compose:") or name.startswith("dockerfile:") or name.startswith("runtime-deps:"):
+        return "Fix the container runtime configuration, then rerun deployment preflight."
+    if name.startswith("file:") or name.startswith("dockerignore:"):
+        return "Restore the required deployment file or .dockerignore guardrail before publishing."
+    return "Review this failed check and rerun preflight after fixing it."
+
+
+def _readiness_summary(payload: dict[str, Any]) -> str:
+    checks = payload["checks"]
+    failed = [check for check in checks if check["status"] != "pass"]
+    lines = [
+        f"Deployment readiness: {payload['status'].upper()}",
+        f"Checks: {len(checks) - len(failed)} passed, {len(failed)} failed",
+    ]
+    if not failed:
+        lines.extend(
+            [
+                "",
+                "Static deployment checks passed.",
+                "Before Render deploy, also run:",
+                "- python scripts\\preflight_internal_pilot_deploy.py --require-git-sync --summary",
+                "- python scripts\\preflight_internal_pilot_deploy.py --require-github-private --summary",
+                "Then follow docs\\PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md for GitHub, Render, and Cloudflare Access.",
+            ]
+        )
+        return "\n".join(lines)
+
+    lines.append("")
+    lines.append("Failed checks:")
+    for check in failed:
+        lines.append(f"- {check['name']}: {check['message']}")
+    lines.append("")
+    lines.append("Next actions:")
+    seen_actions: set[str] = set()
+    for check in failed:
+        action = _next_action_for_failed_check(check)
+        if action in seen_actions:
+            continue
+        seen_actions.add(action)
+        lines.append(f"- {action}")
+    return "\n".join(lines)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-smoke", action="store_true", help="Start Streamlit and check health.")
@@ -628,6 +691,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run pilot store doctor checks against this directory. Omit to skip runtime store checks.",
     )
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    parser.add_argument("--summary", action="store_true", help="Print a concise human-readable readiness summary.")
     return parser
 
 
@@ -654,6 +718,8 @@ def main(argv: list[str] | None = None) -> int:
     payload = {"status": "pass" if not failed else "fail", "failed_count": len(failed), "checks": checks}
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
+    elif args.summary:
+        print(_readiness_summary(payload))
     else:
         for check in checks:
             print(f"[{check['status']}] {check['name']} - {check['message']}")

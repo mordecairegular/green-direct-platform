@@ -106,6 +106,14 @@ python scripts\preflight_internal_pilot_deploy.py --run-smoke
 preflight 会检查部署文件、GitHub Actions 质量门、Docker/Compose/Render 安全默认值、Web/worker 关键环境变量、`.dockerignore`、持久盘路径、Git 已跟踪文件是否夹带私有 `.env` / 本地运行状态 / 数据库日志压缩包 / 超大文件，以及可选 Streamlit smoke。
 Docker 和本地启动器会把 Streamlit `server.maxUploadSize` 与 `GREEN_DIRECT_MAX_UPLOAD_MB` 对齐，避免上传控件显示 200MB、应用策略却按 20MB 拒绝的口径不一致。
 
+需要快速判断当前发布卡点时，可使用摘要模式：
+
+```powershell
+python scripts\preflight_internal_pilot_deploy.py --summary
+```
+
+摘要模式只显示通过/失败总览、失败项和下一步建议；`--json` 仍用于 CI、归档和 agent 读取。
+
 如果是在本地服务器或自有 VM 上已经准备好真实试用 store，也可以把 store doctor 纳入同一条 preflight：
 
 ```powershell
@@ -121,6 +129,12 @@ python scripts\preflight_internal_pilot_deploy.py --require-git-sync
 ```
 
 该检查会确认当前工作树干净、当前分支与 `render.yaml` 配置的部署分支一致、upstream 分支与部署分支一致，且当前分支与 upstream 同步；同时保留 Git tracked 安全检查，避免 Render 部署到旧提交、错误分支或夹带本地数据的提交。
+
+如果只想看下一步操作提示，可运行：
+
+```powershell
+python scripts\preflight_internal_pilot_deploy.py --require-git-sync --summary
+```
 
 如果本机已安装并登录 GitHub CLI，还应确认部署源仓库是私有仓库：
 

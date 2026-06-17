@@ -38,8 +38,10 @@ GitHub private repository
 
 - GitHub 私有仓库已创建；
 - 推送前本地 `python scripts\preflight_internal_pilot_deploy.py --run-smoke` 已通过，且 `git-tracked:*` 检查没有发现私有 `.env`、本地运行状态、数据库/日志/压缩包或超大文件；
+- 如需快速判断当前发布卡点，可运行 `python scripts\preflight_internal_pilot_deploy.py --summary`；它只输出发布就绪总览、失败项和下一步建议；
 - 当前分支已推送；
 - 推送后已运行 `python scripts\preflight_internal_pilot_deploy.py --require-git-sync`，确认当前分支、GitHub upstream 和 `render.yaml` 部署分支一致且同步；
+- 如果只给人看，不给 CI 归档，可使用 `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --summary`；
 - 已运行 `python scripts\preflight_internal_pilot_deploy.py --require-github-private`，或已在 GitHub 页面人工确认仓库 visibility 为 Private；
 - GitHub Actions `Internal Pilot Quality Gate` 已通过；如本次是首次部署或重要回滚，手动触发该 workflow 并勾选 `run_smoke`；
 - 仓库包含 `Dockerfile`、`render.yaml`、`requirements-runtime.txt`；

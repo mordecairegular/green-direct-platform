@@ -6056,3 +6056,24 @@ profile / benchmark：
 - 这不是新的财务模型，不改变电源侧 V1、同一主体税前模型、FIRR 多根判断、payback、推荐排序或技术调度；
 - benchmark 脚本使用 `tracemalloc` 时会显著放大经济性热路径耗时，适合前后对比，不应直接等同于用户真实等待；
 - 后续经济性更大幅优化仍要针对 IRR bisection/NPV、年度循环和双视角批量化继续推进。
+
+### 2026-06-17 部署 preflight 增加人类可读摘要模式
+
+本轮继续收口“非程序员也能判断当前能不能上线”的运维体验。此前 `preflight_internal_pilot_deploy.py --json` 适合 CI 和 agent 读取，但对人工发布来说过于冗长；默认文本输出也会列出大量 pass 项，不利于快速判断下一步。
+
+调整：
+- 新增 `--summary` 参数，保留原 `--json` 和默认逐项输出；
+- 摘要模式输出发布就绪总览、通过/失败数量、失败项和去重后的下一步建议；
+- 常见失败项已提供更明确动作，例如 `git:clean` 提示先提交/暂存，`git:sync` 提示 review 后 `git push origin codex/UI`，`github:visibility` 提示安装/登录 `gh` 或人工确认仓库 Private；
+- 首次发布作战单、移动网络试用清单、部署 README 和 Claude Code 提示词已补充 `--summary` 用法。
+
+验证：
+- `python -m pytest tests\test_deployment_artifacts.py -q` 通过，14 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --summary` 输出 `Deployment readiness: PASS`，并提示下一步运行 `--require-git-sync --summary` 和 `--require-github-private --summary`；
+- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --summary` 在本轮提交前按预期失败，提示 `git:clean` 和 `git:sync`；提交后应只剩未 push 导致的 `git:sync`；
+- `python -m compileall -q scripts\preflight_internal_pilot_deploy.py tests\test_deployment_artifacts.py` 通过。
+- `python -m pytest -q` 通过，400 项通过。
+
+边界：
+- 摘要模式不新增任何部署检查，也不降低安全门槛；它只是把已有检查结果翻译成更适合人工操作的输出；
+- 真实 Render/Cloudflare 实机部署仍需用户确认 push 当前分支，并按首次发布作战单执行平台控制台步骤。

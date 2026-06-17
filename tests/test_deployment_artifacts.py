@@ -192,6 +192,44 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     assert "git-tracked:size" in check_names
 
 
+def test_internal_pilot_preflight_summary_reports_static_readiness():
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "preflight_internal_pilot_deploy.py"),
+            "--summary",
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Deployment readiness: PASS" in completed.stdout
+    assert "Static deployment checks passed." in completed.stdout
+    assert "--require-git-sync --summary" in completed.stdout
+    assert "PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md" in completed.stdout
+
+
+def test_internal_pilot_preflight_summary_explains_git_sync_failure():
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "preflight_internal_pilot_deploy.py"),
+            "--require-git-sync",
+            "--summary",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 1
+    assert "Deployment readiness: FAIL" in completed.stdout
+    assert "git:sync" in completed.stdout
+    assert "git push origin codex/UI" in completed.stdout
+
+
 def test_internal_pilot_preflight_can_run_pilot_store_doctor(tmp_path):
     completed = subprocess.run(
         [
@@ -257,6 +295,7 @@ def test_internal_pilot_preflight_exposes_git_sync_check():
 
     assert "--require-git-sync" in completed.stdout
     assert "--require-github-private" in completed.stdout
+    assert "--summary" in completed.stdout
     assert "--pilot-store-dir" in completed.stdout
     script = (ROOT / "scripts" / "preflight_internal_pilot_deploy.py").read_text(encoding="utf-8")
     assert "git:branch" in script
@@ -276,6 +315,8 @@ def test_public_beta_first_launch_playbook_covers_handoff_steps():
     for needle in [
         "git push origin codex/UI",
         "preflight_internal_pilot_deploy.py --require-git-sync",
+        "preflight_internal_pilot_deploy.py --require-git-sync --summary",
+        "preflight_internal_pilot_deploy.py --require-github-private --summary",
         "preflight_internal_pilot_deploy.py --require-github-private",
         "Internal Pilot Quality Gate",
         "GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS=1",

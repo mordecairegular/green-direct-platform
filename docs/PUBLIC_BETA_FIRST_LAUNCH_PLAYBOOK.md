@@ -63,6 +63,14 @@ python scripts\preflight_internal_pilot_deploy.py --run-smoke
 python scripts\preflight_internal_pilot_deploy.py --pilot-store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR --run-smoke
 ```
 
+如果只想快速看“现在卡在哪一步”，可先运行摘要模式：
+
+```powershell
+python scripts\preflight_internal_pilot_deploy.py --summary
+```
+
+摘要模式只显示发布就绪总览、失败项和下一步建议；机器可读或归档仍使用 `--json`。
+
 确认没有未提交改动：
 
 ```powershell
@@ -89,10 +97,22 @@ git push origin codex/UI
 python scripts\preflight_internal_pilot_deploy.py --require-git-sync
 ```
 
+如果只给人看，不给 CI 或归档系统读取，也可以使用摘要输出：
+
+```powershell
+python scripts\preflight_internal_pilot_deploy.py --require-git-sync --summary
+```
+
 确认 GitHub 仓库不是公开仓库。若本机已安装并登录 GitHub CLI，可以运行：
 
 ```powershell
 python scripts\preflight_internal_pilot_deploy.py --require-github-private
+```
+
+该检查也支持摘要输出：
+
+```powershell
+python scripts\preflight_internal_pilot_deploy.py --require-github-private --summary
 ```
 
 如果该命令因为未安装 `gh` 失败，请在 GitHub 仓库 Settings / General / Danger Zone 上方的仓库可见性位置人工确认 visibility 为 Private，再继续 Render 部署。
