@@ -6077,3 +6077,23 @@ profile / benchmark：
 边界：
 - 摘要模式不新增任何部署检查，也不降低安全门槛；它只是把已有检查结果翻译成更适合人工操作的输出；
 - 真实 Render/Cloudflare 实机部署仍需用户确认 push 当前分支，并按首次发布作战单执行平台控制台步骤。
+
+### 2026-06-17 本地试用分发包作为最快同事试用路线
+
+本轮根据用户反馈从“继续公网部署工程化”临时切回最快可试用目标：让同事先在自己 Windows 电脑上运行当前 Streamlit 网页版完整工作流。产品取舍是保留网页操作逻辑和 01-06 六步流程，不回退到旧的批量枚举小工具；正式报告导出尚未开始，不作为本次本地分发验收项；欢迎页也不作为阻塞项。
+
+调整：
+- 新增 `START_GREEN_DIRECT_LOCAL_TRIAL.bat`，用于本地试用包首次启动：若不存在 `.venv`，自动创建虚拟环境；优先安装 `requirements-runtime.txt`；随后调用现有 `START_GREEN_DIRECT_APP.bat` 和 `scripts/start_green_direct_app.ps1` 启动 Streamlit；
+- 新增 `LOCAL_TRIAL_README.md`，作为解压后根目录可见的最短同事说明；
+- 更新 `docs/USER_QUICK_GUIDE.md`，把旧的 8501/旧启动文件说明改为本地试用包口径；
+- 新增 `docs/LOCAL_TRIAL_DISTRIBUTION.md`，记录本地试用包分发边界、保留内容和不承诺内容；
+- 已生成 `release/GreenDirectLocalTrial_20260617.zip`，包含运行所需源码、启动脚本、运行依赖文件、配置、示例 CSV 和用户说明；`release/` 仍被 `.gitignore` 忽略，不进入 Git checkpoint。
+
+验证：
+- `cmd /c "echo. | START_GREEN_DIRECT_LOCAL_TRIAL.bat -CheckOnly"` 通过，确认依赖可导入、现有 Streamlit 启动脚本可用、默认会选择 `http://localhost:8503`，且 check-only 不启动长进程；
+- 失败的 PyInstaller `GreenDirectTool` 半成品目录已从 `build/` 和 `dist/` 清理，避免误交付。
+
+边界：
+- 本地试用包要求同事电脑已安装 Python 3.10 或更新版本，并且首次运行时能安装 Python 包；如果用户需要无 Python、离线、免安装 EXE，需要另开 PyInstaller/离线依赖包专项；
+- 这是单机本地试用，不提供公网多人账号、Cloudflare/Render/GitHub Actions 链路、统一后台或数据集中留存；
+- 不改变技术仿真、经济性 V1、推荐排序、导出权限或任何计算口径。

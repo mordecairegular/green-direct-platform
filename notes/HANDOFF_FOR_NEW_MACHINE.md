@@ -113,7 +113,11 @@
 - `python -m pytest tests\test_deployment_artifacts.py -q` 已通过，12 项通过，覆盖首次发布作战单、Render 分支、GitHub Actions 质量门、GitHub 私有仓库可选检查、默认并行进程数部署变量和部署 preflight；
 - `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 最近一次按预期失败，唯一失败项是 `git:sync`：本地 `codex/UI` 跟踪 `origin/codex/UI`，ahead 136、behind 0，工作树干净。该命令现在还会核对当前分支和 upstream 是否匹配 `render.yaml` 的部署分支；部署前应重新运行该命令获取实时状态；
 - 当前 `origin` 为 `https://github.com/mordecairegular/green-direct-platform.git`；
-- 因此下一步不是继续改 Vercel 适配，而是经用户确认后推送当前分支到私有 GitHub，等待 GitHub Actions 质量门通过，再按 Render/Cloudflare checklist 做真实部署演练。
+- 用户在等待过久后已明确接受“上线或本地分发都可以”，并要求本地程序分发尽可能保留当前网页操作逻辑和界面逻辑，报告导出不需要打包，欢迎页也不是阻塞项；
+- 本轮新增本地试用分发路线：`START_GREEN_DIRECT_LOCAL_TRIAL.bat` 会创建 `.venv`、安装运行依赖并调用现有 Streamlit 启动器；`LOCAL_TRIAL_README.md`、`docs/USER_QUICK_GUIDE.md` 和 `docs/LOCAL_TRIAL_DISTRIBUTION.md` 记录给同事的启动说明与边界；
+- 已生成本地试用 ZIP：`release/GreenDirectLocalTrial_20260617.zip`。该文件位于 ignored `release/` 下，不进入 Git checkpoint；它包含当前 Streamlit 源码、启动脚本、运行依赖文件、配置、示例 CSV 和用户说明，不包含 `.venv`、公网账号后台、Render/Cloudflare 链路或正式报告导出；
+- `cmd /c "echo. | START_GREEN_DIRECT_LOCAL_TRIAL.bat -CheckOnly"` 已通过，确认本地启动链路可用且不启动长进程；此前尝试 PyInstaller `GreenDirectTool` 超时，已停止并清理 `build/GreenDirectTool` 与 `dist/GreenDirectTool` 半成品；
+- 因此当前最快交付路径是先发送本地试用 ZIP 给同事；公网 Route A 仍是第二条线，需经用户确认后推送当前分支到私有 GitHub，等待 GitHub Actions 质量门通过，再按 Render/Cloudflare checklist 做真实部署演练。
 
 若用户提出 Vercel、Cloudflare Pages/Workers 等成熟平台，请先区分平台角色：当前 Streamlit 长进程 + pilot store 形态不适合直接部署到 serverless/edge runtime；短期公网内测推荐 Render/Fly/Railway/Cloud Run 等容器服务托管应用本体，Cloudflare 负责域名、HTTPS 和 Access 门禁。若要改架构，优先把本地 store 换成数据库/对象存储和后台 worker，再考虑前端重写。
 
