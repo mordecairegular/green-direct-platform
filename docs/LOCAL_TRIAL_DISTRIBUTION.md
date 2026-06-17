@@ -14,6 +14,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_local_trial_pa
 
 如需保留解压后的构建目录用于检查，可追加 `-KeepExpanded`。生成的 ZIP 位于 `release/`，该目录不进入 Git。
 
+如果同事电脑无法稳定访问 pip，可先准备 wheelhouse，再生成带依赖缓存的 ZIP：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\prepare_local_trial_wheelhouse.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_local_trial_package.ps1 -IncludeWheelhouse
+```
+
+带 wheelhouse 的 ZIP 会明显变大，但同事首次启动时会优先从包内 `wheelhouse/` 安装依赖，不再直接访问 pip。该 wheelhouse 只保证当前构建机器同平台、同 Python 大版本/ABI 的 Windows 环境；若同事 Python 版本差异很大，仍可能需要重新准备 wheelhouse 或改做免安装 EXE。
+
 同事使用步骤：
 
 1. 解压 ZIP 到本地目录；
@@ -24,7 +33,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_local_trial_pa
 
 如果电脑已经准备好 Python 环境，也可以双击 `START_GREEN_DIRECT_APP.bat` 直接启动。
 
-本地试用包要求同事电脑已安装 Python 3.10 或更新版本；如果没有 Python 或首次运行网络无法安装依赖，需要另做离线包或免安装 EXE。如果首次安装中断，重新双击启动文件即可继续检查和补装依赖。
+本地试用包要求同事电脑已安装 Python 3.10 或更新版本；如果没有 Python，需要另做免安装 EXE；如果只是首次运行网络无法安装依赖，可先做带 wheelhouse 的 ZIP。如果首次安装中断，重新双击启动文件即可继续检查和补装依赖。
 
 ## 本次本地版保留什么
 
@@ -37,7 +46,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_local_trial_pa
 - 不包含公网多人登录和统一后台账号管理；
 - 不包含 Cloudflare / Render / GitHub Actions 上线链路；
 - 不把“正式报告导出”作为本次分发验收项；
-- 不保证无 Python 的电脑可以直接运行；若需要完全免安装 EXE，需要另做 PyInstaller 打包和验证。
+- 不保证无 Python 的电脑可以直接运行；wheelhouse 只解决 pip 依赖下载问题，不解决 Python 本体安装问题；若需要完全免安装 EXE，需要另做 PyInstaller 打包和验证。
 
 ## 建议打包内容
 
@@ -45,7 +54,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_local_trial_pa
 - `src/`、`scripts/start_green_direct_app.ps1`；
 - `requirements-runtime.txt`、`requirements.txt`、`pyproject.toml`；
 - `config/`、`samples/` 中的 CSV 模板；
-- `README.md`、`docs/USER_QUICK_GUIDE.md`。
+- `README.md`、`docs/USER_QUICK_GUIDE.md`；
+- 可选 `wheelhouse/`，仅在使用 `-IncludeWheelhouse` 时包含。
 
 上述内容已由 `scripts/build_local_trial_package.ps1` 自动复制并压缩；不要手工拖拽文件打包，避免漏掉最新源码或启动脚本。
 

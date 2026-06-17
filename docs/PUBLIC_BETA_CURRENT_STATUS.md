@@ -52,6 +52,8 @@ python scripts\report_public_beta_status.py --check-remote
 2. 发送 `release/GreenDirectLocalTrial_20260617.zip` 给少量同事；
 3. 明确告知这只是本地单机试用，不是公网多人网站。
 
+如果同事电脑无法稳定访问 pip，可先运行 `scripts\prepare_local_trial_wheelhouse.ps1`，再用 `scripts\build_local_trial_package.ps1 -IncludeWheelhouse` 生成带依赖缓存的本地 ZIP。
+
 ## 不要跳过
 
 - 不要把 GitHub 仓库设为 Public；

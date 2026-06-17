@@ -1,5 +1,7 @@
 param(
     [string]$PackageDate = (Get-Date -Format "yyyyMMdd"),
+    [switch]$IncludeWheelhouse,
+    [string]$WheelhouseDir = "",
     [switch]$KeepExpanded
 )
 
@@ -82,6 +84,19 @@ Copy-RequiredDirectory "src"
 Copy-RequiredDirectory "config"
 Copy-RequiredDirectory "samples"
 
+if ($IncludeWheelhouse) {
+    if ([string]::IsNullOrWhiteSpace($WheelhouseDir)) {
+        $WheelhouseDir = Join-Path $ReleaseRoot "wheelhouse"
+    }
+    Assert-PathUnder -Path $WheelhouseDir -Parent $ReleaseRoot
+    $resolvedWheelhouse = (Resolve-Path -LiteralPath $WheelhouseDir -ErrorAction Stop).Path
+    $wheelFiles = Get-ChildItem -LiteralPath $resolvedWheelhouse -Filter "*.whl" -File -ErrorAction Stop
+    if ($wheelFiles.Count -eq 0) {
+        throw "Wheelhouse directory has no .whl files: $resolvedWheelhouse"
+    }
+    Copy-Item -LiteralPath $resolvedWheelhouse -Destination (Join-Path $PackageDir "wheelhouse") -Recurse -Force
+}
+
 $gitCommit = ""
 $gitStatus = ""
 try {
@@ -97,6 +112,7 @@ $buildInfo = @(
     "BuiltAt=$((Get-Date).ToString("yyyy-MM-dd HH:mm:ss zzz"))"
     "GitCommit=$gitCommit"
     "PackageName=$PackageName"
+    "IncludeWheelhouse=$IncludeWheelhouse"
     ""
     "GitStatus:"
     $gitStatus

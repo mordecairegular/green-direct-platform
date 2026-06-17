@@ -6284,3 +6284,17 @@ profile / benchmark：
 
 边界：
 - 该脚本只是状态报告，不替代用户授权 push，也不替代 Render / Cloudflare 控制台操作。
+
+### 2026-06-17 本地分发新增 wheelhouse 弱网路线
+
+继续降低“先发本地包给同事”的失败概率。本轮新增可选 wheelhouse 依赖缓存路线：
+
+- `START_GREEN_DIRECT_LOCAL_TRIAL.bat` 会在包内存在 `wheelhouse/*.whl` 时优先使用 `pip install --no-index --find-links wheelhouse`，不直接访问 pip；
+- `scripts/prepare_local_trial_wheelhouse.ps1` 可下载 `requirements-runtime.txt` 对应 wheel 到 `release/wheelhouse`；
+- `scripts/build_local_trial_package.ps1 -IncludeWheelhouse` 会把 wheelhouse 放入本地试用 ZIP；
+- `docs/LOCAL_TRIAL_DISTRIBUTION.md` 和 `LOCAL_TRIAL_README.md` 已说明该路线适合网络较慢或无法访问 pip 的电脑。
+
+边界：
+- wheelhouse 只解决 Python 包下载问题，不解决 Python 本体安装问题；
+- wheelhouse 与构建机器的 Windows / Python 大版本和 ABI 相关，不等同于跨平台离线安装包；
+- 默认 ZIP 仍不包含 wheelhouse，避免包体过大；只有弱网需要时再构建带依赖缓存的 ZIP。

@@ -42,17 +42,22 @@ if not exist "%REQ_FILE%" set "REQ_FILE=requirements.txt"
 
 "%PYTHON_EXE%" -c "import streamlit, pandas, numpy, plotly, kaleido, chardet, openpyxl, xlsxwriter, yaml, pydantic" >nul 2>nul
 if errorlevel 1 (
-  echo Installing required Python packages...
-  "%PYTHON_EXE%" -m pip install --upgrade pip
-  if errorlevel 1 (
-    echo Failed to upgrade pip.
-    pause
-    exit /b 1
+  if exist "wheelhouse\*.whl" (
+    echo Installing required Python packages from local wheelhouse...
+    "%PYTHON_EXE%" -m pip install --no-index --find-links "%~dp0wheelhouse" -r "%REQ_FILE%"
+  ) else (
+    echo Installing required Python packages...
+    "%PYTHON_EXE%" -m pip install --upgrade pip
+    if errorlevel 1 (
+      echo Failed to upgrade pip.
+      pause
+      exit /b 1
+    )
+    "%PYTHON_EXE%" -m pip install -r "%REQ_FILE%"
   )
-  "%PYTHON_EXE%" -m pip install -r "%REQ_FILE%"
   if errorlevel 1 (
     echo Failed to install dependencies.
-    echo If your network blocks pip, try a company network or ask for an offline package.
+    echo If your network blocks pip, try a company network or ask for a wheelhouse package.
     pause
     exit /b 1
   )

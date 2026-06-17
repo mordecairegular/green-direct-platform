@@ -168,6 +168,7 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     assert "file:docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md" in check_names
     assert "file:scripts/backup_pilot_store.ps1" in check_names
     assert "file:scripts/build_local_trial_package.ps1" in check_names
+    assert "file:scripts/prepare_local_trial_wheelhouse.ps1" in check_names
     assert "file:scripts/report_public_beta_status.py" in check_names
     assert "file:scripts/restore_pilot_store.ps1" in check_names
     assert "dockerignore:.github/" in check_names
@@ -238,6 +239,24 @@ def test_public_beta_status_report_runs_local_json():
     assert payload["local_trial_zip"]["status"] == "pass"
     assert payload["local_trial_zip"]["contains_venv"] is False
     assert any("Remote gates were not checked" in blocker for blocker in payload["blockers"])
+
+
+def test_local_trial_distribution_covers_wheelhouse_path():
+    distribution = (ROOT / "docs" / "LOCAL_TRIAL_DISTRIBUTION.md").read_text(encoding="utf-8")
+    launcher = (ROOT / "START_GREEN_DIRECT_LOCAL_TRIAL.bat").read_text(encoding="utf-8")
+    package_script = (ROOT / "scripts" / "build_local_trial_package.ps1").read_text(encoding="utf-8")
+    wheelhouse_script = (ROOT / "scripts" / "prepare_local_trial_wheelhouse.ps1").read_text(encoding="utf-8")
+
+    for needle in [
+        "prepare_local_trial_wheelhouse.ps1",
+        "build_local_trial_package.ps1 -IncludeWheelhouse",
+        "wheelhouse/",
+        "不解决 Python 本体安装问题",
+    ]:
+        assert needle in distribution
+    assert "--no-index --find-links" in launcher
+    assert "IncludeWheelhouse" in package_script
+    assert "pip download" in wheelhouse_script
 
 
 def test_internal_pilot_preflight_summary_explains_git_sync_failure():
@@ -400,6 +419,7 @@ def test_public_beta_current_status_covers_current_gates():
         "preflight_internal_pilot_deploy.py --require-git-sync --summary",
         "preflight_internal_pilot_deploy.py --require-github-private --summary",
         "GreenDirectLocalTrial_20260617.zip",
+        "prepare_local_trial_wheelhouse.ps1",
         "Internal Pilot Quality Gate",
         "Cloudflare Access",
         "不要把 GitHub 仓库设为 Public",

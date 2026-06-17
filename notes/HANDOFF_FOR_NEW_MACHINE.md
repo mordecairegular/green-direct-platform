@@ -122,6 +122,7 @@
 - 用户在等待过久后已明确接受“上线或本地分发都可以”，并要求本地程序分发尽可能保留当前网页操作逻辑和界面逻辑，报告导出不需要打包，欢迎页也不是阻塞项；如果继续做本地分发，不要优先重写成独立桌面 GUI，除非用户明确要求。
 - 本轮新增本地试用分发路线：`START_GREEN_DIRECT_LOCAL_TRIAL.bat` 会创建 `.venv`、安装运行依赖并调用现有 Streamlit 启动器；`LOCAL_TRIAL_README.md`、`docs/USER_QUICK_GUIDE.md` 和 `docs/LOCAL_TRIAL_DISTRIBUTION.md` 记录给同事的启动说明与边界；
 - 已新增可重复本地试用包构建脚本：`scripts/build_local_trial_package.ps1` 会复制当前 `src/`、启动脚本、运行依赖、配置、示例 CSV 和用户说明，生成 `release/GreenDirectLocalTrial_YYYYMMDD.zip`；`release/` 位于 ignored 目录下，不进入 Git checkpoint；包内不包含 `.venv`、公网账号后台、Render/Cloudflare 链路或正式报告导出；
+- 弱网/无法访问 pip 的同事可走 wheelhouse 路线：先运行 `scripts/prepare_local_trial_wheelhouse.ps1` 下载当前 Windows/Python ABI 的依赖 wheel，再运行 `scripts/build_local_trial_package.ps1 -IncludeWheelhouse` 生成带 `wheelhouse/` 的 ZIP；启动器会优先用 `--no-index --find-links wheelhouse` 安装依赖。该路线仍要求同事电脑已安装 Python，不是免安装 EXE；
 - 已生成本地试用 ZIP：`release/GreenDirectLocalTrial_20260617.zip`。如果当前源码已有新 checkpoint，先重新运行 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_local_trial_package.ps1`，不要直接发送旧 ZIP；
 - `START_GREEN_DIRECT_LOCAL_TRIAL.bat` 已修正首次运行时 `.venv` 创建分支的 delayed expansion 问题；在新生成的分发目录运行 `START_GREEN_DIRECT_LOCAL_TRIAL.bat -CheckOnly` 已通过，确认本地启动链路可用且不启动长进程。首次在线安装依赖可能需要 5-10 分钟；若中断，重新双击会继续检查和补装依赖。此前尝试 PyInstaller `GreenDirectTool` 超时，已停止并清理 `build/GreenDirectTool` 与 `dist/GreenDirectTool` 半成品；
 - 因此当前最快交付路径是先发送本地试用 ZIP 给同事；公网 Route A 仍是第二条线，需经用户确认后推送当前分支到私有 GitHub，等待 GitHub Actions 质量门通过，再按 Render/Cloudflare checklist 做真实部署演练；
