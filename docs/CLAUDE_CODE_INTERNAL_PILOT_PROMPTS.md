@@ -77,6 +77,7 @@ python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json
 - study runner + UI 性能提示相关专项最近一次结果为 `14 passed`；
 - 部署静态 preflight 通过，已覆盖 Docker/Compose/Render 关键默认值、Web/worker 环境变量、`.dockerignore`、Git tracked 推送源安全和大文件检查；
 - `preflight_internal_pilot_deploy.py` 支持 `--summary`，用于人类快速查看发布就绪总览、失败项和下一步建议；CI/agent 读取仍使用 `--json`；
+- `docs/PUBLIC_BETA_CURRENT_STATUS.md` 记录当前公网 Route A 是否已 push、GitHub Private 是否已确认、是否可以先发本地包 fallback；Claude Code 接手上线/部署任务时应先读该状态单；
 - `--require-git-sync` 当前只应在本地分支尚未推送时失败 `git:sync`；推送前不要把这个失败误判为配置错误，ahead/behind 数量以接手时 `git status --short --branch` 为准；
 - `--require-github-private --summary` 在当前机器会因为缺少 GitHub CLI `gh` 失败；这不是代码或部署配置失败。首次公网内测前应安装/登录 `gh` 后重跑，或在 GitHub 网页人工确认仓库 visibility 为 Private；
 - 本项目已经具备 Render Blueprint / Docker / persistent disk / Cloudflare Access 的首发路线材料，但尚未完成目标托管平台实机部署演练；

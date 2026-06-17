@@ -2,6 +2,8 @@
 
 用途：给项目负责人执行“让同事用手机或移动网络访问”的最短上线动作。长说明见 `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md`，本文只保留必须按顺序完成的动作。
 
+如果只想先看当前是否已能 push、是否还有本机卡点，请先读 `docs/PUBLIC_BETA_CURRENT_STATUS.md`。
+
 ## 当前判断
 
 当前项目不适合直接用 Vercel / Cloudflare Pages 作为主机。现阶段应用是 Streamlit 长进程，并依赖 `/data/pilot_store` 保存账号、项目、任务和结果。首轮公网内测推荐：

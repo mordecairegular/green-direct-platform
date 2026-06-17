@@ -6,6 +6,8 @@
 
 首次发布请先按 `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md` 做负责人短操作单；需要完整上下文时，再按 `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md` 从本地检查、GitHub 推送、Render 部署、管理员 bootstrap 到 Cloudflare Access 顺序执行。本文聚焦发给真实同事前的移动网络验收。
 
+当前本机状态摘要见 `docs/PUBLIC_BETA_CURRENT_STATUS.md`；该文件用于确认是否已经推送、是否仍缺 GitHub Private 确认、是否可以先发本地包 fallback。
+
 ## 0. 当前最短路径
 
 当前仓库已经配置了 GitHub 远端、Docker 部署文件、Render Blueprint、部署 preflight、Streamlit smoke 和 GitHub Actions 质量门。要让同事用移动网络试用，下一步不是把 Streamlit 改成 Vercel 应用，而是：

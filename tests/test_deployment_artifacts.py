@@ -161,6 +161,7 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     check_names = {check["name"] for check in payload["checks"]}
     assert "file:.github/workflows/internal-pilot-quality.yml" in check_names
     assert "file:docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md" in check_names
+    assert "file:docs/PUBLIC_BETA_CURRENT_STATUS.md" in check_names
     assert "file:docs/PUBLIC_BETA_FEEDBACK_TRIAGE.md" in check_names
     assert "file:docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md" in check_names
     assert "file:docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md" in check_names
@@ -349,6 +350,7 @@ def test_public_beta_owner_go_live_steps_covers_short_path():
         "git push origin codex/UI",
         "Internal Pilot Quality Gate",
         "Render Docker Web Service",
+        "PUBLIC_BETA_CURRENT_STATUS.md",
         "green-direct-pilot-store",
         "GREEN_DIRECT_ENABLE_PILOT_AUTH=1",
         "GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0",
@@ -361,6 +363,23 @@ def test_public_beta_owner_go_live_steps_covers_short_path():
         "缺少 `gh`",
     ]:
         assert needle in steps
+
+
+def test_public_beta_current_status_covers_current_gates():
+    status = (ROOT / "docs" / "PUBLIC_BETA_CURRENT_STATUS.md").read_text(encoding="utf-8")
+
+    for needle in [
+        "preflight_internal_pilot_deploy.py --summary",
+        "git push --dry-run origin codex/UI",
+        "git push origin codex/UI",
+        "preflight_internal_pilot_deploy.py --require-git-sync --summary",
+        "preflight_internal_pilot_deploy.py --require-github-private --summary",
+        "GreenDirectLocalTrial_20260617.zip",
+        "Internal Pilot Quality Gate",
+        "Cloudflare Access",
+        "不要把 GitHub 仓库设为 Public",
+    ]:
+        assert needle in status
 
 
 def test_public_beta_feedback_triage_covers_issue_loop():

@@ -75,6 +75,7 @@
 对应审计和性能文档：
 
 - `docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md`：把受控公网内测准备方案映射为当前仓库的 P0 审计矩阵；
+- `docs/PUBLIC_BETA_CURRENT_STATUS.md`：给项目负责人查看当前是否已能 push、是否仍缺 GitHub Private 确认、是否可以先发本地包 fallback 的短状态单；
 - `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md`：把首次受控公网内测发布串成执行作战单，覆盖本地 preflight、push、GitHub Actions、Render Blueprint、Web Service Shell doctor/bootstrap、Cloudflare Access、手机验收和回滚；
 - `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md`：给非程序员负责人使用的 30 分钟短操作单，按 preflight、push、GitHub Actions、Render、管理员 bootstrap、账号、备份恢复、Cloudflare Access 和手机验收顺序执行；
 - `docs/PUBLIC_BETA_FEEDBACK_TRIAGE.md`：首轮 10-20 人内测反馈模板、P0/P1/P2 分级、管理员排查顺序、脱敏 `support-bundle`、只读 CLI 排查命令和反馈表字段；
@@ -115,6 +116,7 @@
 - `python -m pytest tests\test_deployment_artifacts.py -q` 已通过，12 项通过，覆盖首次发布作战单、Render 分支、GitHub Actions 质量门、GitHub 私有仓库可选检查、默认并行进程数部署变量和部署 preflight；
 - `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --summary` 最近一次按预期失败，唯一失败项是 `git:sync`：本地 `codex/UI` 仍领先 `origin/codex/UI` 且未 push；具体 ahead/behind 数量以接手时 `git status --short --branch` 和该 preflight 输出为准。该命令现在还会核对当前分支和 upstream 是否匹配 `render.yaml` 的部署分支；部署前应重新运行该命令获取实时状态；
 - `python scripts\preflight_internal_pilot_deploy.py --require-github-private --summary` 最近一次失败原因是本机缺少 GitHub CLI `gh`；这不是代码或部署配置失败。首次公网内测前应安装/登录 `gh` 后重跑，或在 GitHub 网页人工确认 `https://github.com/mordecairegular/green-direct-platform` 是 Private；
+- `git push --dry-run origin codex/UI` 最近一次通过，说明远端认证和分支推送路径可用，但尚未真正 push；`docs/PUBLIC_BETA_CURRENT_STATUS.md` 已记录当前公网 Route A 的完成项、未完成项和最短下一步；
 - 当前 `origin` 为 `https://github.com/mordecairegular/green-direct-platform.git`；
 - 用户在等待过久后已明确接受“上线或本地分发都可以”，并要求本地程序分发尽可能保留当前网页操作逻辑和界面逻辑，报告导出不需要打包，欢迎页也不是阻塞项；如果继续做本地分发，不要优先重写成独立桌面 GUI，除非用户明确要求。
 - 本轮新增本地试用分发路线：`START_GREEN_DIRECT_LOCAL_TRIAL.bat` 会创建 `.venv`、安装运行依赖并调用现有 Streamlit 启动器；`LOCAL_TRIAL_README.md`、`docs/USER_QUICK_GUIDE.md` 和 `docs/LOCAL_TRIAL_DISTRIBUTION.md` 记录给同事的启动说明与边界；

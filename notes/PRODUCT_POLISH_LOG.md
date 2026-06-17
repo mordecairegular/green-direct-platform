@@ -6259,3 +6259,16 @@ profile / benchmark：
 边界：
 - 仍未执行 `git push`、未创建 Render 服务、未修改 Cloudflare；
 - 公网 Route A 仍需用户确认后推送 GitHub，并等待 GitHub Actions 质量门通过。
+
+### 2026-06-17 新增公网内测当前状态单
+
+为减少非程序员负责人在长 runbook 中找状态的成本，本轮新增 `docs/PUBLIC_BETA_CURRENT_STATUS.md`：
+
+- 记录当前最新提交、静态 preflight 结果、本地试用包状态和 `git push --dry-run origin codex/UI` 通过；
+- 明确尚未真正 push、尚未自动确认 GitHub Private、尚未创建 Render 服务、尚未配置 Cloudflare、尚未完成手机 4G/5G 验收；
+- 给出公网 Route A 的最短下一步和公网卡住时本地包 fallback；
+- `preflight_internal_pilot_deploy.py` 已把该状态单纳入 REQUIRED_FILES，`tests/test_deployment_artifacts.py` 增加断言保护。
+
+边界：
+- 该状态单不是自动部署器，也不会替代 `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md`；
+- 仍未执行真实 `git push` 或任何托管平台操作。
