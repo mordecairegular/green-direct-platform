@@ -6242,3 +6242,20 @@ profile / benchmark：
 - 该 ZIP 仍是本地单机试用包，不包含公网多人账号后台、Render/Cloudflare 链路、离线依赖或免安装 EXE；
 - 该调整不改变 Streamlit UI、技术仿真、经济性 V1、推荐排序或公网部署策略；
 - 每次准备发给同事前，都应重新运行构建脚本，避免发送旧源码包。
+
+### 2026-06-17 公网卡点与本地包 fallback 说明收紧
+
+继续围绕“让同事尽快试用，同时不误判公网部署状态”收紧文档：
+
+- `python scripts\preflight_internal_pilot_deploy.py --summary` 当前静态部署检查通过，100 passed；
+- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --summary` 当前只因本地 `codex/UI` 尚未 push 失败；具体 ahead/behind 数量以接手时命令输出为准；
+- `python scripts\preflight_internal_pilot_deploy.py --require-github-private --summary` 当前只因本机缺少 GitHub CLI `gh` 失败，需要安装/登录 `gh` 后重跑，或在 GitHub 网页人工确认仓库是 Private。
+
+文档调整：
+- `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md` 明确 `gh` 缺失不是代码或部署配置失败，并把“公网平台卡住时发送本地试用包”改为先运行 `scripts/build_local_trial_package.ps1`；
+- `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 明确本地试用包只是每台电脑本地运行一份，不提供公网多人访问、统一账号后台或移动网络共享入口；
+- `notes/HANDOFF_FOR_NEW_MACHINE.md` 和 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md` 同步当前公网卡点，避免下一位 agent 把 `git:sync` 或缺少 `gh` 当成应用缺陷。
+
+边界：
+- 仍未执行 `git push`、未创建 Render 服务、未修改 Cloudflare；
+- 公网 Route A 仍需用户确认后推送 GitHub，并等待 GitHub Actions 质量门通过。

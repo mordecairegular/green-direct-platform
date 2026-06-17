@@ -34,6 +34,14 @@ python scripts\preflight_internal_pilot_deploy.py --require-git-sync --summary
 
 仓库必须是 Private。若本机没有 GitHub CLI，可直接在 GitHub 仓库页面人工确认 visibility 为 Private。
 
+当前机器如果运行：
+
+```powershell
+python scripts\preflight_internal_pilot_deploy.py --require-github-private --summary
+```
+
+并只提示缺少 `gh`，不代表代码或部署配置失败；它表示需要安装/登录 GitHub CLI，或在 GitHub 网页人工确认仓库是 Private 后继续。
+
 ## 1. 推送 GitHub
 
 确认当前分支：
@@ -197,10 +205,16 @@ python -m green_direct.cli pilot-admin support-bundle \
 
 ## 10. 如果当天公网平台卡住
 
-可以先发送本地试用包：
+可以先发送本地试用包。发送前先重新生成，避免旧 ZIP 落后于当前源码：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_local_trial_package.ps1
+```
+
+然后发送：
 
 ```text
 release/GreenDirectLocalTrial_20260617.zip
 ```
 
-本地包保留当前网页操作逻辑，但不是公网多人试用，不替代以上上线流程。
+本地包保留当前网页操作逻辑，但不是公网多人试用，不替代以上上线流程。首次启动会在线创建 `.venv` 并安装依赖，网络较慢时可能需要 5-10 分钟；如果中断，重新双击启动文件即可继续。

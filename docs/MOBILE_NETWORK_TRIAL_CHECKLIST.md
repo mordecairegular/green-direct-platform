@@ -21,6 +21,14 @@
 
 如果未来把前台改成 Next.js/React，Vercel 可以成为前端托管平台；但当前第一版公网试用仍以 Render 承载 Streamlit/Docker 应用本体，Cloudflare 做入口门禁。
 
+如果当天公网平台卡住但需要先让同事试用完整功能，可临时发送本地试用包。发送前运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_local_trial_package.ps1
+```
+
+然后发送 `release/GreenDirectLocalTrial_YYYYMMDD.zip`。本地包保留当前网页工作流，但每台电脑本地运行一份，不提供公网多人访问、统一账号后台或移动网络共享入口。
+
 ## 1. 推荐路径
 
 ```text

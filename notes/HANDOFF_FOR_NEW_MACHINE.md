@@ -113,7 +113,8 @@
 - GitHub 私有仓库核验已纳入可选 preflight：`--require-github-private` 会读取 `remote.origin.url` 并通过 `gh repo view` 确认 visibility 为 `PRIVATE`；当前机器未安装 `gh`，因此该命令在本机按预期失败，但会先通过 `github:origin` 识别当前 repo slug。首次发布前应安装/登录 `gh` 后重跑，或在 GitHub 页面人工确认仓库为 Private；
 - `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md` 已同步到最新 checkpoint：交接摘要包含最新提交主题 `chore(perf): benchmark retained economy cashflows`、流式方案迭代、经济性 summary-only 热路径和少量年度现金流保留 benchmark 边界，并补充 UI 审查时不得为了截图关闭 pilot auth、不得为 Vercel 首发重写前端、不得绕过项目/成员/导出权限和审计服务层；本地 ahead 数量应以接手时 `git status --short --branch` 为准；
 - `python -m pytest tests\test_deployment_artifacts.py -q` 已通过，12 项通过，覆盖首次发布作战单、Render 分支、GitHub Actions 质量门、GitHub 私有仓库可选检查、默认并行进程数部署变量和部署 preflight；
-- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json` 最近一次按预期失败，唯一失败项是 `git:sync`：本地 `codex/UI` 跟踪 `origin/codex/UI`，ahead 136、behind 0，工作树干净。该命令现在还会核对当前分支和 upstream 是否匹配 `render.yaml` 的部署分支；部署前应重新运行该命令获取实时状态；
+- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --summary` 最近一次按预期失败，唯一失败项是 `git:sync`：本地 `codex/UI` 仍领先 `origin/codex/UI` 且未 push；具体 ahead/behind 数量以接手时 `git status --short --branch` 和该 preflight 输出为准。该命令现在还会核对当前分支和 upstream 是否匹配 `render.yaml` 的部署分支；部署前应重新运行该命令获取实时状态；
+- `python scripts\preflight_internal_pilot_deploy.py --require-github-private --summary` 最近一次失败原因是本机缺少 GitHub CLI `gh`；这不是代码或部署配置失败。首次公网内测前应安装/登录 `gh` 后重跑，或在 GitHub 网页人工确认 `https://github.com/mordecairegular/green-direct-platform` 是 Private；
 - 当前 `origin` 为 `https://github.com/mordecairegular/green-direct-platform.git`；
 - 用户在等待过久后已明确接受“上线或本地分发都可以”，并要求本地程序分发尽可能保留当前网页操作逻辑和界面逻辑，报告导出不需要打包，欢迎页也不是阻塞项；如果继续做本地分发，不要优先重写成独立桌面 GUI，除非用户明确要求。
 - 本轮新增本地试用分发路线：`START_GREEN_DIRECT_LOCAL_TRIAL.bat` 会创建 `.venv`、安装运行依赖并调用现有 Streamlit 启动器；`LOCAL_TRIAL_README.md`、`docs/USER_QUICK_GUIDE.md` 和 `docs/LOCAL_TRIAL_DISTRIBUTION.md` 记录给同事的启动说明与边界；
