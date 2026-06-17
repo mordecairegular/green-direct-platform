@@ -66,7 +66,59 @@ def _zip_status(path: Path) -> dict[str, Any]:
     }
 
 
-def build_report(*, check_remote: bool) -> dict[str, Any]:
+def _json_payload(result: dict[str, Any]) -> dict[str, Any] | None:
+    if result["returncode"] != 0:
+        return None
+    try:
+        payload = json.loads(result["stdout"])
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _run_performance_snapshots() -> dict[str, Any]:
+    technical = _run(
+        [
+            sys.executable,
+            "scripts/benchmark_internal_pilot_performance.py",
+            "--hours",
+            "168",
+            "--pv-count",
+            "4",
+            "--wind-count",
+            "4",
+            "--bess-power-count",
+            "2",
+            "--durations",
+            "0,2",
+            "--skip-full-retention",
+            "--json",
+        ],
+        timeout_seconds=180,
+    )
+    economy = _run(
+        [
+            sys.executable,
+            "scripts/benchmark_internal_pilot_performance.py",
+            "--economy-only-summary-rows",
+            "5000",
+            "--economy-retain-cashflow-count",
+            "20",
+            "--no-tracemalloc",
+            "--json",
+        ],
+        timeout_seconds=180,
+    )
+    return {
+        "status": "pass" if technical["returncode"] == 0 and economy["returncode"] == 0 else "fail",
+        "technical_summary_first": technical,
+        "technical_summary_first_payload": _json_payload(technical),
+        "economy_selected_cashflows": economy,
+        "economy_selected_cashflows_payload": _json_payload(economy),
+    }
+
+
+def build_report(*, check_remote: bool, check_performance: bool = False) -> dict[str, Any]:
     preflight_static = _run(
         [sys.executable, "scripts/preflight_internal_pilot_deploy.py", "--summary"],
         timeout_seconds=180,
@@ -79,6 +131,8 @@ def build_report(*, check_remote: bool) -> dict[str, Any]:
         "static_preflight": preflight_static,
         "local_trial_zip": _zip_status(LOCAL_TRIAL_ZIP),
         "remote_checks_enabled": check_remote,
+        "performance_checks_enabled": check_performance,
+        "performance": None,
         "remote_dry_run": None,
         "git_sync": None,
         "github_private": None,
@@ -91,6 +145,11 @@ def build_report(*, check_remote: bool) -> dict[str, Any]:
         blockers.append("Static deployment preflight is failing.")
     if report["local_trial_zip"]["status"] != "pass":
         blockers.append("Local trial ZIP is missing or contains packaged .venv state.")
+
+    if check_performance:
+        report["performance"] = _run_performance_snapshots()
+        if report["performance"]["status"] != "pass":
+            blockers.append("Performance benchmark snapshot failed.")
 
     if check_remote:
         report["remote_dry_run"] = _run(["git", "push", "--dry-run", "origin", "codex/UI"])
@@ -139,6 +198,21 @@ def _status_line(result: dict[str, Any] | None) -> str:
     return str(result.get("status", "unknown")).upper()
 
 
+def _benchmark_line(payload: dict[str, Any] | None, case_name: str) -> str:
+    if not payload:
+        return f"{case_name}: unavailable"
+    for record in payload.get("benchmarks", []):
+        if record.get("case") == case_name:
+            seconds = record.get("seconds")
+            stats = record.get("stats", {})
+            scenario_count = payload.get("config", {}).get("scenario_count")
+            return (
+                f"{case_name}: {seconds}s, "
+                f"scenarios={scenario_count}, stats={stats}"
+            )
+    return f"{case_name}: missing"
+
+
 def render_text(report: dict[str, Any]) -> str:
     lines = [
         f"Public beta status: {report['status'].upper()}",
@@ -154,7 +228,23 @@ def render_text(report: dict[str, Any]) -> str:
         f"Remote dry-run: {_status_line(report['remote_dry_run'])}",
         f"Git sync gate: {_status_line(report['git_sync'])}",
         f"GitHub private gate: {_status_line(report['github_private'])}",
+        f"Performance benchmark: {_status_line(report['performance'])}",
     ]
+    if report["performance"] is not None:
+        lines.append(
+            "  "
+            + _benchmark_line(
+                report["performance"].get("technical_summary_first_payload"),
+                "technical_summary_first",
+            )
+        )
+        lines.append(
+            "  "
+            + _benchmark_line(
+                report["performance"].get("economy_selected_cashflows_payload"),
+                "economy_summary_with_selected_annual_cashflows",
+            )
+        )
     if report["blockers"]:
         lines.append("")
         lines.append("Blockers:")
@@ -169,13 +259,18 @@ def render_text(report: dict[str, Any]) -> str:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check-remote", action="store_true", help="Run dry-run push and remote-dependent gates.")
+    parser.add_argument(
+        "--check-performance",
+        action="store_true",
+        help="Run representative technical/economy benchmark snapshots.",
+    )
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    report = build_report(check_remote=args.check_remote)
+    report = build_report(check_remote=args.check_remote, check_performance=args.check_performance)
     if args.json:
         print(json.dumps(report, ensure_ascii=True, indent=2))
     else:

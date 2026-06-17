@@ -6298,3 +6298,20 @@ profile / benchmark：
 - wheelhouse 只解决 Python 包下载问题，不解决 Python 本体安装问题；
 - wheelhouse 与构建机器的 Windows / Python 大版本和 ABI 相关，不等同于跨平台离线安装包；
 - 默认 ZIP 仍不包含 wheelhouse，避免包体过大；只有弱网需要时再构建带依赖缓存的 ZIP。
+
+### 2026-06-17 公网状态报告新增性能快照
+
+为把用户关心的“上线卡点”和“大方案池等待时间”放到同一张状态图里，本轮扩展 `scripts/report_public_beta_status.py`：
+
+- 新增 `--check-performance`，可在只读公网状态报告中同时运行代表性技术 summary-first benchmark 和 5000 行经济性 summary + 保留 20 个年度现金流 benchmark；
+- `docs/PUBLIC_BETA_CURRENT_STATUS.md` 新增 `python scripts\report_public_beta_status.py --check-remote --check-performance` 作为上线前状态命令；
+- `tests/test_deployment_artifacts.py` 增加状态报告性能快照单元测试，防止后续删除这条交接能力。
+
+当前本机样本：
+- 168 小时、30 个方案、summary-first 技术仿真约 `0.1809s`；
+- 5000 行经济性 summary、保留电源侧/同一主体各 20 个年度现金流约 `0.8291s`。
+
+边界：
+- 性能快照是趋势和交接证据，不是跨服务器 SLA；
+- 该改动不改变 V0.1 技术调度、经济性 V1 现金流口径、推荐排序、UI 默认并行数或公网部署门禁；
+- 公网 Route A 仍需用户授权真实 `git push`、GitHub Private 确认、Render/Cloudflare 实机部署和手机 4G/5G 验收。

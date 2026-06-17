@@ -21,6 +21,18 @@ def _load_preflight_module():
     return module
 
 
+def _load_public_beta_status_module():
+    import importlib.util
+
+    path = ROOT / "scripts" / "report_public_beta_status.py"
+    spec = importlib.util.spec_from_file_location("report_public_beta_status", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_preflight_parses_github_remote_slug():
     preflight = _load_preflight_module()
 
@@ -235,10 +247,85 @@ def test_public_beta_status_report_runs_local_json():
     payload = json.loads(completed.stdout)
 
     assert payload["remote_checks_enabled"] is False
+    assert payload["performance_checks_enabled"] is False
+    assert payload["performance"] is None
     assert payload["static_preflight"]["status"] == "pass"
     assert payload["local_trial_zip"]["status"] == "pass"
     assert payload["local_trial_zip"]["contains_venv"] is False
     assert any("Remote gates were not checked" in blocker for blocker in payload["blockers"])
+
+
+def test_public_beta_status_report_can_attach_performance_snapshot(monkeypatch):
+    status = _load_public_beta_status_module()
+
+    def fake_run(command, *, timeout_seconds=120):
+        command_text = " ".join(str(part) for part in command)
+        if "benchmark_internal_pilot_performance.py" in command_text and "--economy-only-summary-rows" in command_text:
+            payload = {
+                "config": {"scenario_count": 5000},
+                "benchmarks": [
+                    {
+                        "case": "economy_summary_with_selected_annual_cashflows",
+                        "seconds": 0.82,
+                        "stats": {"power_cashflow_count": 20, "single_entity_cashflow_count": 20},
+                    }
+                ],
+            }
+            return {
+                "command": command,
+                "returncode": 0,
+                "stdout": json.dumps(payload),
+                "stderr": "",
+                "status": "pass",
+            }
+        if "benchmark_internal_pilot_performance.py" in command_text:
+            payload = {
+                "config": {"scenario_count": 30},
+                "benchmarks": [
+                    {
+                        "case": "technical_summary_first",
+                        "seconds": 0.18,
+                        "stats": {"hourly_detail_count": 20},
+                    }
+                ],
+            }
+            return {
+                "command": command,
+                "returncode": 0,
+                "stdout": json.dumps(payload),
+                "stderr": "",
+                "status": "pass",
+            }
+        return {
+            "command": command,
+            "returncode": 0,
+            "stdout": "ok",
+            "stderr": "",
+            "status": "pass",
+        }
+
+    monkeypatch.setattr(status, "_run", fake_run)
+    monkeypatch.setattr(
+        status,
+        "_zip_status",
+        lambda path: {
+            "status": "pass",
+            "path": "release/GreenDirectLocalTrial_20260617.zip",
+            "size_mb": 4.12,
+            "contains_venv": False,
+        },
+    )
+
+    report = status.build_report(check_remote=False, check_performance=True)
+    text = status.render_text(report)
+
+    assert report["performance_checks_enabled"] is True
+    assert report["performance"]["status"] == "pass"
+    assert report["performance"]["technical_summary_first_payload"]["config"]["scenario_count"] == 30
+    assert report["performance"]["economy_selected_cashflows_payload"]["config"]["scenario_count"] == 5000
+    assert "Performance benchmark: PASS" in text
+    assert "technical_summary_first: 0.18s" in text
+    assert "economy_summary_with_selected_annual_cashflows: 0.82s" in text
 
 
 def test_local_trial_distribution_covers_wheelhouse_path():
@@ -414,6 +501,7 @@ def test_public_beta_current_status_covers_current_gates():
     for needle in [
         "preflight_internal_pilot_deploy.py --summary",
         "report_public_beta_status.py --check-remote",
+        "report_public_beta_status.py --check-remote --check-performance",
         "git push --dry-run origin codex/UI",
         "git push origin codex/UI",
         "preflight_internal_pilot_deploy.py --require-git-sync --summary",

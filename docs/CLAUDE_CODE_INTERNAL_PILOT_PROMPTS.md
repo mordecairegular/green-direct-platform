@@ -40,7 +40,13 @@
 
 截至 2026-06-17，本地 `codex/UI` 分支的最近 checkpoint 为：
 
-- 最新提交主题：`chore(release): script local trial package`
+- 最新部署/分发状态 checkpoint 主题：`chore(deploy): add performance status snapshot`、`chore(release): support wheelhouse local trial installs`
+- `95c9afc chore(release): support wheelhouse local trial installs`
+- `37a3dfa chore(deploy): add public beta status report`
+- `54ede93 docs(deploy): add public beta status sheet`
+- `e06067b chore(deploy): require local fallback package script`
+- `19a29a4 docs(deploy): clarify launch gates and local fallback`
+- `ce45f28 chore(release): script local trial package`
 - `16f234b chore(perf): benchmark retained economy cashflows`
 - `c5d9051 feat(ui): add support bundle download`
 - `3dc52f1 feat(pilot): add sanitized support bundle`
@@ -65,19 +71,20 @@ python -m pytest tests\test_performance_benchmark_script.py -q
 python -m compileall -q src\green_direct\batch\scenario_generator.py src\green_direct\batch\batch_runner.py scripts\benchmark_internal_pilot_performance.py tests\test_batch_runner.py
 python scripts\benchmark_internal_pilot_performance.py --economy-only-summary-rows 5000 --economy-retain-cashflow-count 20 --no-tracemalloc --json
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_local_trial_package.ps1 -KeepExpanded
+python scripts\report_public_beta_status.py --check-remote --check-performance
 python scripts\preflight_internal_pilot_deploy.py --json
 python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json
 ```
 
 当前已知状态：
 
-- `python -m pytest -q` 最近一次全量记录为 `409 passed`；
+- `python -m pytest -q` 最近一次全量记录为 `415 passed`；
 - `tests\test_batch_runner.py` 最近一次专项结果为 `18 passed`；
 - `tests\test_performance_benchmark_script.py` 最近一次专项结果为 `5 passed`；
 - study runner + UI 性能提示相关专项最近一次结果为 `14 passed`；
 - 部署静态 preflight 通过，已覆盖 Docker/Compose/Render 关键默认值、Web/worker 环境变量、`.dockerignore`、Git tracked 推送源安全和大文件检查；
 - `preflight_internal_pilot_deploy.py` 支持 `--summary`，用于人类快速查看发布就绪总览、失败项和下一步建议；CI/agent 读取仍使用 `--json`；
-- `docs/PUBLIC_BETA_CURRENT_STATUS.md` 记录当前公网 Route A 是否已 push、GitHub Private 是否已确认、是否可以先发本地包 fallback；`scripts/report_public_beta_status.py --check-remote` 可生成实时只读状态；Claude Code 接手上线/部署任务时应先读该状态单；
+- `docs/PUBLIC_BETA_CURRENT_STATUS.md` 记录当前公网 Route A 是否已 push、GitHub Private 是否已确认、是否可以先发本地包 fallback；`scripts/report_public_beta_status.py --check-remote` 可生成实时只读状态，`--check-performance` 会额外运行代表性技术/经济性 benchmark 快照；Claude Code 接手上线/部署任务时应先读该状态单；
 - `--require-git-sync` 当前只应在本地分支尚未推送时失败 `git:sync`；推送前不要把这个失败误判为配置错误，ahead/behind 数量以接手时 `git status --short --branch` 为准；
 - `--require-github-private --summary` 在当前机器会因为缺少 GitHub CLI `gh` 失败；这不是代码或部署配置失败。首次公网内测前应安装/登录 `gh` 后重跑，或在 GitHub 网页人工确认仓库 visibility 为 Private；
 - 本项目已经具备 Render Blueprint / Docker / persistent disk / Cloudflare Access 的首发路线材料，但尚未完成目标托管平台实机部署演练；

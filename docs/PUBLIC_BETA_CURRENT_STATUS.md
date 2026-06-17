@@ -8,9 +8,10 @@
 
 ```powershell
 python scripts\report_public_beta_status.py --check-remote
+python scripts\report_public_beta_status.py --check-remote --check-performance
 ```
 
-该脚本只读；`--check-remote` 只执行 dry-run push 和远端门槛检查，不会真实推送。
+该脚本只读；`--check-remote` 只执行 dry-run push 和远端门槛检查，不会真实推送。`--check-performance` 会额外运行一组代表性技术/经济性 benchmark 快照，用于判断大方案池性能是否有明显退化。
 
 ## 当前结论
 
@@ -24,6 +25,7 @@ python scripts\report_public_beta_status.py --check-remote
 - `git push --dry-run origin codex/UI`：通过，说明远端认证和分支推送路径可用；
 - 本地试用包：`release/GreenDirectLocalTrial_20260617.zip`，约 4.12 MB，具体构建提交见包内 `BUILD_INFO.txt`；
 - 本地试用 ZIP 已确认不包含 `.venv`，首次启动会在线创建环境并安装依赖。
+- 性能快照可通过 `python scripts\report_public_beta_status.py --check-performance` 一并输出；当前本机样本约为：168 小时、30 个方案、summary-first 技术仿真 0.18s 量级；5000 行经济性 summary + 保留 20 个年度现金流 0.83s 量级。该值用于本机趋势观察，不作为不同服务器的固定 SLA。
 
 ## 当前未完成
 
