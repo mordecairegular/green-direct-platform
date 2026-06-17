@@ -78,7 +78,7 @@ python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json
 
 当前已知状态：
 
-- `python -m pytest -q` 最近一次全量记录为 `416 passed`；
+- `python -m pytest -q` 最近一次全量记录为 `417 passed`；
 - `tests\test_batch_runner.py` 最近一次专项结果为 `18 passed`；
 - `tests\test_performance_benchmark_script.py` 最近一次专项结果为 `5 passed`；
 - study runner + UI 性能提示相关专项最近一次结果为 `14 passed`；
