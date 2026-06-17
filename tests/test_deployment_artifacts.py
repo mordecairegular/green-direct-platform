@@ -165,6 +165,7 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     assert "file:docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md" in check_names
     assert "file:docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md" in check_names
     assert "file:scripts/backup_pilot_store.ps1" in check_names
+    assert "file:scripts/build_local_trial_package.ps1" in check_names
     assert "file:scripts/restore_pilot_store.ps1" in check_names
     assert "dockerignore:.github/" in check_names
     assert "runtime-deps:pyproject-sync" in check_names
@@ -344,6 +345,7 @@ def test_public_beta_owner_go_live_steps_covers_short_path():
     for needle in [
         "preflight_internal_pilot_deploy.py --summary",
         "preflight_internal_pilot_deploy.py --require-git-sync --summary",
+        "preflight_internal_pilot_deploy.py --require-github-private --summary",
         "git push origin codex/UI",
         "Internal Pilot Quality Gate",
         "Render Docker Web Service",
@@ -355,6 +357,8 @@ def test_public_beta_owner_go_live_steps_covers_short_path():
         "Cloudflare",
         "手机 4G/5G",
         "release/GreenDirectLocalTrial_20260617.zip",
+        "scripts\\build_local_trial_package.ps1",
+        "缺少 `gh`",
     ]:
         assert needle in steps
 
