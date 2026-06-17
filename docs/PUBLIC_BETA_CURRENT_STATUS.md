@@ -4,6 +4,14 @@
 
 用途：给项目负责人快速判断“现在能不能发给同事、能不能开始公网部署、下一步到底点什么”。长流程仍以 `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md` 和 `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md` 为准。
 
+可用脚本生成实时状态：
+
+```powershell
+python scripts\report_public_beta_status.py --check-remote
+```
+
+该脚本只读；`--check-remote` 只执行 dry-run push 和远端门槛检查，不会真实推送。
+
 ## 当前结论
 
 本地试用包已经可以作为最快 fallback 发给同事；公网 Route A 尚未真正上线，因为本地 `codex/UI` 分支还没有推送到 GitHub，且 GitHub 仓库 Private 状态仍需自动或人工确认。
@@ -12,7 +20,7 @@
 
 - 当前分支：`codex/UI`；
 - 当前最新提交以 `git log -1 --oneline` 为准；
-- `python scripts\preflight_internal_pilot_deploy.py --summary`：`101 passed, 0 failed`；
+- `python scripts\preflight_internal_pilot_deploy.py --summary`：预期 PASS；
 - `git push --dry-run origin codex/UI`：通过，说明远端认证和分支推送路径可用；
 - 本地试用包：`release/GreenDirectLocalTrial_20260617.zip`，约 4.12 MB，具体构建提交见包内 `BUILD_INFO.txt`；
 - 本地试用 ZIP 已确认不包含 `.venv`，首次启动会在线创建环境并安装依赖。
@@ -32,10 +40,11 @@
 
 1. 用户确认允许推送；
 2. 执行 `git push origin codex/UI`；
-3. 推送后运行 `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --summary`，预期 PASS；
-4. 安装/登录 `gh` 后运行 `python scripts\preflight_internal_pilot_deploy.py --require-github-private --summary`，或在 GitHub 网页人工确认仓库是 Private；
-5. 等 GitHub Actions `Internal Pilot Quality Gate` 通过；
-6. 按 `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md` 导入 Render Blueprint、初始化管理员、接 Cloudflare Access、做手机验收。
+3. 推送后运行 `python scripts\report_public_beta_status.py --check-remote`，确认 git sync 和 GitHub Private 状态；
+4. 或单独运行 `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --summary`，预期 PASS；
+5. 安装/登录 `gh` 后运行 `python scripts\preflight_internal_pilot_deploy.py --require-github-private --summary`，或在 GitHub 网页人工确认仓库是 Private；
+6. 等 GitHub Actions `Internal Pilot Quality Gate` 通过；
+7. 按 `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md` 导入 Render Blueprint、初始化管理员、接 Cloudflare Access、做手机验收。
 
 如果公网平台当天卡住：
 

@@ -8,6 +8,8 @@
 
 当前本机状态摘要见 `docs/PUBLIC_BETA_CURRENT_STATUS.md`；该文件用于确认是否已经推送、是否仍缺 GitHub Private 确认、是否可以先发本地包 fallback。
 
+如需实时刷新状态，可运行 `python scripts\report_public_beta_status.py --check-remote`。
+
 ## 0. 当前最短路径
 
 当前仓库已经配置了 GitHub 远端、Docker 部署文件、Render Blueprint、部署 preflight、Streamlit smoke 和 GitHub Actions 质量门。要让同事用移动网络试用，下一步不是把 Streamlit 改成 Vercel 应用，而是：

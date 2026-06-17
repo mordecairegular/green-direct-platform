@@ -85,6 +85,7 @@
 - `docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md`：记录内部 10-20 人 pilot 后台账户、项目、Job、ResultStore、Render 单实例边界和未来 SQLite/Postgres + 对象存储/worker 演进路线；
 - `README_DEPLOY.md` 和 `SECURITY.md`：记录 Docker/compose 内测部署、安全边界、反向代理、备份恢复和已知限制；
 - `scripts/benchmark_internal_pilot_performance.py`：用于记录技术仿真和经济性测算的可重复 benchmark；经济性真实等待优先看 `--no-tracemalloc` 直计时，默认模式用于同时观察 Python heap 峰值；`--economy-retain-cashflow-count N` 可模拟当前 UI “全量计算 summary、只为少量方案保留年度现金流”的策略。
+- `scripts/report_public_beta_status.py`：用于生成只读公网 Route A 状态报告；默认只看本地状态，`--check-remote` 会执行 `git push --dry-run`、`--require-git-sync` 和 `--require-github-private` 检查，但不会真实 push；
 - `scripts/preflight_internal_pilot_deploy.py`：用于推送 GitHub/Render 前检查部署文件、安全默认值、Compose/Render Web 与 worker 关键环境变量、Render 持久盘配置、`.dockerignore`、Git tracked 推送源安全（私有 `.env`、本地运行状态、数据库/日志/压缩包、超大文件）、可选 Streamlit smoke，可选 `--pilot-store-dir` 运行 store doctor，可选 `--require-git-sync` 确认当前分支、upstream 与 `render.yaml` 部署分支一致并已推到 upstream，以及可选 `--require-github-private` 通过 GitHub CLI 确认部署源仓库 visibility 为 Private。
 - `scripts/preflight_internal_pilot_deploy.py --summary`：面向人类操作的发布就绪摘要，只显示通过/失败总览、失败项和下一步建议；`--json` 仍用于 CI、归档和 agent 读取。
 - `scripts/smoke_streamlit_app.py`：用于推送 GitHub/Render 前做本地服务器口径冒烟检查，默认启用 pilot auth、关闭 runtime snapshot、使用临时 pilot store 并检查 `/_stcore/health`。

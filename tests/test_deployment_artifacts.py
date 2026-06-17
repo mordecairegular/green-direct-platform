@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -167,6 +168,7 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     assert "file:docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md" in check_names
     assert "file:scripts/backup_pilot_store.ps1" in check_names
     assert "file:scripts/build_local_trial_package.ps1" in check_names
+    assert "file:scripts/report_public_beta_status.py" in check_names
     assert "file:scripts/restore_pilot_store.ps1" in check_names
     assert "dockerignore:.github/" in check_names
     assert "runtime-deps:pyproject-sync" in check_names
@@ -214,6 +216,28 @@ def test_internal_pilot_preflight_summary_reports_static_readiness():
     assert "--require-git-sync --summary" in completed.stdout
     assert "PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md" in completed.stdout
     assert "PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md" in completed.stdout
+
+
+def test_public_beta_status_report_runs_local_json():
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "report_public_beta_status.py"),
+            "--json",
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(completed.stdout)
+
+    assert payload["remote_checks_enabled"] is False
+    assert payload["static_preflight"]["status"] == "pass"
+    assert payload["local_trial_zip"]["status"] == "pass"
+    assert payload["local_trial_zip"]["contains_venv"] is False
+    assert any("Remote gates were not checked" in blocker for blocker in payload["blockers"])
 
 
 def test_internal_pilot_preflight_summary_explains_git_sync_failure():
@@ -370,6 +394,7 @@ def test_public_beta_current_status_covers_current_gates():
 
     for needle in [
         "preflight_internal_pilot_deploy.py --summary",
+        "report_public_beta_status.py --check-remote",
         "git push --dry-run origin codex/UI",
         "git push origin codex/UI",
         "preflight_internal_pilot_deploy.py --require-git-sync --summary",

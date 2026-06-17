@@ -46,6 +46,7 @@ REQUIRED_FILES = (
     "docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md",
     "scripts/backup_pilot_store.ps1",
     "scripts/build_local_trial_package.ps1",
+    "scripts/report_public_beta_status.py",
     "scripts/restore_pilot_store.ps1",
     "scripts/smoke_streamlit_app.py",
 )

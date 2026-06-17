@@ -6272,3 +6272,15 @@ profile / benchmark：
 边界：
 - 该状态单不是自动部署器，也不会替代 `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md`；
 - 仍未执行真实 `git push` 或任何托管平台操作。
+
+### 2026-06-17 新增只读公网状态报告脚本
+
+为避免负责人和后续 agent 手动组合多个命令，本轮新增 `scripts/report_public_beta_status.py`：
+
+- 默认输出本地 branch、最新提交、静态 preflight、本地试用 ZIP 状态；
+- 加 `--check-remote` 后执行 `git push --dry-run origin codex/UI`、`--require-git-sync --summary` 和 `--require-github-private --summary`；
+- 脚本只读，不会执行真实 `git push`、不会创建 Render 服务、不会修改 Cloudflare；
+- `preflight_internal_pilot_deploy.py` 已把该脚本纳入 REQUIRED_FILES。
+
+边界：
+- 该脚本只是状态报告，不替代用户授权 push，也不替代 Render / Cloudflare 控制台操作。
