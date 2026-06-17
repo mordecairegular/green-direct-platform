@@ -77,6 +77,7 @@
 - `docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md`：把受控公网内测准备方案映射为当前仓库的 P0 审计矩阵；
 - `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md`：把首次受控公网内测发布串成执行作战单，覆盖本地 preflight、push、GitHub Actions、Render Blueprint、Web Service Shell doctor/bootstrap、Cloudflare Access、手机验收和回滚；
 - `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md`：给非程序员负责人使用的 30 分钟短操作单，按 preflight、push、GitHub Actions、Render、管理员 bootstrap、账号、备份恢复、Cloudflare Access 和手机验收顺序执行；
+- `docs/PUBLIC_BETA_FEEDBACK_TRIAGE.md`：首轮 10-20 人内测反馈模板、P0/P1/P2 分级、管理员排查顺序、只读 CLI 排查命令和反馈表字段；
 - `docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md`：记录托管平台公网测试路线，推荐容器/PaaS 承载应用本体、Cloudflare 做 DNS/HTTPS/Access；
 - `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md`：面向“同事用手机/移动网络试用”的最短操作清单；
 - `docs/PERFORMANCE_OPTIMIZATION_PLAN.md`：记录方案遍历、summary-first、并行、经济性批量化和后台 Job 的性能路线；

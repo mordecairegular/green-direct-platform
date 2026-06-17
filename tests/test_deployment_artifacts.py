@@ -161,6 +161,7 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     check_names = {check["name"] for check in payload["checks"]}
     assert "file:.github/workflows/internal-pilot-quality.yml" in check_names
     assert "file:docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md" in check_names
+    assert "file:docs/PUBLIC_BETA_FEEDBACK_TRIAGE.md" in check_names
     assert "file:docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md" in check_names
     assert "file:docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md" in check_names
     assert "file:scripts/backup_pilot_store.ps1" in check_names
@@ -356,3 +357,21 @@ def test_public_beta_owner_go_live_steps_covers_short_path():
         "release/GreenDirectLocalTrial_20260617.zip",
     ]:
         assert needle in steps
+
+
+def test_public_beta_feedback_triage_covers_issue_loop():
+    triage = (ROOT / "docs" / "PUBLIC_BETA_FEEDBACK_TRIAGE.md").read_text(encoding="utf-8")
+    owner_steps = (ROOT / "docs" / "PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md").read_text(encoding="utf-8")
+
+    for needle in [
+        "【绿电直连工具内测反馈】",
+        "P0：立即停止继续扩大试用",
+        "P1：当天优先修复或绕开",
+        "P2：记录后排期",
+        "pilot-admin doctor",
+        "pilot-admin list-audit-events",
+        "pilot-admin list-jobs",
+        "不要在聊天工具中发送高度敏感或正式生产曲线文件",
+    ]:
+        assert needle in triage
+    assert "PUBLIC_BETA_FEEDBACK_TRIAGE.md" in owner_steps

@@ -6159,3 +6159,23 @@ profile / benchmark：
 边界：
 - 这只是批量共享曲线统计缓存，不改变风光负值站用电、年度上网 cap、BESS SOC 滚动、summary 字段、经济性 V1 或推荐排序；
 - 当前直计时已显示 572 个 8760 小时 summary-first 方案约 2 秒量级，后续用户体感瓶颈更应关注完整明细保留、价格曲线聚合、导出、多人并发和后台 Job。
+
+### 2026-06-17 公网内测反馈收集与排查模板
+
+本轮继续收口 10-20 人内部公网试用的运行闭环。此前审计、任务、项目和 artifact 元数据已经具备，但同事反馈问题时仍可能散落在聊天记录里，缺少统一字段、严重级别和排查顺序。
+
+调整：
+- 新增 `docs/PUBLIC_BETA_FEEDBACK_TRIAGE.md`，提供同事反馈模板、P0/P1/P2 分级、管理员排查顺序、只读 CLI 排查命令和反馈表字段；
+- `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md` 在手机验收后提醒先建立反馈表和负责人；
+- `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 的“发现问题时记录”改为引用反馈 triage 模板；
+- `preflight_internal_pilot_deploy.py` 将反馈 triage 文档纳入 REQUIRED_FILES；
+- `tests/test_deployment_artifacts.py` 覆盖文档存在和关键内容。
+
+验证：
+- `python -m pytest tests\test_deployment_artifacts.py -q` 通过；
+- `python scripts\preflight_internal_pilot_deploy.py --summary` 应继续通过，并把反馈 triage 作为 required file 检查。
+
+边界：
+- 这不是正式工单系统，也不上传或集中保存原始用户曲线；
+- P0/P1/P2 分级用于首轮内测 triage，不替代正式安全审计、监控告警或 SLA；
+- 不改变账号权限、审计语义、技术仿真、经济性 V1 或推荐排序。

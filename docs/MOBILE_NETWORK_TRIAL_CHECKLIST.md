@@ -147,7 +147,7 @@ Cloudflare Access 是公网入口第一层门禁；应用内账号是第二层�
 
 ## 8. 发现问题时记录
 
-同事反馈问题时，请至少记录：
+同事反馈问题时，优先使用 `docs/PUBLIC_BETA_FEEDBACK_TRIAGE.md` 中的模板和 P0/P1/P2 分级。至少记录：
 
 - 用户账号；
 - 项目名称；
