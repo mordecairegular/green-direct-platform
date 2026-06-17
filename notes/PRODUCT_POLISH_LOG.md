@@ -6328,3 +6328,17 @@ profile / benchmark：
 - 该开关只记录项目负责人/用户的人工确认，不会真的读取 GitHub API；
 - 若要自动核验，仍应安装并登录 `gh` 后运行不带人工确认开关的 `--require-github-private`；
 - 这只清理 GitHub Private 闸门，不代表 Render / Cloudflare 已经部署完成。
+
+### 2026-06-17 GitHub Actions 质量门通过，Render 等待登录
+
+继续推进公网 Route A：
+
+- GitHub Actions 页面已确认 `Internal Pilot Quality Gate #5` 对提交 `1b3af4d` completed successfully，耗时约 1m18s；
+- 前几个失败 run 的原因是 CI 环境没有 ignored 的 `release/GreenDirectLocalTrial_20260617.zip`，已用 `test(deploy): allow missing local trial zip in ci` 修复测试断言；
+- 本地 `python -m pytest -q` 为 `417 passed`；
+- 打开 Render Blueprint 页面时跳转到 `https://dashboard.render.com/login?next=%2Fblueprints`，说明下一步需要用户登录 Render，之后再导入 `render.yaml` Blueprint。
+
+边界：
+- 尚未在 Render 创建 Web Service；
+- 尚未配置 Cloudflare Access；
+- 尚未初始化公网试用管理员账号或做手机 4G/5G 验收。

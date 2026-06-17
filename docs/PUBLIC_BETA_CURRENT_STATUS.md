@@ -15,7 +15,7 @@ python scripts\report_public_beta_status.py --check-remote --check-performance
 
 ## 当前结论
 
-本地试用包已经可以作为最快 fallback 发给同事；公网 Route A 的代码分支已经推送到 GitHub，用户已在 GitHub 网页人工确认仓库是 Private。下一步是进入 Render / Cloudflare 实机部署与手机 4G/5G 验收。
+本地试用包已经可以作为最快 fallback 发给同事；公网 Route A 的代码分支已经推送到 GitHub，用户已在 GitHub 网页人工确认仓库是 Private，GitHub Actions `Internal Pilot Quality Gate` 已在提交 `1b3af4d` 的 Run #5 通过。下一步是登录 Render，导入 Blueprint，然后接 Cloudflare 与手机 4G/5G 验收。
 
 ## 已验证
 
@@ -25,13 +25,14 @@ python scripts\report_public_beta_status.py --check-remote --check-performance
 - `git push --dry-run origin codex/UI`：通过，说明远端认证和分支推送路径可用；
 - `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --summary`：预期 PASS；
 - GitHub 仓库 Private：2026-06-17 已由用户在 GitHub 网页人工确认；可用 `--github-private-manually-confirmed` 记录该人工确认；
+- GitHub Actions：2026-06-17 已在 Chrome 中确认 `Internal Pilot Quality Gate #5` 对提交 `1b3af4d` completed successfully，耗时约 1m18s；
 - 本地试用包：`release/GreenDirectLocalTrial_20260617.zip`，约 4.12 MB，具体构建提交见包内 `BUILD_INFO.txt`；
 - 本地试用 ZIP 已确认不包含 `.venv`，首次启动会在线创建环境并安装依赖。
 - 性能快照可通过 `python scripts\report_public_beta_status.py --check-performance` 一并输出；当前本机样本约为：168 小时、30 个方案、summary-first 技术仿真 0.18s 量级；5000 行经济性 summary + 保留 20 个年度现金流 0.83s 量级。该值用于本机趋势观察，不作为不同服务器的固定 SLA。
 
 ## 当前未完成
 
-- 尚未在 Render 创建 Web Service；
+- 尚未在 Render 创建 Web Service；当前 Chrome 打开 Render Blueprint 页面时跳转到登录页 `https://dashboard.render.com/login?next=%2Fblueprints`，需要用户登录 Render 后继续；
 - 尚未在 Cloudflare 配置 Access；
 - 尚未完成手机 4G/5G 验收。
 
@@ -43,7 +44,7 @@ python scripts\report_public_beta_status.py --check-remote --check-performance
 2. 或单独运行 `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --summary`，预期 PASS；
 3. 若本机已安装/登录 `gh`，运行 `python scripts\preflight_internal_pilot_deploy.py --require-github-private --summary` 自动核验 Private；
 4. 若要用人工 Private 确认替代 `gh` 自动确认，运行 `python scripts\preflight_internal_pilot_deploy.py --require-github-private --github-private-manually-confirmed --summary`；
-5. 等 GitHub Actions `Internal Pilot Quality Gate` 通过；
+5. 用户在 Chrome 中登录 Render；
 6. 按 `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md` 导入 Render Blueprint、初始化管理员、接 Cloudflare Access、做手机验收。
 
 如果公网平台当天卡住：
