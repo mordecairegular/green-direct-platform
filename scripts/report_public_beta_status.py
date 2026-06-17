@@ -177,11 +177,28 @@ def build_report(*, check_remote: bool, check_performance: bool = False) -> dict
 
     if blockers:
         report["blockers"] = blockers
-        report["next_actions"] = [
-            "If continuing public Route A, get owner approval and run git push origin codex/UI.",
-            "After push, rerun this script with --check-remote.",
-            "Install/login gh or manually confirm the GitHub repository is Private.",
-        ]
+        next_actions: list[str] = []
+        if preflight_static["returncode"] != 0:
+            next_actions.append("Fix static deployment preflight failures before Render deploy.")
+        if report["local_trial_zip"]["status"] != "pass":
+            next_actions.append("Rebuild the local fallback ZIP with scripts/build_local_trial_package.ps1.")
+        if check_performance and report["performance"] is not None and report["performance"]["status"] != "pass":
+            next_actions.append("Re-run or inspect the representative performance benchmark snapshot.")
+        if check_remote:
+            if report["remote_dry_run"] is not None and report["remote_dry_run"]["returncode"] != 0:
+                next_actions.append("Fix Git remote authentication or branch push permissions.")
+            if report["git_sync"] is not None and report["git_sync"]["returncode"] != 0:
+                next_actions.extend(
+                    [
+                        "If continuing public Route A, get owner approval and run git push origin codex/UI.",
+                        "After push, rerun this script with --check-remote.",
+                    ]
+                )
+            if report["github_private"] is not None and report["github_private"]["returncode"] != 0:
+                next_actions.append("Install/login gh or manually confirm the GitHub repository is Private.")
+        else:
+            next_actions.append("Rerun this script with --check-remote before Render deploy.")
+        report["next_actions"] = next_actions
     else:
         report["status"] = "ready_for_render_handoff"
         report["next_actions"] = [

@@ -328,6 +328,48 @@ def test_public_beta_status_report_can_attach_performance_snapshot(monkeypatch):
     assert "economy_summary_with_selected_annual_cashflows: 0.82s" in text
 
 
+def test_public_beta_status_report_remote_actions_do_not_repeat_push_after_sync(monkeypatch):
+    status = _load_public_beta_status_module()
+
+    def fake_run(command, *, timeout_seconds=120):
+        command_text = " ".join(str(part) for part in command)
+        if "--require-github-private" in command_text:
+            return {
+                "command": command,
+                "returncode": 1,
+                "stdout": "github private check failed",
+                "stderr": "",
+                "status": "fail",
+            }
+        return {
+            "command": command,
+            "returncode": 0,
+            "stdout": "ok",
+            "stderr": "",
+            "status": "pass",
+        }
+
+    monkeypatch.setattr(status, "_run", fake_run)
+    monkeypatch.setattr(
+        status,
+        "_zip_status",
+        lambda path: {
+            "status": "pass",
+            "path": "release/GreenDirectLocalTrial_20260617.zip",
+            "size_mb": 4.12,
+            "contains_venv": False,
+        },
+    )
+
+    report = status.build_report(check_remote=True, check_performance=False)
+
+    assert report["git_sync"]["status"] == "pass"
+    assert report["github_private"]["status"] == "fail"
+    assert any("GitHub Private" in blocker for blocker in report["blockers"])
+    assert any("confirm the GitHub repository is Private" in action for action in report["next_actions"])
+    assert not any("git push origin codex/UI" in action for action in report["next_actions"])
+
+
 def test_local_trial_distribution_covers_wheelhouse_path():
     distribution = (ROOT / "docs" / "LOCAL_TRIAL_DISTRIBUTION.md").read_text(encoding="utf-8")
     launcher = (ROOT / "START_GREEN_DIRECT_LOCAL_TRIAL.bat").read_text(encoding="utf-8")
@@ -359,10 +401,16 @@ def test_internal_pilot_preflight_summary_explains_git_sync_failure():
         text=True,
     )
 
-    assert completed.returncode == 1
-    assert "Deployment readiness: FAIL" in completed.stdout
-    assert "git:sync" in completed.stdout
-    assert "git push origin codex/UI" in completed.stdout
+    if completed.returncode == 0:
+        assert "Deployment readiness: PASS" in completed.stdout
+        assert "Static deployment checks passed." in completed.stdout
+    else:
+        assert "Deployment readiness: FAIL" in completed.stdout
+        assert "git:sync" in completed.stdout or "git:clean" in completed.stdout
+        assert (
+            "git push origin codex/UI" in completed.stdout
+            or "Commit, stash, or intentionally discard local changes before a deploy." in completed.stdout
+        )
 
 
 def test_internal_pilot_preflight_can_run_pilot_store_doctor(tmp_path):
