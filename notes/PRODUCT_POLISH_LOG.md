@@ -6315,3 +6315,16 @@ profile / benchmark：
 - 性能快照是趋势和交接证据，不是跨服务器 SLA；
 - 该改动不改变 V0.1 技术调度、经济性 V1 现金流口径、推荐排序、UI 默认并行数或公网部署门禁；
 - 公网 Route A 仍需用户授权真实 `git push`、GitHub Private 确认、Render/Cloudflare 实机部署和手机 4G/5G 验收。
+
+### 2026-06-17 GitHub Private 人工确认接入 preflight
+
+用户已在 GitHub 网页确认部署源仓库为 Private。为避免本机缺少 GitHub CLI `gh` 时继续把该项误报为 blocker，本轮新增显式人工确认开关：
+
+- `scripts/preflight_internal_pilot_deploy.py --require-github-private --github-private-manually-confirmed --summary` 会继续确认 `remote.origin` 是 GitHub 仓库，并把 `github:visibility` 记为人工确认通过；
+- `scripts/report_public_beta_status.py --check-remote --github-private-manually-confirmed` 会把该人工确认传给 preflight；
+- `docs/PUBLIC_BETA_CURRENT_STATUS.md`、owner go-live 步骤和完整 playbook 已同步。
+
+边界：
+- 该开关只记录项目负责人/用户的人工确认，不会真的读取 GitHub API；
+- 若要自动核验，仍应安装并登录 `gh` 后运行不带人工确认开关的 `--require-github-private`；
+- 这只清理 GitHub Private 闸门，不代表 Render / Cloudflare 已经部署完成。

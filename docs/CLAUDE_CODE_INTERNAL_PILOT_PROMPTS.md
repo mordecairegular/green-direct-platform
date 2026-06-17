@@ -86,7 +86,7 @@ python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json
 - `preflight_internal_pilot_deploy.py` 支持 `--summary`，用于人类快速查看发布就绪总览、失败项和下一步建议；CI/agent 读取仍使用 `--json`；
 - `docs/PUBLIC_BETA_CURRENT_STATUS.md` 记录当前公网 Route A 是否已 push、GitHub Private 是否已确认、是否可以先发本地包 fallback；`scripts/report_public_beta_status.py --check-remote` 可生成实时只读状态，`--check-performance` 会额外运行代表性技术/经济性 benchmark 快照；Claude Code 接手上线/部署任务时应先读该状态单；
 - `--require-git-sync` 当前只应在本地分支尚未推送时失败 `git:sync`；推送前不要把这个失败误判为配置错误，ahead/behind 数量以接手时 `git status --short --branch` 为准；
-- `--require-github-private --summary` 在当前机器会因为缺少 GitHub CLI `gh` 失败；这不是代码或部署配置失败。首次公网内测前应安装/登录 `gh` 后重跑，或在 GitHub 网页人工确认仓库 visibility 为 Private；
+- `--require-github-private --summary` 在当前机器可能因为缺少 GitHub CLI `gh` 失败；这不是代码或部署配置失败。用户已在 2026-06-17 确认 GitHub 仓库 visibility 为 Private，可用 `--github-private-manually-confirmed` 把人工确认写进 preflight 结果；
 - 本项目已经具备 Render Blueprint / Docker / persistent disk / Cloudflare Access 的首发路线材料，但尚未完成目标托管平台实机部署演练；
 - 不要为了接入 Vercel 或 Cloudflare Pages/Workers 直接把当前 Streamlit 长进程改成 serverless/edge 应用。短期公网内测优先保持 Docker Web Service 路线。
 - `run_batch()` 已通过 `iter_scenarios()` 流式消费方案池，串行和并行 chunk 都不再先物化完整 `Scenario` list；这只是方案池对象生成和调度层优化，不改变 V0.1 技术调度、经济性或推荐口径。

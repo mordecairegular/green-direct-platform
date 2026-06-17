@@ -248,6 +248,7 @@ def test_public_beta_status_report_runs_local_json():
 
     assert payload["remote_checks_enabled"] is False
     assert payload["performance_checks_enabled"] is False
+    assert payload["github_private_manually_confirmed"] is False
     assert payload["performance"] is None
     assert payload["static_preflight"]["status"] == "pass"
     assert payload["local_trial_zip"]["status"] == "pass"
@@ -370,6 +371,47 @@ def test_public_beta_status_report_remote_actions_do_not_repeat_push_after_sync(
     assert not any("git push origin codex/UI" in action for action in report["next_actions"])
 
 
+def test_public_beta_status_report_accepts_manual_github_private_confirmation(monkeypatch):
+    status = _load_public_beta_status_module()
+
+    def fake_run(command, *, timeout_seconds=120):
+        command_text = " ".join(str(part) for part in command)
+        if "--require-github-private" in command_text:
+            assert "--github-private-manually-confirmed" in command_text
+        return {
+            "command": command,
+            "returncode": 0,
+            "stdout": "ok",
+            "stderr": "",
+            "status": "pass",
+        }
+
+    monkeypatch.setattr(status, "_run", fake_run)
+    monkeypatch.setattr(
+        status,
+        "_zip_status",
+        lambda path: {
+            "status": "pass",
+            "path": "release/GreenDirectLocalTrial_20260617.zip",
+            "size_mb": 4.12,
+            "contains_venv": False,
+        },
+    )
+
+    report = status.build_report(
+        check_remote=True,
+        check_performance=False,
+        github_private_manually_confirmed=True,
+    )
+    text = status.render_text(report)
+
+    assert report["status"] == "ready_for_render_handoff"
+    assert report["github_private_manually_confirmed"] is True
+    assert report["github_private"]["status"] == "pass"
+    assert "GitHub private gate: PASS" in text
+    assert "ready_for_render_handoff".upper() in text
+
+
 def test_local_trial_distribution_covers_wheelhouse_path():
     distribution = (ROOT / "docs" / "LOCAL_TRIAL_DISTRIBUTION.md").read_text(encoding="utf-8")
     launcher = (ROOT / "START_GREEN_DIRECT_LOCAL_TRIAL.bat").read_text(encoding="utf-8")
@@ -478,6 +520,7 @@ def test_internal_pilot_preflight_exposes_git_sync_check():
 
     assert "--require-git-sync" in completed.stdout
     assert "--require-github-private" in completed.stdout
+    assert "--github-private-manually-confirmed" in completed.stdout
     assert "--summary" in completed.stdout
     assert "--pilot-store-dir" in completed.stdout
     script = (ROOT / "scripts" / "preflight_internal_pilot_deploy.py").read_text(encoding="utf-8")
@@ -500,6 +543,7 @@ def test_public_beta_first_launch_playbook_covers_handoff_steps():
         "preflight_internal_pilot_deploy.py --require-git-sync",
         "preflight_internal_pilot_deploy.py --require-git-sync --summary",
         "preflight_internal_pilot_deploy.py --require-github-private --summary",
+        "--github-private-manually-confirmed",
         "preflight_internal_pilot_deploy.py --require-github-private",
         "Internal Pilot Quality Gate",
         "GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS=1",
@@ -525,6 +569,7 @@ def test_public_beta_owner_go_live_steps_covers_short_path():
         "preflight_internal_pilot_deploy.py --summary",
         "preflight_internal_pilot_deploy.py --require-git-sync --summary",
         "preflight_internal_pilot_deploy.py --require-github-private --summary",
+        "--github-private-manually-confirmed",
         "git push origin codex/UI",
         "Internal Pilot Quality Gate",
         "Render Docker Web Service",
@@ -551,9 +596,10 @@ def test_public_beta_current_status_covers_current_gates():
         "report_public_beta_status.py --check-remote",
         "report_public_beta_status.py --check-remote --check-performance",
         "git push --dry-run origin codex/UI",
-        "git push origin codex/UI",
+        "代码分支已经推送到 GitHub",
         "preflight_internal_pilot_deploy.py --require-git-sync --summary",
         "preflight_internal_pilot_deploy.py --require-github-private --summary",
+        "github-private-manually-confirmed",
         "GreenDirectLocalTrial_20260617.zip",
         "prepare_local_trial_wheelhouse.ps1",
         "Internal Pilot Quality Gate",

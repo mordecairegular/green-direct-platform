@@ -113,9 +113,10 @@ python scripts\preflight_internal_pilot_deploy.py --require-github-private
 
 ```powershell
 python scripts\preflight_internal_pilot_deploy.py --require-github-private --summary
+python scripts\preflight_internal_pilot_deploy.py --require-github-private --github-private-manually-confirmed --summary
 ```
 
-如果该命令因为未安装 `gh` 失败，请在 GitHub 仓库 Settings / General / Danger Zone 上方的仓库可见性位置人工确认 visibility 为 Private，再继续 Render 部署。
+如果第一条命令因为未安装 `gh` 失败，请在 GitHub 仓库 Settings / General / Danger Zone 上方的仓库可见性位置人工确认 visibility 为 Private；确认后运行第二条命令，把人工确认写进 preflight 结果，再继续 Render 部署。
 
 该命令必须通过后再让 Render 部署。若失败：
 
@@ -124,7 +125,7 @@ python scripts\preflight_internal_pilot_deploy.py --require-github-private --sum
 - `git:branch` 失败：当前本地分支不是 `render.yaml` 配置的部署分支；
 - `git:upstream-branch` 失败：当前分支跟踪的 upstream 不是 Render 部署分支；
 - `git:sync` 失败：本地和 GitHub 仍不同步，先 push 或 pull。
-- `github:visibility` 失败：仓库不是 Private，或本机缺少 `gh`/GitHub 登录态；先改为私有仓库或完成人工私有性确认。
+- `github:visibility` 失败：仓库不是 Private，或本机缺少 `gh`/GitHub 登录态；先改为私有仓库，或完成人工私有性确认后加 `--github-private-manually-confirmed` 重跑。
 
 等待 GitHub Actions `Internal Pilot Quality Gate` 通过。首次部署或重要回滚时，手动触发该 workflow 并勾选 `run_smoke`。
 

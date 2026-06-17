@@ -46,9 +46,10 @@ python scripts\preflight_internal_pilot_deploy.py --require-git-sync --summary
 
 ```powershell
 python scripts\preflight_internal_pilot_deploy.py --require-github-private --summary
+python scripts\preflight_internal_pilot_deploy.py --require-github-private --github-private-manually-confirmed --summary
 ```
 
-并只提示缺少 `gh`，不代表代码或部署配置失败；它表示需要安装/登录 GitHub CLI，或在 GitHub 网页人工确认仓库是 Private 后继续。
+第一条命令如果只提示缺少 `gh`，不代表代码或部署配置失败；它表示需要安装/登录 GitHub CLI，或在 GitHub 网页人工确认仓库是 Private。已经人工确认后，用第二条命令把这个人工确认写进 preflight 结果。
 
 ## 1. 推送 GitHub
 

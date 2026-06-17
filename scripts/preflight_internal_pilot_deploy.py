@@ -560,7 +560,7 @@ def _git_sync_checks(checks: list[dict[str, str]]) -> None:
     )
 
 
-def _github_private_checks(checks: list[dict[str, str]]) -> None:
+def _github_private_checks(checks: list[dict[str, str]], *, manually_confirmed: bool = False) -> None:
     origin = _git_output(["config", "--get", "remote.origin.url"])
     if origin.returncode != 0 or not origin.stdout.strip():
         _check(False, checks, "github:origin", "remote.origin.url is not configured")
@@ -578,6 +578,15 @@ def _github_private_checks(checks: list[dict[str, str]]) -> None:
         ),
     )
     if repo_slug is None:
+        return
+
+    if manually_confirmed:
+        _record(
+            checks,
+            "github:visibility",
+            "pass",
+            f"GitHub repository {repo_slug} visibility was manually confirmed as Private",
+        )
         return
 
     try:
@@ -657,6 +666,7 @@ def _readiness_summary(payload: dict[str, Any]) -> str:
                 "Before Render deploy, also run:",
                 "- python scripts\\preflight_internal_pilot_deploy.py --require-git-sync --summary",
                 "- python scripts\\preflight_internal_pilot_deploy.py --require-github-private --summary",
+                "- or, after manual GitHub Private confirmation: python scripts\\preflight_internal_pilot_deploy.py --require-github-private --github-private-manually-confirmed --summary",
                 "Then follow docs\\PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md for the short owner runbook,",
                 "or docs\\PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md for the full GitHub/Render/Cloudflare playbook.",
             ]
@@ -692,6 +702,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Fail unless remote.origin points to a GitHub repository whose gh-reported visibility is PRIVATE.",
     )
+    parser.add_argument(
+        "--github-private-manually-confirmed",
+        action="store_true",
+        help=(
+            "When used with --require-github-private, accept a human-confirmed Private repository "
+            "instead of requiring GitHub CLI visibility lookup."
+        ),
+    )
     parser.add_argument("--smoke-timeout-seconds", type=int, default=80)
     parser.add_argument(
         "--pilot-store-dir",
@@ -715,7 +733,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.require_git_sync:
         _git_sync_checks(checks)
     if args.require_github_private:
-        _github_private_checks(checks)
+        _github_private_checks(checks, manually_confirmed=args.github_private_manually_confirmed)
     if args.pilot_store_dir:
         _pilot_store_doctor_checks(args.pilot_store_dir, checks)
     if args.run_smoke:

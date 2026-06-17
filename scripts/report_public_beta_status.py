@@ -118,7 +118,12 @@ def _run_performance_snapshots() -> dict[str, Any]:
     }
 
 
-def build_report(*, check_remote: bool, check_performance: bool = False) -> dict[str, Any]:
+def build_report(
+    *,
+    check_remote: bool,
+    check_performance: bool = False,
+    github_private_manually_confirmed: bool = False,
+) -> dict[str, Any]:
     preflight_static = _run(
         [sys.executable, "scripts/preflight_internal_pilot_deploy.py", "--summary"],
         timeout_seconds=180,
@@ -132,6 +137,7 @@ def build_report(*, check_remote: bool, check_performance: bool = False) -> dict
         "local_trial_zip": _zip_status(LOCAL_TRIAL_ZIP),
         "remote_checks_enabled": check_remote,
         "performance_checks_enabled": check_performance,
+        "github_private_manually_confirmed": github_private_manually_confirmed,
         "performance": None,
         "remote_dry_run": None,
         "git_sync": None,
@@ -157,15 +163,15 @@ def build_report(*, check_remote: bool, check_performance: bool = False) -> dict
             [sys.executable, "scripts/preflight_internal_pilot_deploy.py", "--require-git-sync", "--summary"],
             timeout_seconds=180,
         )
-        report["github_private"] = _run(
-            [
-                sys.executable,
-                "scripts/preflight_internal_pilot_deploy.py",
-                "--require-github-private",
-                "--summary",
-            ],
-            timeout_seconds=180,
-        )
+        github_private_command = [
+            sys.executable,
+            "scripts/preflight_internal_pilot_deploy.py",
+            "--require-github-private",
+            "--summary",
+        ]
+        if github_private_manually_confirmed:
+            github_private_command.append("--github-private-manually-confirmed")
+        report["github_private"] = _run(github_private_command, timeout_seconds=180)
         if report["remote_dry_run"]["returncode"] != 0:
             blockers.append("GitHub dry-run push failed.")
         if report["git_sync"]["returncode"] != 0:
@@ -281,13 +287,22 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run representative technical/economy benchmark snapshots.",
     )
+    parser.add_argument(
+        "--github-private-manually-confirmed",
+        action="store_true",
+        help="Accept a project-owner manual confirmation that the GitHub repository is Private.",
+    )
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    report = build_report(check_remote=args.check_remote, check_performance=args.check_performance)
+    report = build_report(
+        check_remote=args.check_remote,
+        check_performance=args.check_performance,
+        github_private_manually_confirmed=args.github_private_manually_confirmed,
+    )
     if args.json:
         print(json.dumps(report, ensure_ascii=True, indent=2))
     else:

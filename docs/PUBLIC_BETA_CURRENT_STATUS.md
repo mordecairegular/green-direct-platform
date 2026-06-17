@@ -15,7 +15,7 @@ python scripts\report_public_beta_status.py --check-remote --check-performance
 
 ## 当前结论
 
-本地试用包已经可以作为最快 fallback 发给同事；公网 Route A 尚未真正上线，因为本地 `codex/UI` 分支还没有推送到 GitHub，且 GitHub 仓库 Private 状态仍需自动或人工确认。
+本地试用包已经可以作为最快 fallback 发给同事；公网 Route A 的代码分支已经推送到 GitHub，用户已在 GitHub 网页人工确认仓库是 Private。下一步是进入 Render / Cloudflare 实机部署与手机 4G/5G 验收。
 
 ## 已验证
 
@@ -23,15 +23,14 @@ python scripts\report_public_beta_status.py --check-remote --check-performance
 - 当前最新提交以 `git log -1 --oneline` 为准；
 - `python scripts\preflight_internal_pilot_deploy.py --summary`：预期 PASS；
 - `git push --dry-run origin codex/UI`：通过，说明远端认证和分支推送路径可用；
+- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --summary`：预期 PASS；
+- GitHub 仓库 Private：2026-06-17 已由用户在 GitHub 网页人工确认；可用 `--github-private-manually-confirmed` 记录该人工确认；
 - 本地试用包：`release/GreenDirectLocalTrial_20260617.zip`，约 4.12 MB，具体构建提交见包内 `BUILD_INFO.txt`；
 - 本地试用 ZIP 已确认不包含 `.venv`，首次启动会在线创建环境并安装依赖。
 - 性能快照可通过 `python scripts\report_public_beta_status.py --check-performance` 一并输出；当前本机样本约为：168 小时、30 个方案、summary-first 技术仿真 0.18s 量级；5000 行经济性 summary + 保留 20 个年度现金流 0.83s 量级。该值用于本机趋势观察，不作为不同服务器的固定 SLA。
 
 ## 当前未完成
 
-- 尚未执行 `git push origin codex/UI`；
-- `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --summary` 会失败在 `git:sync`，这是未 push 的预期结果；
-- 当前机器未安装 GitHub CLI `gh`，所以 `--require-github-private` 不能自动确认仓库 Private；
 - 尚未在 Render 创建 Web Service；
 - 尚未在 Cloudflare 配置 Access；
 - 尚未完成手机 4G/5G 验收。
@@ -40,13 +39,12 @@ python scripts\report_public_beta_status.py --check-remote --check-performance
 
 如果继续公网 Route A：
 
-1. 用户确认允许推送；
-2. 执行 `git push origin codex/UI`；
-3. 推送后运行 `python scripts\report_public_beta_status.py --check-remote`，确认 git sync 和 GitHub Private 状态；
-4. 或单独运行 `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --summary`，预期 PASS；
-5. 安装/登录 `gh` 后运行 `python scripts\preflight_internal_pilot_deploy.py --require-github-private --summary`，或在 GitHub 网页人工确认仓库是 Private；
-6. 等 GitHub Actions `Internal Pilot Quality Gate` 通过；
-7. 按 `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md` 导入 Render Blueprint、初始化管理员、接 Cloudflare Access、做手机验收。
+1. 运行 `python scripts\report_public_beta_status.py --check-remote --check-performance --github-private-manually-confirmed`；
+2. 或单独运行 `python scripts\preflight_internal_pilot_deploy.py --require-git-sync --summary`，预期 PASS；
+3. 若本机已安装/登录 `gh`，运行 `python scripts\preflight_internal_pilot_deploy.py --require-github-private --summary` 自动核验 Private；
+4. 若要用人工 Private 确认替代 `gh` 自动确认，运行 `python scripts\preflight_internal_pilot_deploy.py --require-github-private --github-private-manually-confirmed --summary`；
+5. 等 GitHub Actions `Internal Pilot Quality Gate` 通过；
+6. 按 `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md` 导入 Render Blueprint、初始化管理员、接 Cloudflare Access、做手机验收。
 
 如果公网平台当天卡住：
 
