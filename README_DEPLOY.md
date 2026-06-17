@@ -74,7 +74,7 @@ Cloudflare DNS / HTTPS / Access
   -> persistent disk mounted at /data
 ```
 
-仓库已提供 `render.yaml`，可在 Render 中用 Blueprint 创建服务；当前 pilot 配置显式部署 `codex/UI` 分支，并设置为 GitHub Actions 质量门通过后再自动部署。首次发布请按 `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md` 的顺序执行，平台判断和详细说明见 `docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md`。
+仓库已提供 `render.yaml`，可在 Render 中用 Blueprint 创建服务；当前 pilot 配置显式部署 `codex/UI` 分支，并设置为 GitHub Actions 质量门通过后再自动部署。首次发布时，非程序员负责人可以先按 `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md` 的 30 分钟操作单执行；完整作战单见 `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md`，平台判断和详细说明见 `docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md`。
 
 如果目标是让同事用手机或移动网络尽快试用，请直接按 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 执行。
 

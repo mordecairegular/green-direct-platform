@@ -76,6 +76,7 @@
 
 - `docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md`：把受控公网内测准备方案映射为当前仓库的 P0 审计矩阵；
 - `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md`：把首次受控公网内测发布串成执行作战单，覆盖本地 preflight、push、GitHub Actions、Render Blueprint、Web Service Shell doctor/bootstrap、Cloudflare Access、手机验收和回滚；
+- `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md`：给非程序员负责人使用的 30 分钟短操作单，按 preflight、push、GitHub Actions、Render、管理员 bootstrap、账号、备份恢复、Cloudflare Access 和手机验收顺序执行；
 - `docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md`：记录托管平台公网测试路线，推荐容器/PaaS 承载应用本体、Cloudflare 做 DNS/HTTPS/Access；
 - `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md`：面向“同事用手机/移动网络试用”的最短操作清单；
 - `docs/PERFORMANCE_OPTIMIZATION_PLAN.md`：记录方案遍历、summary-first、并行、经济性批量化和后台 Job 的性能路线；
@@ -117,7 +118,8 @@
 - 本轮新增本地试用分发路线：`START_GREEN_DIRECT_LOCAL_TRIAL.bat` 会创建 `.venv`、安装运行依赖并调用现有 Streamlit 启动器；`LOCAL_TRIAL_README.md`、`docs/USER_QUICK_GUIDE.md` 和 `docs/LOCAL_TRIAL_DISTRIBUTION.md` 记录给同事的启动说明与边界；
 - 已生成本地试用 ZIP：`release/GreenDirectLocalTrial_20260617.zip`。该文件位于 ignored `release/` 下，不进入 Git checkpoint；它包含当前 Streamlit 源码、启动脚本、运行依赖文件、配置、示例 CSV 和用户说明，不包含 `.venv`、公网账号后台、Render/Cloudflare 链路或正式报告导出；
 - `cmd /c "echo. | START_GREEN_DIRECT_LOCAL_TRIAL.bat -CheckOnly"` 已通过，确认本地启动链路可用且不启动长进程；此前尝试 PyInstaller `GreenDirectTool` 超时，已停止并清理 `build/GreenDirectTool` 与 `dist/GreenDirectTool` 半成品；
-- 因此当前最快交付路径是先发送本地试用 ZIP 给同事；公网 Route A 仍是第二条线，需经用户确认后推送当前分支到私有 GitHub，等待 GitHub Actions 质量门通过，再按 Render/Cloudflare checklist 做真实部署演练。
+- 因此当前最快交付路径是先发送本地试用 ZIP 给同事；公网 Route A 仍是第二条线，需经用户确认后推送当前分支到私有 GitHub，等待 GitHub Actions 质量门通过，再按 Render/Cloudflare checklist 做真实部署演练；
+- 公网 Route A 的非程序员负责人短操作单已补充为 `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md`，并纳入 `preflight_internal_pilot_deploy.py --summary` 的通过提示和 REQUIRED_FILES。当前静态 preflight 通过后会提示先运行 `--require-git-sync --summary`、`--require-github-private --summary`，再按短操作单执行。
 
 若用户提出 Vercel、Cloudflare Pages/Workers 等成熟平台，请先区分平台角色：当前 Streamlit 长进程 + pilot store 形态不适合直接部署到 serverless/edge runtime；短期公网内测推荐 Render/Fly/Railway/Cloud Run 等容器服务托管应用本体，Cloudflare 负责域名、HTTPS 和 Access 门禁。若要改架构，优先把本地 store 换成数据库/对象存储和后台 worker，再考虑前端重写。
 

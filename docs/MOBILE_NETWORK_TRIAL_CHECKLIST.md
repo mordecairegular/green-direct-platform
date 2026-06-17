@@ -4,7 +4,7 @@
 
 目标：让内部同事不在同一局域网、只用手机或移动网络，也能访问并试用绿电直连测算工具。
 
-首次发布请先按 `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md` 从本地检查、GitHub 推送、Render 部署、管理员 bootstrap 到 Cloudflare Access 顺序执行；本文聚焦发给真实同事前的移动网络验收。
+首次发布请先按 `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md` 做负责人短操作单；需要完整上下文时，再按 `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md` 从本地检查、GitHub 推送、Render 部署、管理员 bootstrap 到 Cloudflare Access 顺序执行。本文聚焦发给真实同事前的移动网络验收。
 
 ## 0. 当前最短路径
 

@@ -161,6 +161,7 @@ def test_internal_pilot_preflight_runs_static_checks_json():
     check_names = {check["name"] for check in payload["checks"]}
     assert "file:.github/workflows/internal-pilot-quality.yml" in check_names
     assert "file:docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md" in check_names
+    assert "file:docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md" in check_names
     assert "file:docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md" in check_names
     assert "file:scripts/backup_pilot_store.ps1" in check_names
     assert "file:scripts/restore_pilot_store.ps1" in check_names
@@ -208,6 +209,7 @@ def test_internal_pilot_preflight_summary_reports_static_readiness():
     assert "Deployment readiness: PASS" in completed.stdout
     assert "Static deployment checks passed." in completed.stdout
     assert "--require-git-sync --summary" in completed.stdout
+    assert "PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md" in completed.stdout
     assert "PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md" in completed.stdout
 
 
@@ -333,3 +335,24 @@ def test_public_beta_first_launch_playbook_covers_handoff_steps():
         "GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0",
     ]:
         assert needle in playbook
+
+
+def test_public_beta_owner_go_live_steps_covers_short_path():
+    steps = (ROOT / "docs" / "PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md").read_text(encoding="utf-8")
+
+    for needle in [
+        "preflight_internal_pilot_deploy.py --summary",
+        "preflight_internal_pilot_deploy.py --require-git-sync --summary",
+        "git push origin codex/UI",
+        "Internal Pilot Quality Gate",
+        "Render Docker Web Service",
+        "green-direct-pilot-store",
+        "GREEN_DIRECT_ENABLE_PILOT_AUTH=1",
+        "GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0",
+        "pilot-admin doctor",
+        "pilot-admin bootstrap",
+        "Cloudflare",
+        "手机 4G/5G",
+        "release/GreenDirectLocalTrial_20260617.zip",
+    ]:
+        assert needle in steps

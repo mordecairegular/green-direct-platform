@@ -6097,3 +6097,24 @@ profile / benchmark：
 - 本地试用包要求同事电脑已安装 Python 3.10 或更新版本，并且首次运行时能安装 Python 包；如果用户需要无 Python、离线、免安装 EXE，需要另开 PyInstaller/离线依赖包专项；
 - 这是单机本地试用，不提供公网多人账号、Cloudflare/Render/GitHub Actions 链路、统一后台或数据集中留存；
 - 不改变技术仿真、经济性 V1、推荐排序、导出权限或任何计算口径。
+
+### 2026-06-17 公网内测负责人短操作单纳入 preflight
+
+本轮继续朝“同事用手机或移动网络访问”的真实上线目标收口。此前已有完整首次发布作战单，但对非程序员负责人来说仍偏长；当前实际卡点也非常明确：静态 preflight 已通过，`--require-git-sync` 只因本地分支 ahead GitHub 远端而失败，`--require-github-private` 需要安装 GitHub CLI 或人工确认仓库 Private。
+
+调整：
+- 新增 `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md`，把负责人最后上线动作压缩为 30 分钟顺序操作单：preflight、push、GitHub Actions、Render Blueprint、Web Service Shell doctor/bootstrap、创建账号、备份恢复演练、Cloudflare Access、手机 4G/5G 验收；
+- `preflight_internal_pilot_deploy.py` 将该短操作单纳入 `REQUIRED_FILES`，并在 `--summary` 通过时优先提示阅读短操作单，再阅读完整作战单；
+- `README_DEPLOY.md` 和 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 增加该短操作单入口；
+- `tests/test_deployment_artifacts.py` 覆盖短操作单关键内容和 preflight 文件存在检查。
+
+验证：
+- `python -m pytest tests\test_deployment_artifacts.py -q` 通过，15 项通过；
+- `python scripts\preflight_internal_pilot_deploy.py --summary` 通过，`Checks: 99 passed, 0 failed`，输出已指向短操作单；
+- `python -m compileall -q scripts\preflight_internal_pilot_deploy.py tests\test_deployment_artifacts.py` 通过；
+- `git diff --check` 仅有 Windows 换行提示，无空白错误。
+
+边界：
+- 这不替代真实 push、GitHub Actions、Render 和 Cloudflare 平台操作；
+- 当前 `--require-git-sync --summary` 在 push 前仍应失败，提示 `git push origin codex/UI`；
+- 不改变技术仿真、经济性 V1、推荐排序、账号权限或部署拓扑。

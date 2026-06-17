@@ -39,6 +39,7 @@ REQUIRED_FILES = (
     "docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md",
     "docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md",
     "docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md",
+    "docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md",
     "docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md",
     "docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md",
     "scripts/backup_pilot_store.ps1",
@@ -651,7 +652,8 @@ def _readiness_summary(payload: dict[str, Any]) -> str:
                 "Before Render deploy, also run:",
                 "- python scripts\\preflight_internal_pilot_deploy.py --require-git-sync --summary",
                 "- python scripts\\preflight_internal_pilot_deploy.py --require-github-private --summary",
-                "Then follow docs\\PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md for GitHub, Render, and Cloudflare Access.",
+                "Then follow docs\\PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md for the short owner runbook,",
+                "or docs\\PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md for the full GitHub/Render/Cloudflare playbook.",
             ]
         )
         return "\n".join(lines)
