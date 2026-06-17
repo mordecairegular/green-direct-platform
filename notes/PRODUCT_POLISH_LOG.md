@@ -6118,3 +6118,25 @@ profile / benchmark：
 - 这不替代真实 push、GitHub Actions、Render 和 Cloudflare 平台操作；
 - 当前 `--require-git-sync --summary` 在 push 前仍应失败，提示 `git push origin codex/UI`；
 - 不改变技术仿真、经济性 V1、推荐排序、账号权限或部署拓扑。
+
+### 2026-06-17 性能 benchmark 支持无 tracemalloc 直计时
+
+本轮继续推进“成千上万个方案经济性测算等待久”的性能专项，但先校准测量工具。此前 `scripts/benchmark_internal_pilot_performance.py` 默认使用 `tracemalloc` 报告 Python heap 峰值；经济性热路径在该口径下会被显著放大，容易把“测量工具开销”误判为真实用户等待时间。
+
+调整：
+- `benchmark_internal_pilot_performance.py` 新增 `--no-tracemalloc`，用于关闭 Python heap 跟踪，只测直接 elapsed time；
+- benchmark JSON 的 `config` 和每条 record 增加 `track_python_heap`，关闭时 `peak_python_heap_mb` 为 `null`；
+- 文本表格在关闭 heap 跟踪时显示 `n/a`；
+- `tests/test_performance_benchmark_script.py` 覆盖该参数；
+- `docs/PERFORMANCE_OPTIMIZATION_PLAN.md` 明确后续性能专项应同时记录 `--no-tracemalloc` 直计时和默认 heap 跟踪口径。
+
+验证与反馈环：
+- `python -m pytest tests\test_performance_benchmark_script.py -q` 通过，3 项通过；
+- `python -m compileall -q scripts\benchmark_internal_pilot_performance.py tests\test_performance_benchmark_script.py` 通过；
+- `python scripts\benchmark_internal_pilot_performance.py --economy-only-summary-rows 5000 --no-tracemalloc --json` 得到 5,000 行经济性 summary-only 约 `0.8115s`，不报告 Python heap；
+- `python scripts\benchmark_internal_pilot_performance.py --economy-only-summary-rows 500 --json` 默认 heap 跟踪口径约 `1.2251s`、峰值 Python heap 约 `1.009MB`。
+
+边界：
+- 这不是新的经济性算法，不改变电源侧 V1、同一主体税前模型、FIRR 多根判断、payback、推荐排序或技术调度；
+- `--no-tracemalloc` 只用于更接近真实等待时间的计时；需要观察内存峰值时仍应使用默认口径；
+- 后续真正优化仍应继续针对 IRR/NPV、年度循环、价格曲线聚合和后台 Job 化推进。

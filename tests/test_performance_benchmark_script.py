@@ -67,3 +67,27 @@ def test_internal_pilot_performance_benchmark_runs_economy_only_json():
     ]
     assert payload["benchmarks"][0]["stats"]["power_summary_rows"] == 12
     assert payload["benchmarks"][0]["stats"]["single_entity_summary_rows"] == 12
+
+
+def test_internal_pilot_performance_benchmark_can_skip_tracemalloc():
+    root = Path(__file__).resolve().parents[1]
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts" / "benchmark_internal_pilot_performance.py"),
+            "--economy-only-summary-rows",
+            "12",
+            "--no-tracemalloc",
+            "--json",
+        ],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(completed.stdout)
+
+    assert payload["config"]["track_python_heap"] is False
+    assert payload["benchmarks"][0]["track_python_heap"] is False
+    assert payload["benchmarks"][0]["peak_python_heap_mb"] is None

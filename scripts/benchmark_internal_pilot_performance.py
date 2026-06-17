@@ -2,8 +2,8 @@
 
 This script is intentionally lightweight: it creates deterministic synthetic
 8760-style curves, runs the current batch/economy APIs, and reports elapsed
-time plus Python heap peak measured by tracemalloc. It is a decision aid, not a
-pytest performance gate.
+time. By default it also reports Python heap peak measured by tracemalloc. It
+is a decision aid, not a pytest performance gate.
 """
 
 from __future__ import annotations
@@ -127,18 +127,23 @@ def _synthetic_summary(row_count: int) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _measure(name: str, func: Callable[[], Any]) -> tuple[Any, dict[str, Any]]:
+def _measure(name: str, func: Callable[[], Any], *, track_python_heap: bool = True) -> tuple[Any, dict[str, Any]]:
     gc.collect()
-    tracemalloc.start()
+    if track_python_heap:
+        tracemalloc.start()
     started = time.perf_counter()
     result = func()
     seconds = time.perf_counter() - started
-    _, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
+    peak_python_heap_mb: float | None = None
+    if track_python_heap:
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        peak_python_heap_mb = round(peak / (1024 * 1024), 3)
     return result, {
         "case": name,
         "seconds": round(seconds, 4),
-        "peak_python_heap_mb": round(peak / (1024 * 1024), 3),
+        "peak_python_heap_mb": peak_python_heap_mb,
+        "track_python_heap": track_python_heap,
     }
 
 
@@ -168,8 +173,10 @@ def _render_table(payload: dict[str, Any]) -> str:
     ]
     for record in payload["benchmarks"]:
         stats = ", ".join(f"{key}={value}" for key, value in record["stats"].items())
+        peak = record["peak_python_heap_mb"]
+        peak_text = "n/a" if peak is None else str(peak)
         rows.append(
-            f"| {record['case']} | {record['seconds']} | {record['peak_python_heap_mb']} | {stats} |"
+            f"| {record['case']} | {record['seconds']} | {peak_text} | {stats} |"
         )
     return "\n".join(rows)
 
@@ -192,6 +199,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--skip-full-retention", action="store_true")
     parser.add_argument("--skip-economy", action="store_true")
+    parser.add_argument(
+        "--no-tracemalloc",
+        action="store_true",
+        help="Measure direct elapsed time without tracemalloc heap tracking overhead.",
+    )
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     return parser
 
@@ -203,6 +215,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.economy_only_summary_rows is not None:
         summary = _synthetic_summary(args.economy_only_summary_rows)
+        track_python_heap = not args.no_tracemalloc
         payload: dict[str, Any] = {
             "config": {
                 "hours": None,
@@ -211,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
                 "retain_detail_count": 0,
                 "durations": [],
                 "economy_only_summary_rows": args.economy_only_summary_rows,
+                "track_python_heap": track_python_heap,
             },
             "benchmarks": [],
         }
@@ -224,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
                 green_power_settlement_price_with_vat=0.40,
                 retain_annual_cashflows=False,
             ),
+            track_python_heap=track_python_heap,
         )
         record["stats"] = _economy_stats(economy_result)
         payload["benchmarks"].append(record)
@@ -259,6 +274,7 @@ def main(argv: list[str] | None = None) -> int:
             "parallel_workers": args.parallel_workers,
             "retain_detail_count": args.retain_detail_count,
             "durations": args.durations,
+            "track_python_heap": not args.no_tracemalloc,
         },
         "benchmarks": [],
     }
@@ -267,6 +283,7 @@ def main(argv: list[str] | None = None) -> int:
         full_result, record = _measure(
             "technical_full_hourly_retention",
             lambda: run_batch(curves, grid, performance_params=performance, retain_hourly_details=True),
+            track_python_heap=not args.no_tracemalloc,
         )
         record["stats"] = _batch_stats(full_result)
         payload["benchmarks"].append(record)
@@ -281,6 +298,7 @@ def main(argv: list[str] | None = None) -> int:
             retain_hourly_details=False,
             hourly_detail_scenario_ids=retained_ids,
         ),
+        track_python_heap=not args.no_tracemalloc,
     )
     record["stats"] = _batch_stats(summary_result)
     payload["benchmarks"].append(record)
@@ -296,6 +314,7 @@ def main(argv: list[str] | None = None) -> int:
                 green_power_settlement_price_with_vat=0.40,
                 retain_annual_cashflows=False,
             ),
+            track_python_heap=not args.no_tracemalloc,
         )
         record["stats"] = _economy_stats(economy_result)
         payload["benchmarks"].append(record)

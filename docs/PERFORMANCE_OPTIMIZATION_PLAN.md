@@ -79,7 +79,13 @@ python scripts\benchmark_internal_pilot_performance.py --json
 python scripts\benchmark_internal_pilot_performance.py --economy-only-summary-rows 5000 --json
 ```
 
-注意：该脚本为了同时报告峰值 Python heap 使用 `tracemalloc`，经济性热路径会被明显放大；它适合同一命令前后横向比较，真实用户等待时间应另用 direct timing 或应用运行观测确认。
+默认模式为了同时报告峰值 Python heap 使用 `tracemalloc`，经济性热路径会被明显放大；它适合同一命令前后横向比较内存和相对趋势。若要更接近真实用户等待时间，可关闭 heap 跟踪：
+
+```powershell
+python scripts\benchmark_internal_pilot_performance.py --economy-only-summary-rows 5000 --no-tracemalloc --json
+```
+
+建议性能专项同时记录两类结果：`--no-tracemalloc` 直计时用于判断用户等待，默认模式用于观察 Python heap 峰值。
 
 注意：该脚本是决策辅助，不是固定性能门槛测试。不同电脑、Python 版本、进程数和后台负载都会影响结果。后续做性能优化时，应把优化前后的命令、参数、耗时和峰值内存记录到 `notes/PRODUCT_POLISH_LOG.md`。
 
