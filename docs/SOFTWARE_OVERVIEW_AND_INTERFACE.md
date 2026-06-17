@@ -1046,6 +1046,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 `src/green_direct/cli.py` 已提供最小 `pilot-admin` 命令行入口，作为管理员 UI 落地前的本地运维工具：
 
 - `doctor`：检查本地 pilot store 目录、JSON 原子写入/读取、payload 写入、协作文件锁、既有 metadata JSON 和审计 JSONL，可在首个管理员 bootstrap 前运行；
+- `support-bundle`：生成适合交给 Claude Code / Codex 排查的脱敏 JSON 包，聚合账号、项目、成员、任务、result、artifact、审计键名和 doctor 摘要，但不读取 artifact payload，不输出登录名、显示名、项目名、storage URI、result 备注或审计 metadata 值；
 - `bootstrap`：创建首个平台管理员；
 - `create-user`：创建用户并可设置初始密码；
 - `reset-password`：重置用户密码，并撤销该用户有效会话；
@@ -1180,6 +1181,12 @@ python -m green_direct.cli pilot-admin list-audit-events `
     --actor-user-id admin `
     --project-id project_1 `
     --limit 20
+
+python -m green_direct.cli pilot-admin support-bundle `
+    --store-dir .runtime/pilot_store `
+    --actor-user-id admin `
+    --project-id project_1 `
+    --output .runtime/support_bundle_project_1.json
 
 python -m green_direct.cli pilot-admin list-jobs `
     --store-dir .runtime/pilot_store `

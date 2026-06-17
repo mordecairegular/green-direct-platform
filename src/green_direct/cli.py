@@ -31,6 +31,7 @@ from green_direct.services import (
     LocalPilotRegistry,
     PilotAccessService,
     LocalResultStore,
+    build_pilot_support_bundle,
     execute_next_worker_job,
     execute_worker_loop,
     run_pilot_store_doctor,
@@ -601,6 +602,25 @@ def _cmd_store_doctor(args: argparse.Namespace) -> int:
     return 0 if result.status == "pass" else 1
 
 
+def _cmd_support_bundle(args: argparse.Namespace) -> int:
+    services = _pilot_services(args.store_dir)
+    services.admin.list_users(actor_user_id=args.actor_user_id)
+    bundle = build_pilot_support_bundle(
+        args.store_dir,
+        project_id=args.project_id,
+        recent_limit=args.limit,
+    )
+    text = json.dumps(bundle, ensure_ascii=False, indent=2, sort_keys=True)
+    if args.output:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(text + "\n", encoding="utf-8")
+        print(f"Support bundle written: {output_path.resolve()}")
+    else:
+        print(text)
+    return 0
+
+
 def _add_common_store_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--store-dir",
@@ -632,6 +652,22 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_store_arg(doctor)
     doctor.add_argument("--json", action="store_true", help="Print machine-readable JSON output.")
     doctor.set_defaults(func=_cmd_store_doctor)
+
+    support_bundle = pilot_admin_sub.add_parser(
+        "support-bundle",
+        help="Write sanitized pilot metadata for issue triage.",
+    )
+    _add_common_store_arg(support_bundle)
+    _add_actor_arg(support_bundle)
+    support_bundle.add_argument("--project-id", help="Limit the bundle to one project.")
+    support_bundle.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Recent jobs, artifacts, results, and audit events to include. Default: 50.",
+    )
+    support_bundle.add_argument("--output", help="Write JSON bundle to this path instead of stdout.")
+    support_bundle.set_defaults(func=_cmd_support_bundle)
 
     bootstrap = pilot_admin_sub.add_parser("bootstrap", help="Create the first platform admin.")
     _add_common_store_arg(bootstrap)

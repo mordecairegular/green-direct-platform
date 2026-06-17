@@ -333,9 +333,17 @@ python -m green_direct.cli pilot-admin list-audit-events `
     --project-id project_1 `
     --action download_artifact `
     --limit 20
+
+python -m green_direct.cli pilot-admin support-bundle `
+    --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --actor-user-id admin `
+    --project-id project_1 `
+    --output .runtime/support_bundle_project_1.json
 ```
 
 不传 `--project-id` 时读取全局审计日志；传入 `--project-id` 时读取该项目的项目级审计日志。CLI 输出为 TSV，包含时间、动作、执行人、项目/研究/任务线索、目标对象和脱敏 metadata。当前 Web 页和 CLI 都是本地运维抽查入口，不替代正式审计后台、跨项目聚合搜索或集中日志平台。
+
+若需要把问题交给 Claude Code / Codex 排查，优先使用 `support-bundle` 生成脱敏 JSON。该包包含账号/项目/任务/result/artifact/audit 的计数和元数据，但不读取 artifact payload，也不输出登录名、显示名、项目名、storage URI、result 备注或审计 metadata 值。发送前仍建议管理员人工快速浏览。
 
 ## 12. 冒烟检查
 
@@ -345,7 +353,7 @@ python -m green_direct.cli pilot-admin list-audit-events `
 - 普通用户必须选择或创建项目后才进入六步工作流；
 - Demo 技术仿真、经济性测算、方案推荐能跑通；
 - 禁止导出的项目成员不能下载历史 artifact 或 06 页导出文件；
-- `pilot-admin list-users`、`enable-user`、`list-sessions`、`revoke-session`、`list-projects`、`list-project-members`、`list-audit-events`、`list-jobs`、`claim-next-job`、`heartbeat-job`、`complete-worker-job`、`fail-worker-job`、`retry-job`、`run-worker-once`、`run-worker-loop`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
+- `pilot-admin list-users`、`enable-user`、`list-sessions`、`revoke-session`、`list-projects`、`list-project-members`、`list-audit-events`、`support-bundle`、`list-jobs`、`claim-next-job`、`heartbeat-job`、`complete-worker-job`、`fail-worker-job`、`retry-job`、`run-worker-once`、`run-worker-loop`、`purge-expired-artifacts` 和 `fail-stale-jobs` 可执行；
 - 新运行日志不包含明文密码、明文 token、原始曲线内容。
 
 ## 13. 回滚

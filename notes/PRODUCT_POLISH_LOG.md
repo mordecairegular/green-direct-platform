@@ -6179,3 +6179,22 @@ profile / benchmark：
 - 这不是正式工单系统，也不上传或集中保存原始用户曲线；
 - P0/P1/P2 分级用于首轮内测 triage，不替代正式安全审计、监控告警或 SLA；
 - 不改变账号权限、审计语义、技术仿真、经济性 V1 或推荐排序。
+
+### 2026-06-17 公网内测脱敏 support bundle
+
+本轮继续补首轮公网内测的排障闭环。用户希望让 Claude Code / Codex 做上线前 review/debug，但真实内测时不应把原始曲线、artifact payload、登录名、项目名或完整审计 metadata 值直接发给外部 agent。此前已有 `doctor`、`list-audit-events` 和 `list-jobs`，但这些命令输出分散，且原始输出可能包含不适合外发的值。
+
+调整：
+- 新增 `src/green_direct/services/pilot_support_bundle.py`，提供 `build_pilot_support_bundle()`，聚合账号状态计数、平台管理员数量、项目/成员元数据、任务状态、artifact 元数据、result 索引布尔摘要、最近审计动作和 `pilot_store_doctor` 摘要；
+- 新增 `pilot-admin support-bundle`，要求平台管理员权限，可按 `--project-id` 限定项目，并可用 `--output` 写出 JSON；
+- support bundle 不读取 artifact payload，不输出 password hash、session token、login name、display name、project name、artifact storage URI、result label、audit metadata value 或绝对 store 路径；
+- `docs/PUBLIC_BETA_FEEDBACK_TRIAGE.md`、`docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md`、`docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md` 和 `docs/SOFTWARE_OVERVIEW_AND_INTERFACE.md` 已补该命令和边界说明。
+
+验证：
+- `python -m pytest tests\test_pilot_support_bundle.py -q` 通过，4 项通过；
+- `python -m compileall -q src\green_direct\services\pilot_support_bundle.py src\green_direct\cli.py tests\test_pilot_support_bundle.py` 通过。
+
+边界：
+- 这是内测排障材料标准化，不是正式工单系统、集中日志、监控告警或安全审计平台；
+- support bundle 仍包含 user_id、project_id、job_id、artifact_id 和 audit action 等定位线索，发给外部 agent 前建议管理员人工快速浏览；
+- 不改变技术仿真、经济性 V1、推荐排序、账号权限或 artifact 读写语义。

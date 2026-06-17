@@ -82,6 +82,18 @@ python -m green_direct.cli pilot-admin doctor `
 
 ## 4. 常用 CLI 只读排查
 
+生成脱敏排查包，适合交给 Claude Code / Codex 做 review/debug：
+
+```bash
+python -m green_direct.cli pilot-admin support-bundle \
+  --store-dir /data/pilot_store \
+  --actor-user-id admin \
+  --project-id project_id_here \
+  --output /tmp/green-direct-support-bundle.json
+```
+
+`support-bundle` 只包含账号/项目/任务/result/artifact/audit 的脱敏元数据、计数和 doctor 摘要；不会读取 artifact payload，不包含登录名、显示名、项目名、artifact storage URI、result 标记备注或审计 metadata 值。把它发给外部 agent 前仍应先人工快速浏览一遍。
+
 查看全局审计：
 
 ```bash
@@ -110,7 +122,7 @@ python -m green_direct.cli pilot-admin list-jobs \
   --project-id project_id_here
 ```
 
-这些命令只用于定位问题。不要把完整输出直接发给无关人员；其中可能包含项目名、账号 ID、文件名、artifact ID 或错误摘要。
+除 `support-bundle` 外，这些命令只用于管理员定位问题。不要把完整输出直接发给无关人员；其中可能包含项目名、账号 ID、文件名、artifact ID 或错误摘要。
 
 ## 5. 发给同事前的说明
 
@@ -138,6 +150,7 @@ python -m green_direct.cli pilot-admin list-jobs \
 - 相关审计时间范围；
 - 相关 job id；
 - 相关 artifact/result id；
+- support bundle 文件路径或生成时间；
 - 是否涉及敏感数据。
 
 ## 7. 关闭问题前确认

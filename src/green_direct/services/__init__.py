@@ -34,6 +34,7 @@ from green_direct.services.pilot_store_doctor import (
     PilotStoreDoctorResult,
     run_pilot_store_doctor,
 )
+from green_direct.services.pilot_support_bundle import build_pilot_support_bundle
 from green_direct.services.pilot_worker import (
     PilotWorkerExecutionResult,
     PilotWorkerLoopResult,
@@ -98,6 +99,7 @@ __all__ = [
     "UploadPolicy",
     "UploadValidationError",
     "build_recommendation_study",
+    "build_pilot_support_bundle",
     "economic_input_fingerprint",
     "execute_claimed_worker_job",
     "execute_next_worker_job",
