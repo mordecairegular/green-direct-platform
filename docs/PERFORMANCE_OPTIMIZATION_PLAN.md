@@ -80,6 +80,12 @@ python scripts\benchmark_internal_pilot_performance.py --json
 python scripts\benchmark_internal_pilot_performance.py --economy-only-summary-rows 5000 --json
 ```
 
+可同时模拟当前 UI 默认的大方案池策略，即全量计算经济性 summary，但只为前 N 个方案保留年度现金流：
+
+```powershell
+python scripts\benchmark_internal_pilot_performance.py --economy-only-summary-rows 5000 --economy-retain-cashflow-count 20 --no-tracemalloc --json
+```
+
 默认模式为了同时报告峰值 Python heap 使用 `tracemalloc`，经济性热路径会被明显放大；它适合同一命令前后横向比较内存和相对趋势。若要更接近真实用户等待时间，可关闭 heap 跟踪：
 
 ```powershell
@@ -87,6 +93,8 @@ python scripts\benchmark_internal_pilot_performance.py --economy-only-summary-ro
 ```
 
 建议性能专项同时记录两类结果：`--no-tracemalloc` 直计时用于判断用户等待，默认模式用于观察 Python heap 峰值。
+
+2026-06-17 当前本机样本：5,000 行 synthetic economic summary、固定价、双经济视角、关闭 `tracemalloc` 时，`retain_annual_cashflows=False` 且不保留年度现金流约 `0.7366s`；同样条件下 `--economy-retain-cashflow-count 20` 约 `0.7986s`，输出电源侧和同一主体各 20 个年度现金流。该结果说明“只保留少量现金流”的额外成本较小，后续性能风险更应关注全量现金流保留、逐时价格曲线聚合和后台 Job 化。
 
 注意：该脚本是决策辅助，不是固定性能门槛测试。不同电脑、Python 版本、进程数和后台负载都会影响结果。后续做性能优化时，应把优化前后的命令、参数、耗时和峰值内存记录到 `notes/PRODUCT_POLISH_LOG.md`。
 

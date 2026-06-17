@@ -6201,3 +6201,24 @@ profile / benchmark：
 - 这是内测排障材料标准化，不是正式工单系统、集中日志、监控告警或安全审计平台；
 - support bundle 仍包含 user_id、project_id、job_id、artifact_id 和 audit action 等定位线索，发给外部 agent 前建议管理员人工快速浏览；
 - 不改变技术仿真、经济性 V1、推荐排序、账号权限或 artifact 读写语义。
+
+### 2026-06-17 经济性 benchmark 覆盖少量年度现金流保留
+
+本轮继续补“方案遍历和经济性测算性能要提上日程”的证据链。此前 `benchmark_internal_pilot_performance.py` 已能压测经济性 summary-only，但缺少一个更贴近当前 Streamlit 03 页默认策略的场景：大方案池下仍全量计算经济性 summary、FIRR/NPV 和推荐排序，同时只保留少量方案年度现金流。没有这个 benchmark，后续容易误判“保留前 20 个现金流”是否会显著拖慢。
+
+调整：
+- `scripts/benchmark_internal_pilot_performance.py` 新增 `--economy-retain-cashflow-count N`；
+- economy-only 模式和完整技术仿真后经济性模式都支持该参数；
+- benchmark JSON `config` 新增 `economy_retain_cashflow_count`；
+- 当 N > 0 时，case 名称为 `economy_summary_with_selected_annual_cashflows`，stats 会报告电源侧和同一主体 retained annual cashflow 数量；
+- `tests/test_performance_benchmark_script.py` 覆盖 economy-only 和技术仿真后保留现金流两条路径。
+
+验证与反馈环：
+- `python -m pytest tests\test_performance_benchmark_script.py -q` 通过，5 项通过；
+- `python -m compileall -q scripts\benchmark_internal_pilot_performance.py tests\test_performance_benchmark_script.py` 通过；
+- `python scripts\benchmark_internal_pilot_performance.py --economy-only-summary-rows 5000 --no-tracemalloc --json`：5,000 行经济性 summary-only 约 `0.7366s`，不保留年度现金流；
+- `python scripts\benchmark_internal_pilot_performance.py --economy-only-summary-rows 5000 --economy-retain-cashflow-count 20 --no-tracemalloc --json`：5,000 行经济性 summary + 电源侧/同一主体各 20 个年度现金流约 `0.7986s`。
+
+边界：
+- 这是 benchmark 覆盖增强，不改变经济性 V1 现金流口径、FIRR/NPV/payback、推荐排序或技术调度；
+- 当前样本说明“只保留少量现金流”额外成本较小；后续性能风险仍主要在全量现金流保留、逐时价格曲线聚合、导出和后台 Job 化。

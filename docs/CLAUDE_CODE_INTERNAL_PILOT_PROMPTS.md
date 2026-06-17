@@ -40,7 +40,8 @@
 
 截至 2026-06-17，本地 `codex/UI` 分支的最近 checkpoint 为：
 
-- 最新提交主题：`feat(ui): add support bundle download`
+- 最新提交主题：`chore(perf): benchmark retained economy cashflows`
+- `c5d9051 feat(ui): add support bundle download`
 - `3dc52f1 feat(pilot): add sanitized support bundle`
 - `48a81ba docs(pilot): add feedback triage checklist`
 - `96ca727 perf(core): cache shared curve totals`
@@ -59,7 +60,9 @@
 ```powershell
 python -m pytest tests\test_batch_runner.py -q
 python -m pytest tests\test_study_runner.py tests\test_ui_import.py::test_technical_workload_estimate_scales_with_detail_retention_and_workers tests\test_ui_import.py::test_scenario_count_limit_notice_blocks_oversized_pool -q
+python -m pytest tests\test_performance_benchmark_script.py -q
 python -m compileall -q src\green_direct\batch\scenario_generator.py src\green_direct\batch\batch_runner.py scripts\benchmark_internal_pilot_performance.py tests\test_batch_runner.py
+python scripts\benchmark_internal_pilot_performance.py --economy-only-summary-rows 5000 --economy-retain-cashflow-count 20 --no-tracemalloc --json
 python scripts\preflight_internal_pilot_deploy.py --json
 python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json
 ```
@@ -68,14 +71,17 @@ python scripts\preflight_internal_pilot_deploy.py --require-git-sync --json
 
 - `python -m pytest -q` 最近一次全量记录为 `409 passed`；
 - `tests\test_batch_runner.py` 最近一次专项结果为 `18 passed`；
+- `tests\test_performance_benchmark_script.py` 最近一次专项结果为 `5 passed`；
 - study runner + UI 性能提示相关专项最近一次结果为 `14 passed`；
 - 部署静态 preflight 通过，已覆盖 Docker/Compose/Render 关键默认值、Web/worker 环境变量、`.dockerignore`、Git tracked 推送源安全和大文件检查；
 - `preflight_internal_pilot_deploy.py` 支持 `--summary`，用于人类快速查看发布就绪总览、失败项和下一步建议；CI/agent 读取仍使用 `--json`；
-- `--require-git-sync` 当前只应在本地分支尚未推送时失败 `git:sync`，最近状态为本地 `codex/UI` ahead `origin/codex/UI` 136、behind 0、工作树干净；推送前不要把这个失败误判为配置错误；
+- `--require-git-sync` 当前只应在本地分支尚未推送时失败 `git:sync`；推送前不要把这个失败误判为配置错误，ahead/behind 数量以接手时 `git status --short --branch` 为准；
 - 本项目已经具备 Render Blueprint / Docker / persistent disk / Cloudflare Access 的首发路线材料，但尚未完成目标托管平台实机部署演练；
 - 不要为了接入 Vercel 或 Cloudflare Pages/Workers 直接把当前 Streamlit 长进程改成 serverless/edge 应用。短期公网内测优先保持 Docker Web Service 路线。
 - `run_batch()` 已通过 `iter_scenarios()` 流式消费方案池，串行和并行 chunk 都不再先物化完整 `Scenario` list；这只是方案池对象生成和调度层优化，不改变 V0.1 技术调度、经济性或推荐口径。
+- `benchmark_internal_pilot_performance.py` 已支持 `--economy-retain-cashflow-count N`，用于模拟当前 UI “全量计算经济性 summary、只为少量方案保留年度现金流”的策略；5,000 行 synthetic economic summary 在关闭 `tracemalloc` 时，不保留年度现金流约 `0.7366s`，保留电源侧/同一主体各 20 个年度现金流约 `0.7986s`。
 - 已新增脱敏 support bundle：平台管理员可用 `pilot-admin support-bundle` 或 Streamlit `平台管理 -> 审计日志 -> 脱敏排查包` 生成 JSON，供 Claude Code / Codex 排查内测问题。该包不读取 artifact payload，不输出登录名、显示名、项目名、artifact storage URI、result label、audit metadata value 或绝对 store 路径；不要让用户改发原始曲线、完整 artifact payload 或未脱敏日志。
+- 用户已明确：本地程序分发如果继续推进，应尽可能保留当前 Streamlit 网页操作逻辑和界面逻辑；报告导出功能不需要打包，欢迎页不是阻塞项，不要优先重写成独立桌面 GUI。
 
 如果 Claude Code 接手时当前分支仍领先 upstream，先报告：
 
@@ -325,13 +331,14 @@ streamlit run src/green_direct/ui/app.py
 
 先运行：
 python scripts/benchmark_internal_pilot_performance.py --hours 168 --pv-count 4 --wind-count 4 --bess-power-count 2 --durations 0,2 --skip-full-retention --json
+python scripts/benchmark_internal_pilot_performance.py --economy-only-summary-rows 5000 --economy-retain-cashflow-count 20 --no-tracemalloc --json
 python -m pytest tests/test_batch_runner.py tests/test_study_runner.py tests/test_economy_v1.py tests/test_single_entity_economy.py -q
 
 重点审查并优先处理：
 1. 大方案池是否默认走 summary-first；
 2. 按需逐小时明细是否与全量保留结果一致；
 3. 并行仿真是否保持 scenario_id、warning、error、进度和结果顺序稳定；
-4. 经济性测算是否仍为每个方案常驻年度现金流；
+4. 经济性测算是否仍为每个方案常驻年度现金流，或是否只为用户关注/推荐的少量方案保留年度现金流；
 5. UI 的方案数硬上限、粗略耗时提示和大批量确认是否清晰，已有最小取消入口、`list-jobs` 和 stale running 置失败命令是否足够清晰，是否还需要后台 worker 的下一步切片；
 6. benchmark 是否能复现优化前后差异。
 

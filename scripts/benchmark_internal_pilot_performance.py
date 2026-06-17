@@ -181,6 +181,18 @@ def _render_table(payload: dict[str, Any]) -> str:
     return "\n".join(rows)
 
 
+def _economy_case_name(retained_cashflow_count: int) -> str:
+    if retained_cashflow_count > 0:
+        return "economy_summary_with_selected_annual_cashflows"
+    return "economy_summary_no_annual_cashflows"
+
+
+def _retained_cashflow_ids(summary: pd.DataFrame, count: int) -> tuple[str, ...]:
+    if count <= 0 or "scenario_id" not in summary.columns:
+        return ()
+    return tuple(str(value) for value in summary["scenario_id"].head(count).tolist())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--hours", type=_positive_int, default=8760)
@@ -196,6 +208,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=_positive_int,
         default=None,
         help="Benchmark economy summary-only on a synthetic technical summary and skip technical simulation.",
+    )
+    parser.add_argument(
+        "--economy-retain-cashflow-count",
+        type=_nonnegative_int,
+        default=0,
+        help=(
+            "Retain annual cashflows for the first N scenarios while still evaluating all economy summaries. "
+            "Default: 0."
+        ),
     )
     parser.add_argument("--skip-full-retention", action="store_true")
     parser.add_argument("--skip-economy", action="store_true")
@@ -216,6 +237,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.economy_only_summary_rows is not None:
         summary = _synthetic_summary(args.economy_only_summary_rows)
         track_python_heap = not args.no_tracemalloc
+        retained_cashflow_ids = _retained_cashflow_ids(summary, args.economy_retain_cashflow_count)
         payload: dict[str, Any] = {
             "config": {
                 "hours": None,
@@ -224,12 +246,13 @@ def main(argv: list[str] | None = None) -> int:
                 "retain_detail_count": 0,
                 "durations": [],
                 "economy_only_summary_rows": args.economy_only_summary_rows,
+                "economy_retain_cashflow_count": len(retained_cashflow_ids),
                 "track_python_heap": track_python_heap,
             },
             "benchmarks": [],
         }
         economy_result, record = _measure(
-            "economy_summary_no_annual_cashflows",
+            _economy_case_name(len(retained_cashflow_ids)),
             lambda: run_economic_study(
                 summary,
                 economic_params=EconomicParams(),
@@ -237,6 +260,7 @@ def main(argv: list[str] | None = None) -> int:
                 load_side_avoided_charge_price=0.55,
                 green_power_settlement_price_with_vat=0.40,
                 retain_annual_cashflows=False,
+                annual_cashflow_scenario_ids=retained_cashflow_ids,
             ),
             track_python_heap=track_python_heap,
         )
@@ -274,6 +298,7 @@ def main(argv: list[str] | None = None) -> int:
             "parallel_workers": args.parallel_workers,
             "retain_detail_count": args.retain_detail_count,
             "durations": args.durations,
+            "economy_retain_cashflow_count": 0,
             "track_python_heap": not args.no_tracemalloc,
         },
         "benchmarks": [],
@@ -304,8 +329,10 @@ def main(argv: list[str] | None = None) -> int:
     payload["benchmarks"].append(record)
 
     if not args.skip_economy:
+        retained_cashflow_ids = _retained_cashflow_ids(summary_result.summary, args.economy_retain_cashflow_count)
+        payload["config"]["economy_retain_cashflow_count"] = len(retained_cashflow_ids)
         economy_result, record = _measure(
-            "economy_summary_no_annual_cashflows",
+            _economy_case_name(len(retained_cashflow_ids)),
             lambda: run_economic_study(
                 summary_result.summary,
                 economic_params=EconomicParams(),
@@ -313,6 +340,7 @@ def main(argv: list[str] | None = None) -> int:
                 load_side_avoided_charge_price=0.55,
                 green_power_settlement_price_with_vat=0.40,
                 retain_annual_cashflows=False,
+                annual_cashflow_scenario_ids=retained_cashflow_ids,
             ),
             track_python_heap=not args.no_tracemalloc,
         )
