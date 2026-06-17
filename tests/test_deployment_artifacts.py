@@ -559,7 +559,7 @@ def test_public_beta_first_launch_playbook_covers_handoff_steps():
         "backup_pilot_store.ps1",
         "restore_pilot_store.ps1",
         "Cloudflare Zero Trust Access",
-        "手机 4G/5G",
+        "电脑移动网络",
         "GREEN_DIRECT_ENABLE_PILOT_AUTH=1",
         "GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0",
     ]:
@@ -584,7 +584,7 @@ def test_public_beta_owner_go_live_steps_covers_short_path():
         "pilot-admin doctor",
         "pilot-admin bootstrap",
         "Cloudflare",
-        "手机 4G/5G",
+        "电脑移动网络",
         "release/GreenDirectLocalTrial_20260617.zip",
         "scripts\\build_local_trial_package.ps1",
         "缺少 `gh`",

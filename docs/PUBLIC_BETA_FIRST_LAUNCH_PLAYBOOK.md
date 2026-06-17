@@ -2,7 +2,7 @@
 
 日期：2026-06-17
 
-用途：把当前仓库从本地开发状态，推进到“内部同事可用手机或移动网络访问”的首次受控公网内测。本文是执行顺序清单，不替代 `docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md` 的平台判断，也不替代 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 的发给同事前验收。
+用途：把当前仓库从本地开发状态，推进到“内部同事可用电脑通过移动网络/非公司内网访问”的首次受控公网内测。本文是执行顺序清单，不替代 `docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md` 的平台判断，也不替代 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 的发给同事前验收。
 
 目标范围：
 
@@ -256,9 +256,9 @@ Cloudflare Access
   -> 项目成员和导出权限
 ```
 
-## 6. 发链接前手机验收
+## 6. 发链接前电脑移动网络验收
 
-用手机 4G/5G 网络完成以下检查：
+用电脑连接手机热点、移动宽带或其他非公司内网完成以下检查；本轮不把手机浏览器适配作为上线阻塞项：
 
 - 非白名单邮箱无法通过 Cloudflare Access；
 - 白名单邮箱通过 Access 后仍需应用内账号登录；

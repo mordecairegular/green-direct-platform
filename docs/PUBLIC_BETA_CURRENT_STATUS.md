@@ -15,7 +15,7 @@ python scripts\report_public_beta_status.py --check-remote --check-performance
 
 ## 当前结论
 
-本地试用包已经可以作为最快 fallback 发给同事；公网 Route A 的代码分支已经推送到 GitHub，用户已在 GitHub 网页人工确认仓库是 Private，GitHub Actions `Internal Pilot Quality Gate` 已在提交 `1b3af4d` 的 Run #5 通过。下一步是登录 Render，导入 Blueprint，然后接 Cloudflare 与手机 4G/5G 验收。
+本地试用包已经可以作为最快 fallback 发给同事；公网 Route A 的代码分支已经推送到 GitHub，用户已在 GitHub 网页人工确认仓库是 Private，GitHub Actions `Internal Pilot Quality Gate` 已通过最近一次部署工程化 checkpoint；后续文档小提交以 GitHub Actions 页面最新 run 为准。下一步是登录 Render，导入 Blueprint，然后接 Cloudflare 与电脑端移动网络验收。
 
 ## 已验证
 
@@ -34,7 +34,7 @@ python scripts\report_public_beta_status.py --check-remote --check-performance
 
 - 尚未在 Render 创建 Web Service；当前 Chrome 打开 Render Blueprint 页面时跳转到登录页 `https://dashboard.render.com/login?next=%2Fblueprints`，需要用户登录 Render 后继续；
 - 尚未在 Cloudflare 配置 Access；
-- 尚未完成手机 4G/5G 验收。
+- 尚未完成电脑端移动网络验收。
 
 ## 最短下一步
 
@@ -45,7 +45,7 @@ python scripts\report_public_beta_status.py --check-remote --check-performance
 3. 若本机已安装/登录 `gh`，运行 `python scripts\preflight_internal_pilot_deploy.py --require-github-private --summary` 自动核验 Private；
 4. 若要用人工 Private 确认替代 `gh` 自动确认，运行 `python scripts\preflight_internal_pilot_deploy.py --require-github-private --github-private-manually-confirmed --summary`；
 5. 用户在 Chrome 中登录 Render；
-6. 按 `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md` 导入 Render Blueprint、初始化管理员、接 Cloudflare Access、做手机验收。
+6. 按 `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md` 导入 Render Blueprint、初始化管理员、接 Cloudflare Access、做电脑端移动网络验收。
 
 如果公网平台当天卡住：
 

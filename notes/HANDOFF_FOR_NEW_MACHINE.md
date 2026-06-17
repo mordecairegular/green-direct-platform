@@ -76,11 +76,11 @@
 
 - `docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md`：把受控公网内测准备方案映射为当前仓库的 P0 审计矩阵；
 - `docs/PUBLIC_BETA_CURRENT_STATUS.md`：给项目负责人查看当前是否已能 push、是否仍缺 GitHub Private 确认、是否可以先发本地包 fallback 的短状态单；
-- `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md`：把首次受控公网内测发布串成执行作战单，覆盖本地 preflight、push、GitHub Actions、Render Blueprint、Web Service Shell doctor/bootstrap、Cloudflare Access、手机验收和回滚；
-- `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md`：给非程序员负责人使用的 30 分钟短操作单，按 preflight、push、GitHub Actions、Render、管理员 bootstrap、账号、备份恢复、Cloudflare Access 和手机验收顺序执行；
+- `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md`：把首次受控公网内测发布串成执行作战单，覆盖本地 preflight、push、GitHub Actions、Render Blueprint、Web Service Shell doctor/bootstrap、Cloudflare Access、电脑端移动网络验收和回滚；
+- `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md`：给非程序员负责人使用的 30 分钟短操作单，按 preflight、push、GitHub Actions、Render、管理员 bootstrap、账号、备份恢复、Cloudflare Access 和电脑端移动网络验收顺序执行；
 - `docs/PUBLIC_BETA_FEEDBACK_TRIAGE.md`：首轮 10-20 人内测反馈模板、P0/P1/P2 分级、管理员排查顺序、脱敏 `support-bundle`、只读 CLI 排查命令和反馈表字段；
 - `docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md`：记录托管平台公网测试路线，推荐容器/PaaS 承载应用本体、Cloudflare 做 DNS/HTTPS/Access；
-- `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md`：面向“同事用手机/移动网络试用”的最短操作清单；
+- `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md`：面向“同事用电脑连接移动热点、移动宽带或非公司内网试用”的最短操作清单；
 - `docs/PERFORMANCE_OPTIMIZATION_PLAN.md`：记录方案遍历、summary-first、并行、经济性批量化和后台 Job 的性能路线；
 - `docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md`：记录内部 10-20 人 pilot 后台账户、项目、Job、ResultStore、Render 单实例边界和未来 SQLite/Postgres + 对象存储/worker 演进路线；
 - `README_DEPLOY.md` 和 `SECURITY.md`：记录 Docker/compose 内测部署、安全边界、反向代理、备份恢复和已知限制；
@@ -91,7 +91,7 @@
 - `scripts/smoke_streamlit_app.py`：用于推送 GitHub/Render 前做本地服务器口径冒烟检查，默认启用 pilot auth、关闭 runtime snapshot、使用临时 pilot store 并检查 `/_stcore/health`。
 - `.github/workflows/internal-pilot-quality.yml`：GitHub 推送/PR 质量门，自动运行 compile、部署 preflight、临时目录版 pilot store doctor 和全量 pytest；手动触发并勾选 `run_smoke` 时会额外启动 Streamlit 做健康检查。
 - `render.yaml`：当前 pilot Blueprint 显式部署 `codex/UI`，设置 `numInstances=1` 和 `autoDeployTrigger: checksPass`；Render 应等 GitHub Actions 质量门通过后再自动部署，避免部署默认分支或未通过检查的提交。
-- `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`：UI 提升提示词已明确要求先做当前运行截图/浏览器审查，再选择一个可验收小切片；首轮 UI 提升优先考虑窄屏/手机可用性或 03 经济性首屏节奏，不要让 Claude Code 一次性“美化全部六页”。
+- `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`：UI 提升提示词已明确要求先做当前运行截图/浏览器审查，再选择一个可验收小切片；首轮 UI 提升优先考虑桌面端完整工作流或 03 经济性首屏节奏，不要让 Claude Code 一次性“美化全部六页”；窄屏/手机宽度可用性不是本轮公网试用阻塞项。
 
 2026-06-17 当前部署前事实状态：
 - 最新性能/部署状态 checkpoint 主题包括 `chore(deploy): add performance status snapshot`、`chore(release): support wheelhouse local trial installs` 和 `chore(perf): benchmark retained economy cashflows`；前一经济性性能 checkpoint 提交主题为 `perf(economy): trim summary hot path`；上一批量方案性能 checkpoint 提交主题为 `perf(batch): stream scenario generation`；此前连续部署/性能 checkpoint 包括 `807fb1b chore(deploy): require private github source`、`428fcfa chore(deploy): align browser path defaults`、`86b9319 chore(deploy): check runtime dependency sync`、`d6e8cb6 chore(deploy): verify render pilot disk`、`805f601 chore(deploy): require pilot backup materials`、`d6c33d4 perf(core): inline bess summary accumulation`、`fd8ca63 perf(core): reduce bess summary dispatch calls`、`511c0d4 perf(core): skip bess hour case in summaries`、`725f465 chore(deploy): lock pilot runtime env checks`、`68d43f8 docs(pilot): sharpen claudecode launch prompts`、`345f3a9 perf(economy): fast path temporary replacement irr dips` 和 `b28d4c5 perf(core): skip redundant bess output clamps`；

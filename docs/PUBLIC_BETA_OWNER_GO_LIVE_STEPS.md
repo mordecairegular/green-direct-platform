@@ -1,6 +1,6 @@
 # 公网内测负责人 30 分钟操作单
 
-用途：给项目负责人执行“让同事用手机或移动网络访问”的最短上线动作。长说明见 `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md`，本文只保留必须按顺序完成的动作。
+用途：给项目负责人执行“让同事用电脑通过移动网络/非公司内网访问”的最短上线动作。长说明见 `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md`，本文只保留必须按顺序完成的动作。
 
 如果只想先看当前是否已能 push、是否还有本机卡点，请先读 `docs/PUBLIC_BETA_CURRENT_STATUS.md`。
 
@@ -173,9 +173,9 @@ python -m green_direct.cli pilot-admin doctor \
 
 Cloudflare Access 是第一层门禁，应用内账号是第二层门禁，两层都保留。
 
-## 8. 手机验收
+## 8. 电脑移动网络验收
 
-用手机 4G/5G 网络验证：
+用电脑连接手机热点、移动宽带或其他非公司内网验证；本轮不把手机浏览器适配作为上线阻塞项：
 
 - 非白名单邮箱不能通过 Cloudflare Access；
 - 白名单邮箱通过后仍需应用账号登录；

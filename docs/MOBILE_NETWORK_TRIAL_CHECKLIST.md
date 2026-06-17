@@ -1,8 +1,8 @@
-# 同事移动网络试用清单
+# 同事电脑端移动网络试用清单
 
 日期：2026-06-16
 
-目标：让内部同事不在同一局域网、只用手机或移动网络，也能访问并试用绿电直连测算工具。
+目标：让内部同事不在同一局域网、用电脑连接手机热点、移动宽带或其他非公司内网，也能访问并试用绿电直连测算工具。这里的“移动网络”指网络出口，不要求手机浏览器或手机端 UI 适配。
 
 首次发布请先按 `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md` 做负责人短操作单；需要完整上下文时，再按 `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md` 从本地检查、GitHub 推送、Render 部署、管理员 bootstrap 到 Cloudflare Access 顺序执行。本文聚焦发给真实同事前的移动网络验收。
 
@@ -21,7 +21,7 @@
 5. 在 Render Web Service Shell 先运行 `pilot-admin doctor --store-dir /data/pilot_store --json`，通过后再初始化平台管理员。
 6. 登录应用创建 3-5 个首批内测账号。
 7. 把 Render 自定义域名接入 Cloudflare DNS / HTTPS / Access，只放行内测邮箱。
-8. 用手机 4G/5G 完成第 6 节验收后，再把链接发给真实同事。
+8. 用电脑连接移动热点/移动网络完成第 6 节验收后，再把链接发给真实同事。
 
 如果未来把前台改成 Next.js/React，Vercel 可以成为前端托管平台；但当前第一版公网试用仍以 Render 承载 Streamlit/Docker 应用本体，Cloudflare 做入口门禁。
 
@@ -40,7 +40,7 @@ GitHub private repository
   -> Render Blueprint 部署 Docker 应用
   -> Render persistent disk 保存 /data/pilot_store
   -> Cloudflare DNS / HTTPS / Access
-  -> 同事通过手机浏览器访问域名
+  -> 同事通过电脑端浏览器访问域名
   -> 应用内账号登录
 ```
 
@@ -126,7 +126,7 @@ Cloudflare Access 是公网入口第一层门禁；应用内账号是第二层�
 
 请至少完成以下检查：
 
-- 手机 4G/5G 网络可打开试用域名；
+- 电脑连接手机热点、移动宽带或其他非公司内网时，可打开试用域名；
 - 非白名单邮箱无法通过 Cloudflare Access；
 - 白名单邮箱通过 Access 后仍需应用内账号登录；
 - 未登录用户不能进入六步工作流；
@@ -164,7 +164,7 @@ Cloudflare Access 是公网入口第一层门禁；应用内账号是第二层�
 - 用户账号；
 - 项目名称；
 - 大致时间；
-- 手机/电脑；
+- 设备与网络：电脑端浏览器 + Wi-Fi/移动热点/移动宽带；
 - 浏览器；
 - 操作到第几步；
 - 错误提示截图；

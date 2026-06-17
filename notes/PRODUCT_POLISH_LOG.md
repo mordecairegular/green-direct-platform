@@ -6341,4 +6341,21 @@ profile / benchmark：
 边界：
 - 尚未在 Render 创建 Web Service；
 - 尚未配置 Cloudflare Access；
-- 尚未初始化公网试用管理员账号或做手机 4G/5G 验收。
+- 尚未初始化公网试用管理员账号或做电脑端移动网络验收。
+
+### 2026-06-17 移动网络验收口径改为电脑端
+
+用户澄清：“移动网络情况下不是用手机，这个网站能在电脑端正常用就行了。”
+
+决策：
+
+- “移动网络试用”指同事的电脑通过手机热点、移动宽带或其他非公司内网访问公网试用站点；
+- 本轮上线验收不要求手机浏览器或手机端 UI 适配；
+- 桌面端完整工作流、登录门禁、Cloudflare Access、项目/成员/权限、Demo 试算、结果留存和导出权限仍是首发验收重点；
+- 窄屏/手机宽度可用性可以继续作为 UI 兼容性改进，但不再作为本轮公网试用阻塞项。
+
+同步：
+
+- `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md`、`docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md`、`docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md` 和 `docs/PUBLIC_BETA_CURRENT_STATUS.md` 已改为“电脑端移动网络验收”；
+- `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md` 已将首轮 UI 提升重点改为桌面端完整工作流；
+- `notes/HANDOFF_FOR_NEW_MACHINE.md` 已同步该边界。
