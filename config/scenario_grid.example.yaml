@@ -1,0 +1,22 @@
+scenario_grid:
+  pv_capacity:
+    start: 0
+    end: 30
+    step: 5
+  wind_capacity:
+    start: 0
+    end: 30
+    step: 5
+  bess_power:
+    start: 0
+    end: 10
+    step: 2
+  bess_duration_hours:
+    - 0
+    - 2
+    - 4
+
+notes:
+  unit_capacity: 万千瓦
+  unit_energy: 万千瓦时
+  bess_energy_formula: E_bess = P_bess × duration

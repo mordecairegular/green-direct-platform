@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "green-direct"
+version = "0.1.0"
+description = "Green direct power Wind-PV-BESS technical batch simulator."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "pandas>=2.0",
+  "numpy>=1.24",
+  "pydantic>=2.0",
+  "pyyaml>=6.0",
+  "openpyxl>=3.1",
+  "xlsxwriter>=3.1",
+  "streamlit>=1.57,<1.58",
+  "plotly>=6.1",
+  "kaleido>=1.0",
+  "chardet>=5.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+green-direct = "green_direct.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

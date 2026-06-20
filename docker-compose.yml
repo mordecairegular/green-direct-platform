@@ -1,0 +1,82 @@
+services:
+  green-direct:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: green-direct:internal-pilot
+    container_name: green-direct-internal-pilot
+    restart: unless-stopped
+    ports:
+      - "8503:8503"
+    environment:
+      GREEN_DIRECT_ENABLE_PILOT_AUTH: "1"
+      GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT: "0"
+      GREEN_DIRECT_PILOT_STORE_DIR: "/data/pilot_store"
+      GREEN_DIRECT_MAX_UPLOAD_MB: "${GREEN_DIRECT_MAX_UPLOAD_MB:-20}"
+      GREEN_DIRECT_MAX_SCENARIOS_PER_RUN: "${GREEN_DIRECT_MAX_SCENARIOS_PER_RUN:-20000}"
+      GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS: "${GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS:-1}"
+      GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD: "${GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD:-1000}"
+      GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT: "${GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT:-20}"
+      BROWSER_PATH: "/usr/bin/chromium"
+      PORT: "8503"
+      STREAMLIT_SERVER_ADDRESS: "0.0.0.0"
+      STREAMLIT_SERVER_PORT: "8503"
+      STREAMLIT_SERVER_HEADLESS: "true"
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+      PYTHONPATH: "/app/src"
+    volumes:
+      - green_direct_pilot_store:/data/pilot_store
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8503/_stcore/health', timeout=3).read()",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  green-direct-worker:
+    profiles:
+      - worker
+    image: green-direct:internal-pilot
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: green-direct-internal-pilot-worker
+    restart: unless-stopped
+    depends_on:
+      - green-direct
+    environment:
+      GREEN_DIRECT_ENABLE_PILOT_AUTH: "1"
+      GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT: "0"
+      GREEN_DIRECT_PILOT_STORE_DIR: "/data/pilot_store"
+      BROWSER_PATH: "/usr/bin/chromium"
+      PYTHONPATH: "/app/src"
+    volumes:
+      - green_direct_pilot_store:/data/pilot_store
+    command:
+      - python
+      - -m
+      - green_direct.cli
+      - pilot-admin
+      - run-worker-loop
+      - --store-dir
+      - /data/pilot_store
+      - --actor-user-id
+      - ${GREEN_DIRECT_WORKER_ACTOR_USER_ID:-admin}
+      - --worker-id
+      - ${GREEN_DIRECT_WORKER_ID:-pilot-worker-compose}
+      - --job-type
+      - technical_study
+      - --job-type
+      - economic_study
+      - --poll-interval-seconds
+      - ${GREEN_DIRECT_WORKER_POLL_INTERVAL_SECONDS:-5}
+
+volumes:
+  green_direct_pilot_store:
+    name: green_direct_pilot_store

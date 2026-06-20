@@ -1,0 +1,99 @@
+# 受控公网内测部署审计矩阵
+
+日期：2026-06-17
+
+本文把用户提供的《绿电直连测算工具公网内测版准备方案（Codex 执行稿）》映射到当前仓库状态。结论用于指导后续 10-20 人多人访问 / 受控公网内测 Route A，不表示正式公网 SaaS 已就绪。
+
+## 1. 总结结论
+
+当前项目可以继续作为受控内部 pilot checkpoint 推进，但距离“公网可访问的邀请制内测环境”仍有 P0 工程缺口。
+
+已具备：
+
+- 可选登录门禁、平台管理员 bootstrap、账号创建/停用/恢复/重置密码；
+- 项目、项目成员和 `can_export_artifacts` 第一版授权位；
+- 本地 `PilotAccessService` 权限/审计门面；
+- 本地 `ResultStore`、`JobStore`、artifact 元数据、过期 payload 清理、结果索引标记/置顶和软删除；
+- 技术 summary、按需单方案逐小时明细、经济 summary、推荐席位输入和推荐 portfolio 的项目级写入第一阶段；技术 summary、经济 summary、推荐席位输入和推荐 portfolio 已有 summary-only / portfolio-only 恢复入口；
+- 导出页已可将所选方案 HTML 图表包和简版 Markdown 报告显式保存为项目级 `chart_package` / `report` artifact，登记 `chart_export` / `report_export` Job，并写入 `STORE_ARTIFACT` 审计；
+- 当前 06 导出页的临时下载按钮已接入 `PilotAccessService.record_transient_export_download()`，点击 CSV/Excel/ZIP/Markdown 下载会复用项目导出权限并写 `DOWNLOAD_ARTIFACT` 审计；
+- 上传文件类型/大小校验和 hash 元数据；
+- 大方案池 summary-first、计算前粗略耗时提示、大批量确认、单次方案数硬上限、可选并行和并行方案块提交、当前会话单方案逐小时明细补算、hourly artifact 留存、已有 hourly artifact 跨会话加载，以及基于三条 input artifact 的跨会话单方案明细同步补算 / 后台排队补算第一版；
+- 经济性测算 UI 已默认接入大批量 summary-first 年度现金流保留策略，超过 1,000 个方案时仍全量计算 summary、FIRR/NPV 和推荐排序，但只常驻前 20 个方案的年度现金流；导出页已可对固定价/网页组价结果提交 `economic_study/annual_cashflow` 后台任务，为所选方案补生成电源侧/同一主体年度现金流 artifact；
+- 欢迎页项目任务与结果面板、项目 admin 结果索引标记/隐藏入口，以及排队/运行中任务的最小查看和取消入口；
+- `.env.example`、内部部署 runbook、pilot store 备份/恢复脚本。
+- Dockerfile、docker-compose.yml、README_DEPLOY.md、SECURITY.md 第一版。
+- 托管平台公网测试路线第一版：`render.yaml`、`docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md` 和 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md`，推荐 Render/Fly/Railway/Cloud Run 承载 Docker 应用，Cloudflare 负责 DNS/HTTPS/Access；不建议用 Vercel 或 Cloudflare Pages/Workers 直接承载当前 Streamlit 计算应用；Render Blueprint 已显式绑定 `codex/UI` pilot 分支，并设置 `autoDeployTrigger: checksPass`。
+- `pilot-admin doctor` 运行时 store 自检入口，可在 bootstrap 前后检查持久目录、JSON metadata、payload 写入、协作锁和审计 JSONL；`preflight_internal_pilot_deploy.py --pilot-store-dir` 可把该检查并入源码树/VM 部署 preflight；GitHub Actions 质量门会用临时目录自动跑一遍 store doctor。
+
+仍未达到公网内测 Route A：
+
+- Docker 部署包仍是本地文件 store 版，缺少正式系统服务托管、日志轮转、监控告警和安全扫描；
+- HTTPS/反向代理已有文档样例，但仍未经过目标服务器实机演练；
+- 技术仿真三条输入曲线已能随技术结果保存为 input artifact，历史 summary-only 结果可在 input artifact 未过期且 `config_snapshot` 带有 `curve_columns` 时恢复 `TechnicalStudyInput` 并补算单方案逐小时明细；HTML 图表包和 Markdown 报告已有显式保存第一版，但 PNG/Excel/批量包、价格曲线、完整报告和未来 API/反向代理下载尚未完整进入项目/Run 级 artifact 留存闭环；
+- input artifact 补算已有 Streamlit 同步 fallback 和后台 queued job 提交入口，one-shot worker 和最小 `run-worker-loop` 轮询 worker 也能执行该类任务；按需明细区域已有任务状态轮询和成功后加载 hourly artifact；failed/canceled 终态任务已有 CLI 手动克隆重试入口，但没有全局任务通知、worker 级取消或自动重试闭环。旧结果若缺少 `curve_columns` 或 input artifact 已清理，只能查看 summary 或已有 hourly artifact；
+- 计算仍主要在 Streamlit 进程内同步执行；已有活动任务查看/取消入口、worker 认领原语、按需 hourly detail / annual cashflow queued job 入口、one-shot worker、最小轮询 worker、stale running 恢复和 failed/canceled 手动重试，关键任务状态写入已有第一版协作文件锁，但没有正式队列、worker 级取消和自动重试策略；
+- 本地 JSON 文件 store 已通过临时文件原子替换降低半写损坏风险，并对账号/项目、任务、结果和审计等关键读改写路径增加第一版协作文件锁；但仍没有数据库事务、冲突合并和长期并发存储能力。
+
+## 2. P0 审计矩阵
+
+| 要求 | 当前状态 | 证据 | 风险 | 下一步 |
+|---|---|---|---|---|
+| 只有登录用户可以上传和计算 | 部分满足 | `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后未登录用户只能看到登录表单 | 默认开发模式仍不启用登录；公网部署必须强制启用 | 部署 runbook 和容器入口强制设置 pilot auth |
+| 管理员创建/停用/恢复用户、创建/归档项目、维护项目成员和查看审计 | 第一版满足 | `LocalPilotAdminService`、`pilot-admin` 用户/项目/成员/审计命令、Streamlit 平台管理页可创建/归档项目、维护成员并只读查看审计日志 | 仍是本地文件版账号后台和最小审计查看入口 | 后续迁移 SQLite/Postgres 或统一身份，并补正式审计后台 |
+| 用户只能访问授权项目 | 第一版满足 | `PilotAccessService.list_accessible_projects()` 和项目工作区门禁 | 未来 API/下载入口必须复用同一门面 | 禁止 UI 直接绕过 `PilotAccessService` |
+| 不可导出用户不能导出 | 第一版满足 | `ProjectMembership.can_export_artifacts`、`read_artifact_payload()` 下载审计；当前 06 页临时下载走 `record_transient_export_download()`；网页查看走 `read_artifact_payload_for_view()` | 仍需保证未来 API、反向代理下载和对象存储签名 URL 不绕过服务门面 | 所有下载/导出统一走后端授权服务 |
+| 上传文件类型/大小限制 | 第一版满足 | `UploadPolicy`，默认 20MB，CSV/XLSX/XLSM 白名单；技术三曲线随技术结果写入 `ArtifactKind.INPUT_CURVE` | 价格曲线、schema 报告和原始输入清理调度仍未闭环 | 增加 schema 报告、定时清理和关键 Run 保留 |
+| 单次方案数和经济性现金流限流 | 第一版满足 | `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN`、`PerformanceParams.max_scenarios_per_run`、02 页超限提示、大批量确认和 `run_batch()` 后端拒绝；`GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD` / `GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT`、03 页经济性 summary-first、06 页未保留现金流提示和 `economic_study/annual_cashflow` 按需后台补算 | 粗略耗时模型仍需目标服务器实测校准；已有项目任务状态明细、活动任务取消入口、worker 认领/heartbeat/终态原语、按需 hourly detail / annual cashflow queued job 入口、one-shot worker、`pilot-admin run-worker-once`、`run-worker-loop`、`claim-next-job`、`heartbeat-job`、`complete-worker-job`、`fail-worker-job`、`retry-job`、`list-jobs`、stale running 置失败命令和平台管理页任务运维入口；`LocalJobStore` 关键状态转换已有协作文件锁，仍缺正式队列、worker 级取消和自动重试策略；逐时价格曲线年度现金流补算仍需价格曲线 artifact 化 | 继续补后台进度、worker 取消、任务队列、自动重试策略和逐时价格曲线 cashflow Job |
+| 项目/Run/参数/结果摘要留存 | 部分满足 | 技术/经济/推荐 summary、推荐席位输入、已保留的经济年度现金流与按需 hourly artifact 已写 `ResultStore`；HTML 图表包和 Markdown 报告可显式保存为 `chart_package` / `report` artifact；技术 summary、经济 summary、年度现金流、推荐席位输入和推荐 portfolio 可恢复到当前会话；项目 admin 可标记/置顶、软删除/隐藏结果索引并写审计 | 推荐视角选择/重新排序工作台状态、PNG/Excel/批量导出包和完整报告未完整持久化；summary-only 经济运行不会凭空恢复未保留现金流 | 按 `StudyResultRecord` 串联完整结果索引并补剩余 chart/report/export artifacts |
+| 原始文件、逐小时明细、导出文件留存和清理 | 部分满足 | 当前有 artifact payload 过期清理；技术三曲线 input artifact 与按需 hourly artifact 默认 30 天过期；HTML 图表包和 Markdown 报告默认 7 天过期；已有 hourly artifact 可跨会话加载，缺明细的历史 summary-only 可在 input artifact 可用时恢复输入并同步补算或提交后台 queued job，后台 job 可由 `run-worker-loop` 处理，failed/canceled 终态 job 可由 `retry-job` 手动克隆重试，按需明细区域可轮询并加载完成结果 | 仍缺全局任务通知、worker 级取消和自动重试策略；价格曲线、PNG/Excel/批量包未完整 artifact 化；旧结果缺 `curve_columns` 时不能恢复输入 | 把后台任务体验扩展到更多产物，并补剩余 cashflow/chart/report/export artifacts |
+| 关键操作审计日志 | 部分满足 | 登录、项目、成员、任务、stale running 任务置失败、failed/canceled 任务手动重试、artifact 写入/网页查看/下载/清理、结果索引标记和软删除、当前 06 页临时导出下载已审计；`pilot-admin list-audit-events` 和平台管理页“审计日志”可抽查全局或指定项目审计 | 仍缺正式审计后台、跨项目聚合搜索、原始文件查看审计、未来 API/反向代理下载审计兜底 | 扩充 `AuditAction` 覆盖面，并在正式后台中提供审计查询 |
+| Docker 可部署 | 第一版满足 | `Dockerfile`、`docker-compose.yml`、`README_DEPLOY.md`、`render.yaml`、`.github/workflows/internal-pilot-quality.yml`、`docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md`、`pilot-admin doctor`、`preflight_internal_pilot_deploy.py --pilot-store-dir`；GitHub Actions 会自动运行静态 preflight、临时目录版 store doctor 和全量 pytest；Render 配置显式部署 `codex/UI` 且等待 checks pass；`--require-git-sync` 会核对当前分支、upstream 和 Render 部署分支一致 | 尚未在目标托管平台完成构建/启动/恢复演练；GitHub Actions 需要推送后在远端实际跑通；持久盘、套餐、区域和备份能力需在平台控制台确认 | 实机运行 `docker compose build/up` 或 Render Blueprint 部署，确认 GitHub Actions 质量门通过，在目标持久盘运行 `pilot-admin doctor` 或 preflight store doctor，并完成数据卷恢复演练 |
+| HTTPS/反向代理/备份/恢复/回滚说明 | 部分满足 | 内部 runbook、PowerShell 备份/恢复脚本、`README_DEPLOY.md` | 缺少系统服务托管、集中日志、监控告警和自动恢复演练 | 在目标服务器补 Caddy/Nginx 配置、日志和监控 |
+| 核心算法回归通过 | 满足当前 checkpoint | 最近 `python -m pytest -q` 为 373 passed | 后续改性能/后台时仍需重复验证 | 每个工程化切片后跑回归 |
+
+## 3. 推荐执行顺序
+
+1. **部署包演练**
+   - 在目标服务器或等效 Linux 环境运行 `docker compose build`、`docker compose up -d`；
+   - 验证容器默认启用 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1`；
+   - 验证数据目录通过仓库外 volume 挂载，重启后账号和项目不丢失；
+   - 在 bootstrap 前后运行 `pilot-admin doctor --store-dir <pilot_store> --json`；
+   - 结合目标域名补 Caddy/Nginx HTTPS 配置和日志策略。
+
+2. **项目级 artifact 闭环**
+   - 原始上传文件保存为 input artifact；
+   - 当前会话按需补算的技术逐小时明细已第一版保存为 hourly artifact；
+   - 已保留的经济年度现金流保存为 `annual_cashflow` ZIP artifact，并可随经济 summary 恢复；
+   - 推荐席位输入已随经济 summary 保存为 `recommendation_inputs.json`，后续仍需保存视角选择和重新排序工作台状态；
+   - HTML 图表包和 Markdown 报告已可显式保存为 export/report artifact；后续补 PNG/Excel/批量包和完整报告；
+   - 所有 artifact 统一 retention、hash、size、audit。
+
+3. **历史结果恢复**
+   - 从 `StudyResultRecord` 恢复技术 summary、经济 summary、已保留年度现金流、推荐席位输入和推荐 portfolio；推荐视角选择与重新排序状态后续再恢复为完整工作台状态；
+   - 项目 admin 可标记/置顶历史结果索引，也可软删除/隐藏历史结果索引；软删除默认不再展示，但不删除 artifact payload；
+   - 如果已有 hourly artifact，优先按网页查看权限加载到当前工作流；
+   - 如果 input artifact 可用，允许跨会话按需补算某方案 hourly detail；
+   - 如果 input artifact 已清理，明确提示“只能查看摘要，不能补算明细”。
+
+4. **后台 Job**
+   - 技术仿真、经济性测算、图表包和报告导出从同步按钮变成真正后台 Job；
+   - 欢迎页已有活动任务查看、任务状态明细和取消入口第一版，按需明细区域已有 worker 状态轮询；下一步应把轮询/通知扩展到全局任务中心和更多任务类型；
+   - worker 写入 `ResultStore`，失败写脱敏错误。
+
+5. **数据库/并发**
+   - 内部 10-20 人可先评估 SQLite；
+   - 若公网可访问，优先规划 PostgreSQL；
+   - 本地 JSON store 已有原子写入保护和第一版协作文件锁，但继续作为开发和小范围演示适配器，不作为长期并发存储。
+
+## 4. 给 Claude Code 的审计补充
+
+让 Claude Code review/debug 时，应把本文件作为 spec source，与 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md` 和 `docs/PERFORMANCE_OPTIMIZATION_PLAN.md` 一起使用。
+
+建议固定审查口径：
+
+```text
+请对照 docs/PUBLIC_BETA_DEPLOYMENT_AUDIT.md 中的 P0 审计矩阵，逐项确认当前仓库是否已经满足。
+如果发现矩阵中“部分满足/不满足”的项目已有新实现，请更新矩阵并给出文件与测试证据。
+如果直接修复 P0/P1，请保持小切片，不改变 V0.1 技术调度口径、经济性 V1 口径或推荐 V1 排序口径。
+```

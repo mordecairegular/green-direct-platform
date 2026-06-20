@@ -1,0 +1,113 @@
+# 上线前质量审查记录（2026-06-15）
+
+## 审查基线
+
+- 当前分支：`codex/UI`
+- 对比基线：`origin/codex/UI`
+- 当前状态：本地已有连续 checkpoint；本记录随 Streamlit 项目工作区、项目成员管理、项目级结果持久化、最小任务/结果索引/下载/summary-only 恢复面板、input artifact 留存、跨会话单方案明细补算、经济 summary-only 恢复、推荐席位输入恢复、推荐 portfolio-only 恢复、HTML 图表包 / Markdown 报告显式保存到项目历史，以及并行技术仿真方案块提交补充更新。
+- 目标口径：近期上线应理解为受控内部试用 / pilot；若开放公网访问，也只能按邀请制“受控公网内测 Route A”推进，不应理解为公网生产 SaaS。
+
+## 本轮 checkpoint 概览
+
+本轮已把原先未提交工作整理为连续 checkpoint，核心变化包括：
+
+- UI 大改造、方案图谱、经济性参数工作台与导出体验；
+- 大批量汇总优先 summary-only 路径、当前会话与基于 input artifact 的跨会话单方案逐小时明细按需补算、可选并行技术仿真和并行方案块提交；
+- 经济性批量评价性能优化；
+- 内部试用后台模型、结果存储、账号注册表、认证、可选 Streamlit 登录门禁、项目工作区门禁、最小平台账号/项目成员管理页、管理员服务、任务状态存储、权限审计门面，技术/经济 summary/已保留年度现金流/推荐席位输入/推荐 portfolio 持久化第一阶段，HTML 图表包 / Markdown 报告显式保存第一阶段，以及欢迎页任务/结果索引、结果索引标记/置顶、结果索引软删除、已落盘 artifact 下载、技术 summary-only 恢复、经济 summary 和已保留年度现金流恢复、推荐席位输入恢复和推荐 portfolio-only 恢复面板；
+- `pilot-admin` 命令行账号管理入口；
+- Artifact payload 留存清理第一版；
+- 内部试用 `.env.example`、部署 runbook 和 pilot store 备份/恢复脚本第一版；
+- 面向 Claude Code 的内部试用审查 / 后台架构 prompt 和跨机器 handoff 文档；
+- 已吸收用户补充的受控公网内测讨论稿方向：不接真实电力控制系统、不开放社会化注册、保留项目/Run/Artifact/AuditLog、后端控制导出权限、补文件安全和部署恢复边界。
+
+近期 checkpoint 已覆盖 CLI、认证、平台管理、项目工作区、大批量汇总优先模式，技术仿真 summary/config/input curves、经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio、HTML 图表包和 Markdown 报告写入项目级 `ResultStore`，项目内最近任务/结果索引、结果索引标记/置顶、结果索引软删除、已落盘 artifact 下载、技术 summary-only 恢复、经济 summary 和已保留年度现金流恢复、推荐席位输入恢复、推荐 portfolio-only 恢复、已有 hourly artifact 加载、input artifact 恢复补算，到期 artifact payload 清理、并行技术仿真方案块提交，以及内部试用部署/备份/恢复第一版材料；具体提交以 `git log --oneline` 为准。
+
+## 验证结果
+
+已执行：
+
+```powershell
+python -m pytest -q
+python -m compileall -q src scripts tests
+$env:PYTHONPATH = "src"; python -m green_direct.cli pilot-admin --help
+```
+
+结果：
+
+- 全量测试通过：329 项通过；
+- `src scripts tests` 编译检查通过；
+- 源码树下 CLI 启动口径验证通过；
+- `git diff --check` 没有实际空白错误，仅有 Windows 换行转换提示；
+- 本轮 input artifact 跨会话明细补算 checkpoint 已提交为 `3ce2222 feat(pilot): restore input artifacts for detail recompute`；随后已补经济 summary-only、推荐 portfolio-only 恢复和并行方案块提交 checkpoint，提交以 `git log --oneline` 为准。
+
+## 结论
+
+项目目前不建议直接对外公网生产发布。
+
+在受控条件下，可以进入内部 10-20 人 pilot：
+
+- 只部署在内网、VPN 或可信机器；
+- 明确告知用户经济性 V1 是方案筛选 / 排序辅助，不是最终投资决策模型；
+- 不上传敏感正式数据，或先建立数据目录权限和备份策略；
+- 服务器部署不要启用本地运行快照；
+- 大批量算例先按汇总优先试用，图表和报告只围绕已有逐小时明细或当前会话可按需补算明细的方案开展。
+
+若要从内网/VPN pilot 进一步开放为公网可访问内测，应先补齐 Route A 的 P0 条件：邀请制账号、可导出/不可导出用户权限、后端导出校验、文件上传限制、仓库外产物存储、日志脱敏、HTTPS/反向代理、数据卷备份和回滚说明。当前已有 `docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md` 和 pilot store 备份/恢复脚本第一版，但还不是完整公网生产部署体系。
+
+## 主要风险
+
+### P0：公网生产阻塞
+
+1. Streamlit 主 UI 已有可选登录门禁、最小项目工作区门禁和平台账号/项目成员管理页，但还不是正式权限系统。
+   设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 后，未登录用户不能进入六步工作流；登录用户必须先创建或选择有效项目；切换项目会清理当前测算结果和下载缓存；平台管理员可在“平台管理”中创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话、创建/归档项目，并维护项目成员角色。技术仿真 summary/config snapshot/input curves、经济性 summary、已保留年度现金流、推荐席位输入、推荐 portfolio、HTML 图表包和 Markdown 报告已能写入项目级 `ResultStore`，欢迎页也能展示项目最近任务/结果索引、任务状态明细、加载下载已落盘 artifact，并把技术 summary-only 恢复为当前会话结果；同一 `study_id` 的技术 summary 已恢复后，也可把经济 summary、已保留年度现金流和推荐席位输入恢复为当前会话内的经济结果，把推荐 portfolio 恢复为当前会话内的推荐结果；图表/报告入口可加载已有 hourly artifact，或在 input artifact 未过期且快照包含 `curve_columns` 时提交后台 queued job / 同步补算单方案明细。但正式上线前仍必须接入更正式的会话/数据库适配、CSRF/反向代理安全边界，并继续迁移完整历史结果恢复、推荐视角选择/重新排序工作台状态、PNG/Excel/批量包、完整报告和后台导出任务持久化。
+
+2. 可导出/不可导出用户权限已有第一版 membership 授权位，但仍不是正式下载服务。
+   `ProjectMembership.can_export_artifacts` 已能独立于项目角色控制 artifact payload 读取，最小平台管理页也可维护该字段；欢迎页历史产物下载和 06 导出页会在禁止导出时拦截，`PilotAccessService.read_artifact_payload()` 会对已落盘 artifact 的成功和拒绝下载尝试写入审计；06 页尚未落盘的 CSV/Excel/ZIP/Markdown 临时下载按钮已接入 `record_transient_export_download()`，复用项目导出权限并写 `DOWNLOAD_ARTIFACT` 审计；HTML 图表包和 Markdown 报告保存动作还要求项目提交 Job 权限。受控公网内测前仍需把未来 API、数据库适配、反向代理下载入口和对象存储签名 URL 全部接到同一授权策略。
+
+3. 没有正式后台任务队列，但已有最小 worker loop。
+   当前重计算仍主要发生在 Streamlit 进程内，PNG ZIP 使用进程内后台线程，技术/经济/推荐 Job 也是计算完成后的同步状态登记。`LocalJobStore` 已有任务状态契约、`input_artifact_ids` 输入引用、worker/heartbeat 字段、stale running 恢复、queued job 认领原语和 failed/canceled 终态任务手动克隆重试入口；`queue_job_with_input_artifact()` 已可把一次后台任务请求 payload 保存为 `ArtifactKind.JOB_INPUT` 后再提交 queued job；Streamlit 缺少单方案明细时已可提交 `technical_study/hourly_detail` queued job，并在当前按需明细区域轮询状态、完成后刷新结果索引并加载 hourly artifact；Streamlit 06 页缺少所选方案年度现金流时，也可提交固定价/网页组价 `economic_study/annual_cashflow` queued job，完成后加载年度现金流 artifact；`execute_next_worker_job()` / `pilot-admin run-worker-once` 已能执行这两条 one-shot worker 链路，`execute_worker_loop()` / `pilot-admin run-worker-loop` 已可持续轮询该类任务，`pilot-admin retry-job` 可把 failed/canceled 任务克隆回 queued。`LocalJobStore` 的关键状态转换已有第一版协作文件锁，降低多进程同时认领同一 queued job 的风险。尽管如此，这仍不是正式队列。多人同时大算例时仍缺少 worker 级取消、限流、自动重试策略、资源回收，以及全量技术仿真/全量经济性/推荐/导出的后台化。
+
+4. 本地 JSON 文件 store 已有原子写入和第一版协作文件锁，但没有数据库事务和正式备份策略。
+   账号、会话、任务和结果服务适合作为 pilot 语义骨架，但不是正式数据库。当前 JSON 元数据写入会先写临时文件再原子替换，账号/项目、任务、结果和审计等关键读改写路径已纳入协作文件锁；磁盘损坏、机器迁移、权限隔离、冲突合并和长期并发仍需要 SQLite/Postgres 或对象存储适配器解决。
+
+5. 上传文件已有第一层类型/大小门禁，技术三曲线 input artifact 与 artifact payload 过期清理已有第一版，但数据留存仍未达到公网内测级闭环。
+   Streamlit 上传入口已限制允许后缀和默认 20MB 单文件大小，技术仿真配置快照会记录上传文件名、大小和 SHA256；技术三曲线会在项目结果保存时写入默认 30 天过期的 `ArtifactKind.INPUT_CURVE`，并支持历史 summary-only 恢复后的单方案明细同步补算或后台排队补算；已保留年度现金流会写入 `ArtifactKind.ANNUAL_CASHFLOW` ZIP；HTML 图表包和 Markdown 报告可显式保存为默认 7 天过期的导出 artifact；`JobArtifact` 已能记录 `retention_policy`、`expires_at`、`purged_at`，`pilot-admin purge-expired-artifacts` 可由平台管理员清理到期 payload 并写入 `DELETE_ARTIFACT` 审计。但仍需要覆盖价格曲线、PNG/Excel/批量包和完整报告文件，避免普通日志记录原始曲线或服务器内部路径，并实现关键 Run 保留机制和定时调度。
+
+6. 部署策略已补内部试用 runbook，但仍不是完整生产部署。
+   当前已有 `.env.example`、`docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md`、`scripts/backup_pilot_store.ps1` 和 `scripts/restore_pilot_store.ps1`，可覆盖环境变量、首个管理员、启动、备份、恢复、清理、冒烟和回滚边界；但仍缺系统服务守护、集中日志、监控告警、HTTPS/反向代理样例、CI/CD、健康检查和自动化恢复演练。
+
+### P1：内部试用前应重点观察
+
+1. 大批量汇总优先模式已能避免为未保留方案构造完整 `hourly_detail`，并已支持当前会话和历史 summary-only 恢复后的单方案逐小时明细按需补算。
+   未保留方案会走 summary-only 技术仿真路径，已降低大批量筛选耗时和内存压力；推荐页、图表概览页和导出/报告页会先加载已有项目级 hourly artifact，再尝试用当前 session 的 `TechnicalStudyInput` 或历史 input artifact 恢复出的 `TechnicalStudyInput` 补算，并把补算结果写回项目级 hourly artifact；缺少逐小时明细或固定价年度现金流时，也可提交受支持的后台 queued job，由 one-shot/loop worker 处理，失败或取消后可通过 CLI 手动克隆重试。剩余风险是全量技术仿真/经济性仍不是正式后台 Job，也没有 worker 级取消和自动重试策略。
+
+2. 电价曲线经济性依赖逐小时明细。
+   当前大批量部分保留明细时会切回固定价 / 网页组价模式。这是安全降级，但用户需要明确知道价格曲线不会参与这类大批量经济测算。
+
+3. 图表模块仍是原型型展示层。
+   目前可用于 pilot 交流和核查，但不应作为长期架构锚点。后续应围绕推荐方案和按需明细重做图表/报告。
+
+4. `pilot-admin` CLI 仍是 bootstrap、项目生命周期/成员应急维护、审计抽查、任务排障和过期 artifact 清理入口。
+   最小 Streamlit 平台管理页已经可维护账号、创建/归档项目、维护项目成员、处理部分任务运维，并只读查看全局或项目级审计事件；CLI 也已支持列项目/成员、创建或归档项目、授予或禁用项目成员、列审计事件、列任务、认领 queued job、刷新 worker heartbeat/进度、标记 worker 成功/失败、failed/canceled 任务手动克隆重试、清理过期 payload 和 stale running 任务恢复。首个管理员创建、密码应急重置、服务器端批量排障仍需要 CLI 或后续独立后台。
+
+5. 欢迎页“项目任务与结果”仍不是完整历史结果页。
+   它可以帮助内部试用用户确认当前项目已有任务和结果记录，下载已落盘的 summary / portfolio artifact，并 summary-only 恢复技术汇总；同一 `study_id` 的技术汇总已恢复后，也可恢复电源侧/同一主体经济汇总、已保留年度现金流和推荐席位输入，并 portfolio-only 恢复推荐组合；图表/报告入口可加载已有 hourly artifact 或从 input artifact 恢复输入后补算单方案明细；项目 admin 可标记/置顶结果索引，也可软删除/隐藏结果索引并留下审计。但它仍不能恢复完整历史 `StudyResult`、推荐视角选择/重新排序工作台状态，不能做正式报告版本管理或跨项目搜索。
+
+### P2：后续质量改进
+
+- 增加端到端冒烟：启动 Streamlit、加载样例、跑技术仿真、跑经济性、进入推荐和导出页；
+- 固化大批量性能基准样例，记录方案数、耗时、内存和是否保留逐小时明细；
+- 增加本地 store 并发写入测试或尽快替换为数据库；
+- 把第一版 runbook 继续升级为可执行部署包：HTTPS/反向代理示例、系统服务配置、日志轮转、健康检查、备份演练和回滚演练。
+
+## 给下一轮 Claude Code 的审查重点
+
+建议让 Claude Code 按以下顺序继续：
+
+1. 先读 `AGENTS.md`、`CLAUDE.md`、`notes/HANDOFF_FOR_NEW_MACHINE.md`、`notes/PRODUCT_POLISH_LOG.md`、`docs/INTERNAL_PILOT_ARCHITECTURE_PLAN.md` 和本文档；
+2. 运行 `python -m pytest -q` 和 `python -m compileall -q src`；
+3. 重点审查 `src/green_direct/ui/app.py` 是否存在跨用户状态、旧结果复用、价格曲线误用、导出缓存串会话；
+4. 重点审查 `src/green_direct/services/` 下本地后台服务的权限边界、路径校验、审计记录和失败场景；
+5. 重点审查受控公网内测 Route A 缺口：不可导出用户是否还能通过未来 API、项目级报告 artifact、缓存或反向代理路径绕过下载，普通用户是否能猜测他人 project/run/artifact，上传文件是否还能绕过大小/类型/schema 门禁，日志是否可能泄露原始曲线；
+6. 设计并实现下一阶段最小闭环：完整任务状态页 + 完整历史结果恢复/下载/报告版本管理 + 按需补算后台 Job 化 + 剩余图表/报告/批量导出项目级 artifacts + 部署 runbook 实机演练。

@@ -1,0 +1,376 @@
+# Green Direct 内部试用部署说明
+
+本文面向内部 10-20 人试用和邀请制受控公网内测 Route A。它不是正式公网 SaaS 部署手册；正式对外前仍需要后台 worker、数据库/对象存储适配、监控告警和安全复核。
+
+## 1. 产品边界
+
+本工具仅用于绿电直连 / 微电网项目前期方案测算、政策指标初判和方案比选辅助。
+
+禁止把本工具部署或宣传为：
+
+- EMS、SCADA、调度自动化或生产控制系统；
+- 实时运行平台；
+- 真实电表、保护装置、储能 PCS、发电设备或负荷控制接口；
+- 项目审批、接入批复、交易结算或绿证核发依据。
+
+## 2. Docker 快速启动
+
+构建镜像：
+
+```powershell
+docker compose build
+```
+
+初始化第一个平台管理员。请使用一次性强密码，不要把密码写入仓库：
+
+```powershell
+$env:GREEN_DIRECT_ADMIN_PASSWORD = "change-me-before-use"
+docker compose run --rm `
+  -e GREEN_DIRECT_ADMIN_PASSWORD `
+  green-direct `
+  python -m green_direct.cli pilot-admin bootstrap `
+    --store-dir /data/pilot_store `
+    --user-id admin `
+    --login-name admin@example.local `
+    --display-name "平台管理员" `
+    --password-env GREEN_DIRECT_ADMIN_PASSWORD
+Remove-Item Env:\GREEN_DIRECT_ADMIN_PASSWORD
+```
+
+启动服务：
+
+```powershell
+docker compose up -d
+```
+
+本机访问：
+
+```text
+http://localhost:8503
+```
+
+查看日志：
+
+```powershell
+docker compose logs -f green-direct
+```
+
+停止服务：
+
+```powershell
+docker compose down
+```
+
+## 2.1 托管平台快速公网测试
+
+如果目标是尽快做邀请制公网内测，优先使用成熟平台承载公网入口和容器运行，不建议把当前 Streamlit 应用直接部署到 Vercel 或 Cloudflare Pages/Workers 作为主机。当前应用是长运行 Python Web 进程，并依赖本地 pilot store；更适合 Docker Web Service + 持久磁盘。
+
+推荐路线：
+
+```text
+Cloudflare DNS / HTTPS / Access
+  -> Render Web Service
+  -> Dockerfile
+  -> persistent disk mounted at /data
+```
+
+仓库已提供 `render.yaml`，可在 Render 中用 Blueprint 创建服务；当前 pilot 配置显式部署 `codex/UI` 分支，并设置为 GitHub Actions 质量门通过后再自动部署。首次发布时，非程序员负责人可以先按 `docs/PUBLIC_BETA_OWNER_GO_LIVE_STEPS.md` 的 30 分钟操作单执行；完整作战单见 `docs/PUBLIC_BETA_FIRST_LAUNCH_PLAYBOOK.md`，平台判断和详细说明见 `docs/MANAGED_PUBLIC_BETA_DEPLOYMENT.md`。
+
+如果目标是让同事用手机或移动网络尽快试用，请直接按 `docs/MOBILE_NETWORK_TRIAL_CHECKLIST.md` 执行。
+
+推送到 GitHub 或触发托管平台部署前，建议先做一次本地服务器口径冒烟检查：
+
+```powershell
+python scripts\smoke_streamlit_app.py
+```
+
+该脚本会启用 pilot 登录门禁、关闭 runtime snapshot、使用临时 pilot store，启动 Streamlit 并检查 `/_stcore/health`，成功或失败后都会自动停止进程。
+
+如果已经准备了正式试用数据目录，先检查 pilot store 可写、JSON 元数据可读、payload 文件可写、协作锁和审计 JSONL 是否正常：
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m green_direct.cli pilot-admin doctor `
+    --store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR `
+    --json
+```
+
+`doctor` 不需要已有平台管理员，适合在 bootstrap 前后、Render persistent disk 挂载后、备份恢复后运行。返回 `status=fail` 时不要继续创建账号或启动 worker。
+
+也可以运行完整部署 preflight：
+
+```powershell
+python scripts\preflight_internal_pilot_deploy.py --run-smoke
+```
+
+preflight 会检查部署文件、GitHub Actions 质量门、Docker/Compose/Render 安全默认值、Web/worker 关键环境变量、`.dockerignore`、持久盘路径、Git 已跟踪文件是否夹带私有 `.env` / 本地运行状态 / 数据库日志压缩包 / 超大文件，以及可选 Streamlit smoke。
+Docker 和本地启动器会把 Streamlit `server.maxUploadSize` 与 `GREEN_DIRECT_MAX_UPLOAD_MB` 对齐，避免上传控件显示 200MB、应用策略却按 20MB 拒绝的口径不一致。
+
+需要快速判断当前发布卡点时，可使用摘要模式：
+
+```powershell
+python scripts\preflight_internal_pilot_deploy.py --summary
+```
+
+摘要模式只显示通过/失败总览、失败项和下一步建议；`--json` 仍用于 CI、归档和 agent 读取。
+
+如果是在本地服务器或自有 VM 上已经准备好真实试用 store，也可以把 store doctor 纳入同一条 preflight：
+
+```powershell
+python scripts\preflight_internal_pilot_deploy.py --pilot-store-dir $env:GREEN_DIRECT_PILOT_STORE_DIR --run-smoke
+```
+
+注意：Docker/Render 运行镜像不包含 `scripts/`，托管平台 Shell 中请使用 `python -m green_direct.cli pilot-admin doctor --store-dir /data/pilot_store --json`。
+
+推送到 GitHub 后、在 Render 部署前，可再运行：
+
+```powershell
+python scripts\preflight_internal_pilot_deploy.py --require-git-sync
+```
+
+该检查会确认当前工作树干净、当前分支与 `render.yaml` 配置的部署分支一致、upstream 分支与部署分支一致，且当前分支与 upstream 同步；同时保留 Git tracked 安全检查，避免 Render 部署到旧提交、错误分支或夹带本地数据的提交。
+
+如果只想看下一步操作提示，可运行：
+
+```powershell
+python scripts\preflight_internal_pilot_deploy.py --require-git-sync --summary
+```
+
+如果本机已安装并登录 GitHub CLI，还应确认部署源仓库是私有仓库：
+
+```powershell
+python scripts\preflight_internal_pilot_deploy.py --require-github-private
+```
+
+该检查会读取 `remote.origin.url`，并调用 `gh repo view` 获取 GitHub visibility；没有安装 `gh` 时会失败并提示人工确认。首次公网内测不要从 Public 仓库部署。
+
+仓库包含 `.github/workflows/internal-pilot-quality.yml`。推送或提交 PR 后，GitHub Actions 会自动运行 compile、部署 preflight、临时目录版 pilot store doctor 和全量 pytest；手动触发该 workflow 并勾选 `run_smoke` 时，还会启动 Streamlit 做 `/_stcore/health` 冒烟检查。Render 首次部署或重要回滚前，应先确认该质量门通过。
+
+## 3. 默认安全设置
+
+`docker-compose.yml` 默认设置：
+
+```text
+GREEN_DIRECT_ENABLE_PILOT_AUTH=1
+GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0
+GREEN_DIRECT_PILOT_STORE_DIR=/data/pilot_store
+GREEN_DIRECT_MAX_UPLOAD_MB=20
+GREEN_DIRECT_MAX_SCENARIOS_PER_RUN=20000
+GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS=1
+GREEN_DIRECT_ECONOMY_CASHFLOW_RETENTION_THRESHOLD=1000
+GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LIMIT=20
+PORT=8503
+```
+
+含义：
+
+- 用户必须登录后才能进入六步工作流；
+- 多人部署不启用本地 runtime snapshot，避免恢复上一位用户结果；
+- 账号、会话、项目、任务、结果、artifact 和审计日志写入容器外 volume；
+- 上传文件默认单文件 20MB 上限。
+- 技术仿真默认单次最多 20,000 个候选方案，超过时前台会阻止启动，后端 `run_batch()` 也会拒绝执行。
+- 02 页并行计算进程数默认 1；如目标机器 benchmark 证明有收益，可用 `GREEN_DIRECT_DEFAULT_PARALLEL_WORKERS` 调到 2-4，但多人共享环境不要盲目拉满。
+- 经济性默认在超过 1,000 个方案时进入 summary-first：仍计算全量汇总、FIRR/NPV 和推荐排序，但只常驻前 20 个方案的年度现金流，避免公网试用环境一次生成过多现金流表。
+- 容器默认监听 8503；托管平台如注入 `PORT`，Docker 启动命令会优先使用平台端口。
+
+## 4. 数据卷
+
+Compose 使用命名卷：
+
+```text
+green_direct_pilot_store -> /data/pilot_store
+```
+
+该目录保存：
+
+- 用户和本地密码 hash；
+- 会话 token hash；
+- 项目和项目成员；
+- Job 状态；
+- 技术/经济/推荐 summary artifact；
+- artifact 元数据和 payload；
+- 审计日志。
+
+不要把该数据卷内容提交到 Git，也不要放到 Web 静态目录。
+
+## 4.1 后台 Worker
+
+按需逐小时明细补算、按需年度现金流补算已经可以提交为项目级 queued job。完成平台管理员 bootstrap 后，可启动可选 worker profile，让后台进程持续认领受支持任务：
+
+```powershell
+docker compose --profile worker up -d green-direct-worker
+```
+
+默认 worker 使用 `admin` 作为平台管理员 actor，worker id 为 `pilot-worker-compose`。可通过环境变量覆盖：
+
+```powershell
+$env:GREEN_DIRECT_WORKER_ACTOR_USER_ID = "admin"
+$env:GREEN_DIRECT_WORKER_ID = "pilot-worker-1"
+$env:GREEN_DIRECT_WORKER_POLL_INTERVAL_SECONDS = "5"
+docker compose --profile worker up -d green-direct-worker
+```
+
+该 worker 当前只执行 `technical_study/hourly_detail` 和 `economic_study/annual_cashflow` 任务。后者仅支持固定价/网页组价经济性结果，逐时价格曲线结果需等价格曲线 artifact 化后再补。它不是正式队列系统，不提供 worker 级取消、自动重试或资源隔离；本地 JSON store 已有第一版协作文件锁保护关键元数据读改写，但仍不是数据库事务或正式队列，试用期建议最多启动一个 worker。
+
+如果使用 Render 这类只部署单个 Web Service 的首次试用环境，暂时不要把本地 file store 版拆成独立 Worker Service。平台管理员可以在应用内“平台管理 -> 任务运维”手动处理一个排队任务；这会在当前 Streamlit Web 进程内复用同一套 `execute_next_worker_job()` 链路，适合排障和小任务补算。该页面也可以把超时 running 任务元数据标记为 failed。两者都不是自动后台队列，也不会终止真实操作系统进程。
+
+服务器 Shell 中，平台管理员也可以用 `pilot-admin retry-job` 把 failed/canceled 终态任务克隆为新的 queued job。该命令会保留原始请求人、任务类型、输入 fingerprint 和 input artifact 引用，并校验原始请求人仍可提交任务、输入 artifact 仍存在；它不会修改原任务，也不会重试 queued/running/succeeded 任务，仍不等于自动重试策略。
+
+## 5. 账号与权限
+
+平台管理员登录后可以在“平台管理”页：
+
+- 创建用户；
+- 重置密码并撤销该用户有效会话；
+- 停用/恢复用户；
+- 授予/撤销平台管理员；
+- 查看并撤销用户会话；
+- 创建/归档项目；
+- 维护项目成员角色；
+- 控制项目成员是否允许下载/导出结果；
+- 在“任务运维”中查看排队/运行中任务，手动处理一个受支持的 queued job，并恢复超时 running 任务元数据；
+- 通过 CLI 重试 failed/canceled 终态任务；
+- 在“审计日志”中只读查看全局或项目级审计事件，并按动作筛选。
+
+当前项目角色为 `admin`、`analyst`、`viewer`，导出权限由 `can_export_artifacts` 独立控制。不可导出用户应能查看网页结果，但不能下载 artifact 或 06 页导出文件。
+
+## 6. 反向代理与 HTTPS
+
+受控公网内测必须放在 HTTPS 反向代理后。推荐拓扑：
+
+```text
+Browser
+  -> HTTPS:443
+  -> Caddy/Nginx
+  -> http://127.0.0.1:8503 or http://green-direct:8503
+```
+
+Caddy 示例：
+
+```caddyfile
+green-direct.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8503
+}
+```
+
+Nginx 示例：
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name green-direct.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/green-direct.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/green-direct.example.com/privkey.pem;
+
+    client_max_body_size 25m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8503;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 300s;
+    }
+}
+```
+
+公网访问时不要直接暴露 8503 到互联网；应只允许反向代理或 VPN 网关访问容器端口。
+
+## 7. 备份
+
+备份命名卷到本地目录：
+
+```powershell
+New-Item -ItemType Directory -Force .\backups | Out-Null
+docker run --rm `
+  -v green_direct_pilot_store:/data/pilot_store:ro `
+  -v ${PWD}\backups:/backup `
+  alpine `
+  sh -c "cd /data && tar czf /backup/green-direct-pilot-store-$(date +%Y%m%d-%H%M%S).tgz pilot_store"
+```
+
+建议：
+
+- 每天自动备份一次；
+- 重要试用前手动备份；
+- 定期把备份恢复到临时目录演练；
+- 备份文件不得提交到 Git。
+
+## 8. 恢复
+
+恢复前先停服务并备份当前卷：
+
+```powershell
+docker compose down
+```
+
+恢复到一个新卷更安全：
+
+```powershell
+docker volume create green_direct_pilot_store_restored
+docker run --rm `
+  -v green_direct_pilot_store_restored:/data `
+  -v ${PWD}\backups:/backup `
+  alpine `
+  sh -c "cd /data && tar xzf /backup/green-direct-pilot-store-YYYYMMDD-HHMMSS.tgz"
+```
+
+核查无误后，再切换 compose volume 名称或把恢复内容复制到正式卷。不要在未备份的情况下覆盖现有数据卷。
+
+## 9. 过期清理
+
+清理到期 artifact payload：
+
+```powershell
+docker compose run --rm green-direct `
+  python -m green_direct.cli pilot-admin purge-expired-artifacts `
+    --store-dir /data/pilot_store `
+    --actor-user-id admin
+```
+
+当前清理能力只覆盖已登记的 artifact payload。原始上传文件、逐小时明细、图表包和报告导出的完整项目级留存闭环仍在后续路线中。
+
+## 10. 健康检查与冒烟
+
+容器健康检查访问：
+
+```text
+http://127.0.0.1:8503/_stcore/health
+```
+
+每次发布后至少检查：
+
+- 未登录用户只能看到登录页；
+- 平台管理员可登录并进入“平台管理”；
+- 普通用户只能看到授权项目；
+- 禁止导出的成员不能下载历史 artifact 或 06 页导出文件；
+- Demo 技术仿真、经济测算、推荐、图表和导出页可打开；
+- 日志不包含明文密码、token、原始曲线和服务器敏感路径。
+
+## 11. 回滚
+
+推荐流程：
+
+1. 备份当前 `green_direct_pilot_store`；
+2. 记录当前镜像 tag 或 commit；
+3. 切回上一份已验证源码或镜像；
+4. 启动服务后做冒烟检查；
+5. 如果新版本写入了旧版本不认识的 metadata，先在恢复副本上验证旧版本能否读取关键结果。
+
+不要用删除数据卷的方式回滚代码问题。
+
+## 12. 仍未完成
+
+当前 Docker 部署包解决的是“可标准化启动和持久化本地 store”。尚未完成：
+
+- 正式队列 / worker 级取消 / 自动重试策略 / 进程守护；当前已有按需逐小时明细和固定价/网页组价年度现金流的 queued job 提交入口、one-shot worker、最小轮询 worker，以及 failed/canceled 终态任务的 CLI 手动克隆重试入口；
+- SQLite/Postgres 或对象存储适配；
+- 原始上传文件、逐小时明细、图表包和报告导出的完整 artifact 留存；
+- 集中日志、监控告警、CI/CD 和自动化恢复演练；
+- 正式企业 IAM、OIDC/LDAP、CSRF 防护和安全扫描。

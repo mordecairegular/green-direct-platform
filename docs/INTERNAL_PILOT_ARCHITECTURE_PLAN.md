@@ -1,0 +1,306 @@
+# 内部试用上线架构计划
+
+本文面向 10-20 人内部试用，并兼容后续“受控公网内测 Route A”的准备工作，不等同于正式公网 SaaS。目标是在不破坏 V0.1 风光储逐小时调度口径的前提下，把当前 Streamlit 单机工具逐步演进为可多人使用、可排队计算、可追踪项目结果的平台。
+
+## 1. 内部试用边界
+
+内部试用允许：
+
+- 由少量内部用户上传项目曲线、运行方案池、查看推荐组合和导出报告；
+- 先使用 Streamlit 前台，但必须避免跨用户共享运行态；
+- 先以轻量账户和项目隔离为主，不要求一次性完成企业级 IAM；
+- 对大批量方案先提供排队、进度、取消和结果缓存，不要求立即完成终极高性能引擎。
+
+内部试用不应允许：
+
+- 新用户自动看到上一位用户的测算结果；
+- 全局 `.runtime/latest_session_snapshot.pkl` 在多人部署中恢复数据；
+- 进程级后台任务缓存跨会话复用用户结果；
+- 经济性 V1 被包装为最终投资决策模型。
+
+如果从内网/VPN 试用升级为可公网访问的受控 Beta，应按 Route A 理解：
+
+- 只允许邀请或管理员创建用户登录，不开放社会化自注册；
+- 产品仍只是绿电直连 / 源网荷储前期方案测算和政策指标初判工具，不接 EMS、SCADA、调度自动化、真实电表或任何生产控制网络；
+- 必须区分平台管理员、项目管理员、可计算不可导出用户、可计算可导出用户；当前 `ProjectMembership.can_export_artifacts` 已提供第一版“可导出/不可导出”后端授权位，已落盘 artifact 下载和当前 06 页临时导出下载都复用该语义；未来 API、反向代理下载和对象存储签名仍必须复用同一语义；
+- 上传、计算、结果查看、产物下载、管理员跨项目查看都应经过后端权限校验并写入审计日志；
+- 原始上传文件、逐小时明细和导出文件需要保留期限和清理机制，项目元数据、参数快照、结果摘要和审计日志应更长时间保留；当前已完成技术三曲线 input artifact、本地 artifact payload 过期清理，以及基于 input artifact 的单方案明细跨会话补算第一版，尚未覆盖价格曲线、导出文件、关键 Run 保留和定时调度；
+- 公网内测前必须补充 `.env.example`、部署 runbook、HTTPS/反向代理说明、数据卷、备份/恢复和回滚说明；当前已有内部试用部署 runbook、本地 store 备份/恢复脚本、Dockerfile、docker-compose、`README_DEPLOY.md` 和 `SECURITY.md` 第一版，仍需在目标服务器实机演练，并补系统服务托管、日志轮转、监控告警和安全扫描。
+
+## 2. 当前上线安全修正
+
+2026-06-15 起，运行快照改为显式开启：
+
+- 默认直接 `streamlit run src/green_direct/ui/app.py` 时不保存、不恢复 `.runtime/latest_session_snapshot.pkl`；
+- 本地 Windows 启动器会设置 `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=1`，保留单机重启恢复体验；
+- 多人部署、内网服务器、容器和反向代理环境不得设置该环境变量为真值；
+- 快照只保存计算结果与配置，不再保存 PNG ZIP 二进制缓存。
+
+PNG 图表包后台任务也按会话隔离：
+
+- 后台任务 key 包含 Streamlit 会话 ID；
+- PNG ZIP 缓存签名包含 `summary`、所选方案 `hourly_detail` 和对比方案表的数据指纹；
+- 新技术仿真完成后清空旧 PNG 导出缓存，避免同名方案和同时间范围复用旧图。
+
+上传文件也已先加第一层门禁：
+
+- `UploadPolicy` 对 Streamlit 上传文件做后缀和大小检查；
+- 默认单文件上限 20MB，可用 `GREEN_DIRECT_MAX_UPLOAD_MB` 调整；
+- 技术曲线只允许 CSV，下网电价曲线允许 CSV/XLSX/XLSM；
+- 合法上传文件的文件名、后缀、大小和 SHA256 会写入技术仿真的 `config_snapshot["upload_file_metadata"]`；
+- 启用内部登录并保存技术结果时，负荷、光伏和风电三条技术曲线会作为 `ArtifactKind.INPUT_CURVE` 写入项目级 `ResultStore`，默认 30 天过期，并在 `config_snapshot["input_artifact_ids"]` 中留索引；
+- 非法文件只显示拒绝原因，不进入预览、曲线读取或价格曲线解析。
+
+2026-06-15 起，Streamlit 主界面已新增可选内部试用登录门禁：
+
+- 默认不启用，避免影响本地开发和桌面单机体验；
+- 多人内部试用部署可设置 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1`；
+- `GREEN_DIRECT_PILOT_STORE_DIR` 应指向 `pilot-admin --store-dir` 使用的同一受控目录，默认 `.runtime/pilot_store`；
+- 未登录用户只能看到登录表单，不能进入方案仿真、经济性测算、推荐或导出页面；
+- 会话校验复用 `LocalPilotAuth.require_session()`，退出登录或会话失效时清理当前 Streamlit 会话内的测算结果和下载缓存；
+- 登录后必须先创建或选择一个有效项目工作区，六步业务工作流才会继续渲染；切换项目会清理当前测算结果和下载缓存；
+- 平台管理员登录后可进入“平台管理”，完成创建账号、重置密码、停用账号、授予/撤销平台管理员、查看会话，并在“项目和成员”中创建/归档项目、把用户加入项目或禁用项目成员关系；
+- 欢迎页已提供“项目任务与结果”面板，并新增“排队/运行中任务”区：用户可查看当前项目活动任务，analyst 可取消自己发起的活动任务，项目 admin 可取消项目内活动任务；取消动作经 `PilotAccessService` 校验并写入审计；
+- 这只是 Phase A/B 之间的最小门禁、项目工作区、账号/成员管理页和任务控制入口，还不是正式数据库会话、企业 IAM、后台任务队列或完整项目级结果持久化。
+
+## 3. 内部试用部署形态
+
+建议分三步走：
+
+1. **Phase A：受控内网 Streamlit**
+   - 部署在内网服务器或 VPN 后；
+   - 反向代理层做基本访问控制；
+   - `GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT=0` 或不设置；
+   - 每次测算结果仅存在当前会话内存，重要结果由用户主动下载。
+
+2. **Phase B：后台账户与项目隔离**
+   - 引入登录、用户、项目、项目成员和角色；
+   - 每个项目有独立 `ProjectStudy` 和 `StudyResult`；
+   - 结果写入 `ResultStore`，而不是依赖 Streamlit `session_state`；
+   - 支持管理员创建用户、停用用户、维护项目成员、查看任务状态。
+
+3. **Phase C：任务队列与持久化结果**
+   - 技术仿真、经济性测算、图表包和报告导出逐步变为后台 `Job`；
+   - 前台只提交任务、轮询状态、读取结果；
+   - 计算进程可以横向扩展；
+   - 下载文件从 `ResultStore` 或对象存储读取。
+
+4. **Phase D：受控公网内测 Route A**
+   - 默认启用登录、项目隔离、后端导出权限和审计；
+   - 通过 HTTPS 反向代理访问，生产密钥只来自环境变量；
+   - 数据库存储优先 SQLite/Postgres，文件产物存放在仓库外受控挂载目录；
+   - 明确备份、恢复、清理、回滚和管理员排障流程；
+   - 保留“不接真实电力控制系统”的产品边界说明。
+
+当前托管平台公网试用的现实边界：
+
+- 首次 Render 路线只部署单个 Docker Web Service，`render.yaml` 显式绑定 `codex/UI`、`numInstances=1` 和 `autoDeployTrigger: checksPass`；
+- `/data/pilot_store` 是受控内测用的本地 file store + persistent disk，不是长期正式数据库；
+- 不应在 Render 上直接拆第二个独立 Worker Service 并假设它能共享同一个 Web Service disk；
+- 按需逐小时明细和固定价/网页组价年度现金流补算可先由平台管理页“任务运维”、同一服务 Shell 里的 `run-worker-once` 或有限 `run-worker-loop` 处理；
+- 若要真正 Web + Worker 横向扩展，应先把账号、项目、任务、结果索引迁移到 SQLite/Postgres，把大 payload 迁移到对象存储或受控共享文件层，再让 worker 读取同一数据库/对象存储。
+
+下一阶段数据库化建议分两步：
+
+1. **SQLite/Postgres 适配器阶段**：保留现有 `PilotAccessService`、`LocalPilotAdminService`、`Job`、`StudyResultRecord` 和 `JobArtifact` 语义，新增数据库适配器，不改 Streamlit 页面和计算口径；
+2. **对象存储与队列阶段**：artifact payload 放入对象存储或受控 blob store，`Job.input_artifact_ids` 继续作为 worker 输入契约；worker 只通过服务层读取输入、写回 summary/detail/export artifact，并保留审计。
+
+第一版内部试用部署步骤见 `docs/INTERNAL_PILOT_DEPLOYMENT_RUNBOOK.md`。该 runbook 记录了环境变量、首个管理员 bootstrap、多人部署启动命令、pilot store 备份/恢复、过期 artifact 清理、冒烟检查和回滚边界。
+
+## 4. 后台账户模型设想
+
+推荐最小领域对象：
+
+- `User`：账号、显示名、状态；
+- `Role`：`admin`、`analyst`、`viewer`；
+- `Project`：一个绿电直连或微电网项目；
+- `ProjectMembership`：用户在项目中的角色；
+- `ProjectStudy`：一次输入曲线、方案池、政策和经济参数快照；
+- `Job`：技术仿真、经济测算、推荐组合、图表导出的后台任务；
+- `StudyResult`：技术结果、经济结果、推荐结果和导出文件索引；
+- `AuditLog`：登录、上传、运行、下载、删除等审计记录。
+
+已落地的第一步模型骨架：
+
+- `src/green_direct/models/pilot_backend.py` 定义了持久化无关的 `User`、`Project`、`ProjectMembership`、`ProjectStudy`、`Job`、`JobArtifact`、`StudyResultRecord` 和 `AuditLog`；
+- `ProjectMembership` 已区分 `admin`、`analyst`、`viewer` 的查看、提交任务和项目管理权限；
+- `ProjectMembership.can_export_artifacts` 已作为第一版独立导出授权位，可表达“可计算、可查看但不可导出”的内部试用成员；
+- `User.is_platform_admin` 已区分平台账号管理员和项目 `admin`，项目 `admin` 只管理项目成员，不能天然创建或停用全站账号；
+- `Job` 已定义排队、运行、成功、失败、取消状态、进度字段、`worker_id`、`last_heartbeat_at`、`input_artifact_ids` 及合法状态转换；`input_artifact_ids` 用于记录后续 worker 执行所需的受控 artifact 引用，不把大输入或原始 payload 直接塞进 job JSON；
+- `ArtifactKind.JOB_INPUT` 已作为 worker 请求 payload 类型；`queue_job_with_input_artifact()` 会先把非空 JSON payload 写入 `ResultStore`，再提交引用该 payload 的 queued job，供后续 worker wrapper 读取；
+- `JobArtifact` 和 `StudyResultRecord` 保留 `project_id` / `study_id` 边界，用于后续 `ResultStore` 和下载文件隔离；
+- `JobArtifact` 已包含 `retention_policy`、`expires_at` 和 `purged_at`，用于表达 payload 长期保留或到期清理状态；
+- 该骨架已被本地认证、最小 Streamlit 登录门禁和项目工作区复用，但仍不包含正式数据库表、任务队列或完整企业 IAM，不代表账户后台已经完整实现。
+
+已落地的第一步 ResultStore：
+
+- `src/green_direct/services/result_store.py` 提供 `LocalResultStore`；
+- 产物按 `projects/{project_id}/studies/{study_id}/artifacts/{artifact_id}` 隔离保存；
+- 写入产物时自动记录 `JobArtifact`、`storage_uri`、`sha256` 和 `size_bytes`；
+- `StudyResultRecord` 可落盘并回读，用于把技术汇总、经济汇总、推荐组合、逐小时明细和报告产物串起来；
+- `StudyResultRecord` 已支持按项目或研究列出，供项目内结果索引面板读取；
+- `purge_expired_artifacts()` 可删除已过期 artifact payload，同时保留元数据和历史索引；
+- 审计事件可按项目或全局写入 JSONL；
+- 路径片段使用白名单校验，防止把用户输入直接拼成越权文件路径；
+- 当前实现是本地文件适配器；JSON 元数据写入已通过临时文件原子替换降低半写损坏风险，但不替代后续 SQLite/Postgres、对象存储或正式权限控制。
+
+已落地的第一步账户/项目注册表：
+
+- `src/green_direct/services/pilot_registry.py` 提供 `LocalPilotRegistry`；
+- 支持保存、读取、列出和停用 `User`；
+- 支持保存、读取、列出和归档 `Project`；
+- 支持为项目授予/更新/停用用户角色，角色沿用 `admin`、`analyst`、`viewer`，并可独立维护是否允许下载/导出 artifact；
+- 写入成员关系时会检查用户和项目已存在，避免孤立 membership；
+- 当前注册表不存储密码、不处理登录会话、不替代正式认证；后续登录页或企业身份集成只应把认证主体映射到这些 `User` / `ProjectMembership` 记录。
+
+已落地的第一步本地认证服务：
+
+- `src/green_direct/services/pilot_auth.py` 提供 `LocalPilotAuth` 和 `PilotAuthError`；
+- 密码哈希、salt、算法和迭代次数保存在 `auth/credentials/{user_id}.json`，不写入 `User` 模型，不保存明文密码；
+- 登录成功后生成本地会话，`auth/sessions/{session_id}.json` 只保存 token 的 SHA256，不保存明文 bearer token；
+- 支持设置密码、按 `login_name` 登录、校验会话、撤销会话和列出用户会话；
+- 登录成功和失败可写入全局 `AuditLog`；
+- 停用用户不能设置密码、登录或继续使用已有会话；
+- 当前认证服务只适合受控内部试用，不替代企业 IAM、OIDC、LDAP、反向代理认证、CSRF 防护或正式数据库会话表。
+
+已落地的第一步平台账号管理服务：
+
+- `src/green_direct/services/pilot_admin.py` 提供 `LocalPilotAdminService` 和 `PilotAdminError`；
+- 支持 bootstrap 首个 `is_platform_admin=True` 的平台管理员，并设置本地密码；
+- 平台管理员可创建用户、设置初始密码、重置密码、授予/撤销平台管理员标记、停用用户、列出用户和只读查看审计事件；
+- 平台管理员可列出项目、查看项目成员、授予/更新项目角色、维护导出授权、禁用项目成员关系；
+- 停用用户时会撤销该用户仍然有效的本地会话；
+- 创建用户、更新用户、重置密码、停用和平台管理员标记变更会写入全局 `AuditLog`；
+- 为避免锁死后台，服务不允许停用或降级最后一个活跃平台管理员；
+- `src/green_direct/cli.py` 已提供 `pilot-admin` 命令行入口，可执行 bootstrap、创建用户、重置密码、停用用户、授予/撤销平台管理员、列出用户/会话/审计事件/项目/项目成员/任务、创建或归档项目、授予或禁用项目成员、认领 queued job、刷新 worker heartbeat/进度、标记 worker 成功/失败终态、执行一次受支持 worker job、清理过期 artifact payload 和标记超时 running 任务失败；
+- 当前服务已接入 Streamlit 最小平台管理页，并提供账号、项目、成员、任务运维和审计日志的最小控制面；但仍未替代后续 SQLite/Postgres、企业身份系统或正式审计后台。
+
+已落地的第一步 JobStore：
+
+- `src/green_direct/services/job_store.py` 提供 `LocalJobStore`；
+- 任务元数据按 `projects/{project_id}/studies/{study_id}/jobs/{job_id}.json` 隔离保存；
+- 支持提交、读取、按全局/项目/研究列出任务，并可按 `queued`、`running`、`succeeded`、`failed`、`canceled` 状态筛选；
+- 支持 `start_job()`、`update_job_progress()`、`succeed_job()`、`fail_job()` 和 `cancel_job()`，状态合法性沿用 `Job` 模型，并可保存 `worker_id` / heartbeat 元数据；
+- 支持 `claim_next_queued_job()`，可按项目和任务类型认领最早 queued 任务并转为 running，写入 `worker_id` 和 heartbeat，作为后续 worker 轮询的本地原语；
+- `Job.input_artifact_ids` 会随 job JSON 持久化；`pilot-admin list-jobs` 已显示输入 artifact 数量，便于运维判断某个 queued/running job 是否带了受控输入引用；
+- 任务请求 payload 可通过 `queue_job_with_input_artifact()` 保存为 `job_input_<job_id>.json`，并以默认 `job_payload` key 挂入 `Job.input_artifact_ids`；外部输入如 `technical_summary`、`config_snapshot`、`input_curve_*` 也会在同一映射中保留；
+- `src/green_direct/services/pilot_worker.py` 已提供第一条 worker 执行路径：`execute_next_worker_job()` 先认领 queued job，再根据 `Job.input_artifact_ids` 读取输入 artifact 并执行；`execute_worker_loop()` 可持续轮询并执行受支持任务；当前支持 `technical_study` + `job_payload.task="hourly_detail"`，以及 `economic_study` + `job_payload.task="annual_cashflow"`；
+- Streamlit 推荐页、图表概览页和导出/报告页在缺少所选方案逐小时明细时，若当前项目结果已有 `technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，已可提交 `technical_study/hourly_detail` queued job；当前按需明细区域会轮询 queued/running 状态，任务成功后刷新 result record 的 hourly artifact 索引并加载结果；
+- 支持 `list_stale_running_jobs()` 和 `fail_stale_running_jobs()`，可把超过阈值未 heartbeat 的 running 任务标记为 failed；`pilot-admin fail-stale-jobs` 会复用该能力并写 `COMPLETE_JOB` 审计；
+- 路径片段使用白名单校验，防止 `project_id`、`study_id`、`job_id` 被拼接成越权路径；
+- 当前实现只持久化任务状态、本地认领原语、两条最小执行路径和 CLI 轮询 worker；JSON 写入已使用原子替换，任务提交/认领/进度/终态等关键读改写路径已有第一版协作文件锁，但仍不包含正式调度器、自动重试策略、worker 级取消或完整管理员 UI；后续任务队列或数据库实现应沿用同一 `Job` 契约。
+- Streamlit 欢迎页已消费该任务状态：可筛选 `queued` / `running` 活动任务、展示任务状态明细并提供最小取消入口。但取消和 stale cleanup 都只改变任务元数据状态，不代表已有 worker 级中断、重试或资源隔离。
+
+已落地的第一步权限与审计服务：
+
+- `src/green_direct/services/pilot_access.py` 提供 `PilotAccessService` 和 `PilotAccessError`；
+- 该服务组合 `LocalPilotRegistry`、`LocalJobStore` 和 `LocalResultStore`，让 UI、后台 worker 或未来管理页通过同一入口做项目访问控制；
+- `claim_next_job_for_worker()` 已作为平台管理员保护的 worker 认领入口，支持全局或单项目认领，并在全局扫描时跳过归档项目；
+- `update_worker_job_progress()` 已作为平台管理员保护的 worker heartbeat/进度入口，要求 `worker_id` 与 running job 记录一致；
+- `succeed_worker_job()` / `fail_worker_job()` 已作为平台管理员保护的 worker 终态入口，要求 `worker_id` 与 running job 记录一致，并写 `COMPLETE_JOB` 审计；
+- `submit_job()` 已支持并校验 `Job.input_artifact_ids`：若提交的 job 声明了输入 artifact，服务层会要求这些 artifact 已存在于同一 `project_id` / `study_id`，并把引用写入 `SUBMIT_JOB` 审计 metadata；
+- `queue_job_with_input_artifact()` 在 `submit_job()` 前预校验权限和外部 artifact，并写 `STORE_ARTIFACT` 审计；它只提交 queued job，不在 Streamlit 请求内执行计算；
+- `execute_next_worker_job()` / `pilot-admin run-worker-once` / `pilot-admin run-worker-loop` 已可执行两条受支持 worker 链路：`technical_study/hourly_detail` 读取 `job_payload`、`technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，复用 `run_hourly_detail_for_scenario()` 生成单方案逐小时明细，写回 `ArtifactKind.HOURLY_DETAIL`；`economic_study/annual_cashflow` 读取 `technical_summary`、`recommendation_inputs` 和经济 summary artifact，为所选固定价/网页组价方案写回 `ArtifactKind.ANNUAL_CASHFLOW`，并明确拒绝逐时价格曲线现金流补算；两者都会标记 job 成功或失败；
+- `list_accessible_projects()` 已用于 Streamlit 登录后的项目工作区选择，只返回当前用户有有效 membership 的项目；
+- `admin` 可创建/归档项目、授予/停用成员、提交任务、查看任务和产物、取消他人任务；
+- `analyst` 可提交和查看本项目任务，并取消自己提交的任务；
+- `viewer` 只能查看本项目任务和产物，不能提交或取消任务；
+- 成员是否能下载/导出 artifact 由 `can_export_artifacts` 独立控制，不再仅由 `viewer` / `analyst` / `admin` 推断；
+- 结果索引读取已通过 `list_project_result_records()` / `list_study_result_records()` 纳入项目查看权限；
+- 产物索引读取仍要求项目查看权限；网页内恢复/图表查看 payload 使用 `read_artifact_payload_for_view()`，要求项目查看权限并写入 `VIEW_ARTIFACT` 审计；文件下载/导出 payload 使用 `read_artifact_payload()`，要求项目导出权限，成功和拒绝都会写入 `DOWNLOAD_ARTIFACT` 审计；当前 Streamlit 06 页尚未落盘的临时 CSV/Excel/ZIP/Markdown 下载使用 `record_transient_export_download()` 记录同类审计；
+- 停用用户、停用 membership、非成员、已归档项目的新任务提交会被拒绝；
+- 创建项目、成员变更、提交任务、取消任务、读取产物 payload 会写入 `AuditLog`；
+- 当前服务仍不包含正式队列或数据库事务；底层本地文件 store 已有第一版协作文件锁，但它仍主要是当前 Streamlit 项目工作区、后续任务入口和 SQLite/Postgres 适配器应复用的权限/审计语义。
+
+试用版已有本地文件版密码与会话服务，可先用于开发和受控内网演示；正式内网版仍应评估 SQLite/Postgres 会话表、企业微信、OIDC、LDAP 或公司统一身份。
+
+## 5. 性能优化路线
+
+详版路线、benchmark 命令和可复制给 Claude Code 的性能专项提示词见 `docs/PERFORMANCE_OPTIMIZATION_PLAN.md`。当前仓库已新增 `scripts/benchmark_internal_pilot_performance.py`，用于记录技术仿真完整明细保留、summary-first 和经济性 summary-only 的耗时与 Python 堆峰值。该脚本是优化决策辅助，不是固定性能门槛。
+
+当前瓶颈来自两个方向：
+
+- 方案遍历逐方案运行，成千上万方案时等待时间长；
+- 每个成功方案都保存完整 8760/8784 小时明细，内存和 UI 压力大；
+- 经济性测算对全部方案做年度现金流和 IRR，方案多时也会变慢。
+
+已落地的第一步接口：
+
+- `run_batch(..., retain_hourly_details=False, hourly_detail_scenario_ids=[...])` 可只返回方案汇总，或只保留指定方案逐小时明细；
+- `run_single_scenario(..., retain_hourly_detail=False)` 已支持 summary-only 模式：仍按同一逐小时 dispatch 规则滚动 SOC 和累计技术指标，但不构造 8760/8784 行 `hourly_detail` DataFrame；
+- `PerformanceParams(parallel_workers=N)` 可让 `run_batch()` 使用 `ProcessPoolExecutor` 并行执行技术仿真；默认 `1`，02 页“高级：枚举性能提醒”已暴露并行进程数；当前并行路径已按方案块提交到进程池，减少大方案池下的任务提交开销；
+- `PerformanceParams(max_scenarios_per_run=N)` 与 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN` 已作为单次方案数硬上限；02 页超限时禁用“开始测算”，`run_batch()` 后端也会拒绝执行，避免未来 API/Job 绕过 UI；
+- 02 页已新增计算前粗略耗时提示，并在方案数超过提醒阈值时要求用户勾选大批量同步测算确认，减少内部试用中误提交大方案池的概率；
+- `TechnicalStudyInput(retain_hourly_details=False, hourly_detail_scenario_ids=(...))` 已把该能力接入服务层，并写入 `config_snapshot["detail_retention"]`；
+- `run_hourly_detail_for_scenario(inputs, scenario_id=..., summary=...)` 已提供当前会话内的单方案逐小时明细补算入口：从技术 summary 行重建 `Scenario`，复用同一次技术输入的原始曲线、BESS 参数、政策参数和 `dt_hours`，只补算选中方案；
+- 02 页“高级：枚举性能提醒”已新增“大批量保留明细数”：当方案数超过提醒阈值时，UI 自动进入汇总优先模式，技术仿真只常驻方案汇总和前 N 个方案逐小时明细；
+- 推荐页、图表概览页和导出/报告页已接入第一版“补算逐小时明细”按钮；缺少明细时会先尝试按网页查看权限加载已有 `ArtifactKind.HOURLY_DETAIL`，没有可用 hourly artifact 时，若项目结果已有 `technical_summary`、`config_snapshot` 和三条 `input_curve_*` artifact，可提交 `technical_study/hourly_detail` queued job；若当前会话有原始 `TechnicalStudyInput`，仍可同步补算。同步补算后写回当前 `batch_result.hourly_details` 和 `study_result.technical_result.batch_result`，并清空旧下载/图表缓存；在启用内部登录且当前技术结果已有项目索引时，会把补算出的单方案明细写为 `ArtifactKind.HOURLY_DETAIL` CSV，并挂回 `StudyResultRecord.hourly_detail_artifact_ids`；
+- 大批量汇总优先模式会清除当前项目级下网电价曲线，避免价格曲线经济性在缺少全量逐小时明细时误用部分数据；
+- `run_economic_study(..., retain_annual_cashflows=False, annual_cashflow_scenario_ids=[...])` 可保留经济性 summary 指标，同时不常驻全部年度现金流表，或只保留报告方案/推荐组合现金流；当前已推进为未保留方案不构造完整年度现金流 `DataFrame`，只用现金流数组计算 FNPV、FIRR 和回收期；
+- 经济性批量评价已去除 `iterrows()` 行遍历，年度折现因子按年限和折现率缓存，NPV 使用等价 Horner 形式计算，同一主体批量评价只做一次公共参数校验；常规单符号变化现金流的 IRR 使用二分快路径，多符号变化仍保留原候选率扫描和多根判断；未保留年度现金流表的 summary-only 小样本从约 3.1503s 降至约 0.8120s（220 个方案、168 小时技术 summary-first 后经济性 summary-only，本机样本）；
+- 这些接口和内部优化默认保持小规模旧行为，不改变 V0.1 技术计算口径或经济性口径。summary-only 技术仿真让未保留明细的方案不再构造完整 hourly ledger，可同时降低大批量模式的耗时、内存、快照和结果传输压力；并行技术仿真和经济性底层优化为后续后台 Job 提供缩短等待时间的基础。
+
+建议路线：
+
+1. **计算前限流和预估**
+   - 保留当前方案数预估；
+   - 已有第一版单次方案数硬上限，默认 20,000，可用 `GREEN_DIRECT_MAX_SCENARIOS_PER_RUN` 调整；
+   - 超过阈值时进入“大批量模式”，提示预计耗时并要求显式确认；
+   - 支持取消任务和查看部分进度。
+
+2. **汇总优先、明细按需**
+   - 批量筛选阶段只保存 `summary` 和推荐所需最小明细；
+   - 用户选中代表方案后，再生成该方案完整 `hourly_detail`；
+   - 图表和报告只要求选中方案明细，不强制所有方案明细驻留内存。
+
+3. **并行技术仿真**
+   - 将单方案调度封装为可序列化任务；
+   - 使用 `ProcessPoolExecutor` 或任务队列 worker 并行处理方案块；
+   - 聚合时保持 `scenario_id`、warning、error 和顺序稳定；
+   - 不改变现有储能调度口径。
+
+4. **经济性批量向量化**
+   - 对年度固定参数、投资、运维、替换、税费尽量用 DataFrame/NumPy 批量计算；
+   - IRR/NPV 先保留精确口径，但按方案数组批处理；
+   - 推荐 V1 先基于轻量经济 summary 排名，只有报告方案生成完整年度现金流表。
+
+5. **结果缓存**
+   - 对曲线文件、方案池、政策、储能和经济参数生成输入指纹；
+   - 相同输入直接读取 `ResultStore`；
+   - 用户改动任一关键输入时显式失效旧结果。
+
+## 6. Claude Code 审查与 UI 提升提示词
+
+完整可复制提示词已拆到 `docs/CLAUDE_CODE_INTERNAL_PILOT_PROMPTS.md`，避免本文件和换机交接文档维护两套长提示词。
+
+使用建议：
+- 先让 Claude Code 做上下文读取和上线前 review/debug；
+- review 没有发现会阻断试用的计算口径或权限问题后，单独做一次性能专项，避免大方案池等待问题被 UI 打磨淹没；
+- P0/P1 风险清零或明确记录后，再做 UI 提升；
+- UI 提升必须限制在当前 Streamlit 工程工作台内，不要改调度、经济性和推荐算法；
+- 如果继续推进多人后台，单独使用账户、Job 和 `ResultStore` 架构提示词，不要和 UI 提升混在同一轮。
+
+## 2026-06-15 补充：技术仿真结果持久化第一阶段
+
+已落地第一条项目级结果写入路径，并在随后补到经济 summary 和推荐 portfolio：
+- `ArtifactKind.CONFIG_SNAPSHOT` 已加入后台模型；
+- `PilotAccessService` 已支持 `start_job()`、`update_job_progress()`、`succeed_job()` 和 `fail_job()`，任务状态变更要求发起人本人或项目管理员权限，完成/失败写入 `AuditLog.COMPLETE_JOB`；
+- `persist_technical_study_result()` 会把一次 `TechnicalStudyResult` 登记为 `technical_study` 类型同步 `Job`，写入三条 `input_curve_*.csv`、`technical_summary.csv`、`config_snapshot.json` 和 `StudyResultRecord(result_id="technical_result")`；
+- Streamlit 02 页 Demo 和正式测算完成后，在启用内部登录且存在当前项目时，会调用该路径，并把结果引用挂到 `StudyResult.result_store_refs`。
+- `persist_economic_study_result()` 会把一次 `EconomicStudyResult` 登记为 `economic_study` 类型同步 `Job`，写入电源侧和同一主体经济性 summary，把推荐 V1 所需的价格、经济参数和最低可接受 FIRR 保存为 `recommendation_inputs.json`，并把当前运行实际保留的电源侧/同一主体年度现金流保存为 `annual_cashflow` ZIP artifact；
+- `persist_recommendation_study_result()` 会把一次 `RecommendationStudyResult` 登记为 `recommendation` 类型同步 `Job`，写入推荐组合和负荷侧明细；Streamlit 推荐页使用 fingerprint 去重，避免同一组合刷新时重复写入。
+- `persist_export_artifact()` 会把用户显式保存的导出产物登记为 `chart_export` 或 `report_export` 同步 `Job`，当前 Streamlit 06 页已接入所选方案 HTML 图表包和简版 Markdown 报告，分别写入 `ArtifactKind.CHART_PACKAGE` / `ArtifactKind.REPORT`，默认 7 天过期并写 `STORE_ARTIFACT` 审计；
+- `LocalResultStore` 和 `PilotAccessService` 已支持按项目/研究列出结果索引；Streamlit 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引，并可加载下载已落盘的 summary / portfolio artifact；技术 summary 可 summary-only 恢复到当前会话，恢复时会带上已有 hourly artifact 和 input artifact 索引；同一 `study_id` 的技术汇总已恢复后，经济 summary 可恢复到当前会话，并同步恢复已保存的年度现金流和推荐席位输入，推荐 portfolio 也可 portfolio-only 恢复到当前会话。当前会话刚跑出的 summary-first 结果可按需补算单个方案明细，并把补算明细保存为默认 30 天过期的 hourly artifact；历史 summary-only 恢复如果已有 hourly artifact，可在图表/报告入口按网页查看权限加载；如果只有 input artifact、没有 hourly artifact，可在三条输入曲线未过期且 `config_snapshot` 带有 `curve_columns` 时重建 `TechnicalStudyInput` 并跨会话补算单方案明细。
+
+仍未落地：
+- 正式队列 / worker 级取消重试闭环 / 数据库级并发控制；
+- 技术仿真历史 summary-only 结果基于受控 input artifact 的后台补算已能排队并由 one-shot worker 或最小轮询 worker 执行，当前按需明细区域已有前台轮询、完成提示和自动加载；仍缺全局任务通知、worker 级取消和重试；
+- 固定价/网页组价经济性年度现金流已能按需排队补算并写回 `ArtifactKind.ANNUAL_CASHFLOW`；仍缺逐时价格曲线现金流补算、全量经济性后台化和正式队列；
+- 推荐视角选择/重新排序状态、PNG/Excel/批量导出包、完整报告产物写入 `ResultStore`；
+- 完整项目级任务状态页仍需继续扩展为真正 worker 轮询/重试/取消页面；当前已有项目内任务状态明细。推荐结果重新排序工作台恢复和跨项目搜索仍未落地；结果索引标记/置顶和软删除已有第一版，但仍不是完整历史结果管理页；
+- SQLite/Postgres 或对象存储适配、数据库级并发控制、备份和部署演练；本地 JSON 写入已有原子替换和第一版协作文件锁，但仍不是数据库事务。
+
+下一阶段建议：
+1. 先把当前任务状态明细升级为真正 worker 轮询/重试/取消页面，并完善结果历史恢复/下载页，让用户可以在项目内找回已完成测算；
+2. 再把按需逐小时明细和按需年度现金流后台体验扩展到全局任务通知、失败重试和 worker 级取消，并补逐时价格曲线现金流的 artifact 化输入；
+3. 最后把剩余图表包和报告导出统一变成项目级 artifacts，并接入后台 worker。
