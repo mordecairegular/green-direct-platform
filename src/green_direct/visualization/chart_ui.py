@@ -16,7 +16,7 @@ from green_direct.visualization.chart_data import (
     select_day as select_operating_day,
     select_typical_season_day,
 )
-from green_direct.visualization.single_scenario_charts import build_operation_day_figure
+from green_direct.visualization.single_scenario_charts import build_energy_flow_chart, build_operation_day_figure
 from green_direct.visualization.style import CHART_COLORS
 
 
@@ -497,24 +497,10 @@ def _render_policy_radar(st, selected_summary: pd.DataFrame) -> None:
     st.plotly_chart(fig, width="stretch")
 
 
-def _hourly_energy(hourly: pd.DataFrame, column: str) -> float:
-    if column not in hourly.columns:
-        return 0.0
-    return float(hourly[column].sum())
-
-
 def _render_energy_flow(st, hourly: pd.DataFrame, active_row: pd.Series) -> None:
     st.subheader("能量流向")
-    pv_gen = _hourly_energy(hourly, "pv_generation_power")
-    wind_gen = _hourly_energy(hourly, "wind_generation_power")
-    total_gen = pv_gen + wind_gen
-    direct = float(active_row.get("direct_self_use_energy", 0.0))
-    bess_charge = float(active_row.get("bess_charge_energy", 0.0))
-    grid_export = float(active_row.get("grid_export_energy", 0.0))
-    curtail = float(active_row.get("curtail_energy", 0.0))
-    bess_discharge = float(active_row.get("bess_discharge_to_load", 0.0))
-    bess_loss = float(active_row.get("bess_loss_energy", 0.0))
-    grid_import = float(active_row.get("grid_import_energy", 0.0))
+    pv_gen = float(pd.to_numeric(hourly.get("pv_generation_power", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
+    wind_gen = float(pd.to_numeric(hourly.get("wind_generation_power", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
 
     c1, c2 = st.columns([1, 2])
     with c1:
@@ -536,68 +522,9 @@ def _render_energy_flow(st, hourly: pd.DataFrame, active_row: pd.Series) -> None
         st.metric("风电发电", _fmt_energy(wind_gen))
 
     with c2:
-        source_share = [pv_gen / total_gen if total_gen else 0, wind_gen / total_gen if total_gen else 0]
-        labels = ["光伏", "风电", "储能", "负荷", "上网", "弃电", "损耗", "电网下网"]
-        colors = [
-            COLORS["pv"],
-            COLORS["wind"],
-            COLORS["bess"],
-            COLORS["grid"],
-            COLORS["curtail"],
-            COLORS["loss"],
-            "#b8c0cc",
-            "#8b95a1",
-        ]
-        destinations = [(3, direct), (2, bess_charge), (4, grid_export), (5, curtail)]
-        source: list[int] = []
-        target: list[int] = []
-        value: list[float] = []
-        for source_index, share in enumerate(source_share):
-            for destination, amount in destinations:
-                if amount > 0 and share > 0:
-                    source.append(source_index)
-                    target.append(destination)
-                    value.append(amount * share)
-        if bess_discharge > 0:
-            source.append(2)
-            target.append(3)
-            value.append(bess_discharge)
-        if bess_loss > 0:
-            source.append(2)
-            target.append(6)
-            value.append(bess_loss)
-        if grid_import > 0:
-            source.append(7)
-            target.append(3)
-            value.append(grid_import)
-        fig = go.Figure(
-            data=[
-                go.Sankey(
-                    textfont=dict(family="Arial, sans-serif", size=13, color="#111827"),
-                    node=dict(
-                        label=labels,
-                        pad=18,
-                        thickness=18,
-                        color=colors,
-                        line=dict(color="rgba(17, 24, 39, 0.18)", width=0.4),
-                    ),
-                    link=dict(
-                        source=source,
-                        target=target,
-                        value=value,
-                        color="rgba(88, 199, 223, 0.18)",
-                        hovertemplate="%{source.label} → %{target.label}<br>%{value:,.0f} 万kWh<extra></extra>",
-                    ),
-                )
-            ]
-        )
-        fig.update_layout(
-            title="年度能源流向",
-            height=500,
-            margin=dict(l=10, r=10, t=50, b=10),
-            font=dict(family="Arial, sans-serif", size=13, color="#111827"),
-        )
-        st.plotly_chart(fig, width="stretch")
+        result = build_energy_flow_chart(hourly, active_row)
+        if result.figure is not None:
+            st.plotly_chart(result.figure, width="stretch")
         st.caption("光伏、风电到各去向的分摊按年度发电占比近似展示，核心电量仍来自逐小时台账汇总。")
 
 

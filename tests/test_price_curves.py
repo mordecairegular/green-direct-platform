@@ -7,6 +7,7 @@ from green_direct.economy import AvoidedGridPurchaseParams, EconomicParams, read
 from green_direct.economy.price_curves import (
     PriceCurveValidationError,
     align_price_curve_to_hourly,
+    apply_price_curve_to_summary,
     build_effective_hourly_prices,
 )
 from green_direct.io.read_curves import read_csv_auto_encoding
@@ -73,6 +74,90 @@ def test_down_grid_template_maps_bill_columns_and_tax_treatment():
     assert first["net_avoided_grid_cost_price"] == pytest.approx((0.30872 + 0.027 + 0.05) / 1.13)
     assert first["down_grid_landed_price_with_vat"] == pytest.approx(expected_down_grid_landed)
     assert first["green_self_use_landed_price_with_vat"] == pytest.approx(expected_green_self_use_landed)
+
+
+def test_price_curve_can_override_green_direct_retained_fees_for_landed_price():
+    hours = 8760
+    raw = pd.DataFrame(
+        {
+            "hour_index": range(hours),
+            "energy_market_price_with_vat": [0.40] * hours,
+            "line_loss_price_with_vat": [0.01] * hours,
+            "system_operation_fee_with_vat": [0.02] * hours,
+            "transmission_distribution_tariff_with_vat": [0.15] * hours,
+            "gov_fund_surcharge": [0.03] * hours,
+            "green_direct_retained_transmission_distribution_tariff_with_vat": [0.04] * hours,
+            "green_direct_retained_gov_fund_surcharge": [0.01] * hours,
+        }
+    )
+
+    price_curve = read_price_curve(_price_curve_csv(raw))
+    effective = build_effective_hourly_prices(
+        price_curve.data.head(1),
+        economic_params=EconomicParams(),
+        avoided_grid_params=AvoidedGridPurchaseParams(
+            net_avoided_grid_cost_price=None,
+            grid_purchase_vat_rate=0.13,
+        ),
+        load_side_avoided_charge_price=0.50,
+        green_power_settlement_price_with_vat=0.35,
+        environmental_value_per_kwh=0.0,
+    ).iloc[0]
+
+    assert price_curve.matched_columns["green_direct_retained_transmission_distribution_tariff_with_vat"] == (
+        "green_direct_retained_transmission_distribution_tariff_with_vat"
+    )
+    assert price_curve.matched_columns["green_direct_retained_gov_fund_surcharge"] == (
+        "green_direct_retained_gov_fund_surcharge"
+    )
+    assert effective["down_grid_landed_price_with_vat"] == pytest.approx(0.40 + 0.01 + 0.02 + 0.15 + 0.03)
+    assert effective["green_self_use_landed_price_with_vat"] == pytest.approx(0.35 + 0.04 + 0.01)
+    assert effective["load_side_avoided_charge_price"] == pytest.approx(0.40 + 0.01 + 0.02 + 0.15 + 0.03 - 0.04 - 0.01)
+
+
+def test_price_curve_zero_self_use_landed_fallback_uses_retained_fee_curve():
+    hours = 8760
+    price_curve = read_price_curve(
+        _price_curve_csv(
+            pd.DataFrame(
+                {
+                    "hour_index": range(hours),
+                    "energy_market_price_with_vat": [0.40] * hours,
+                    "transmission_distribution_tariff_with_vat": [0.15] * hours,
+                    "gov_fund_surcharge": [0.03] * hours,
+                    "green_direct_retained_transmission_distribution_tariff_with_vat": [0.04] * hours,
+                    "green_direct_retained_gov_fund_surcharge": [0.01] * hours,
+                }
+            )
+        )
+    )
+    summary = pd.DataFrame({"scenario_id": ["S_ZERO_SELF_USE"]})
+    hourly = pd.DataFrame(
+        {
+            "hour_index": range(hours),
+            "load_power": [0.0] * hours,
+            "direct_self_use_power": [0.0] * hours,
+            "bess_discharge_power": [0.0] * hours,
+            "grid_import_power": [0.0] * hours,
+            "grid_export_power": [0.0] * hours,
+        }
+    )
+    hourly.loc[0, "load_power"] = 10.0
+    hourly.loc[0, "grid_import_power"] = 10.0
+
+    result = apply_price_curve_to_summary(
+        summary,
+        {"S_ZERO_SELF_USE": hourly},
+        price_curve,
+        economic_params=EconomicParams(),
+        avoided_grid_params=AvoidedGridPurchaseParams(net_avoided_grid_cost_price=None),
+        load_side_avoided_charge_price=0.50,
+        green_power_settlement_price_with_vat=0.35,
+    )
+
+    row = result.price_summary.set_index("scenario_id").loc["S_ZERO_SELF_USE"]
+    assert row["self_use_energy_for_landed_price"] == pytest.approx(0.0)
+    assert row["green_self_use_landed_price_with_vat_effective"] == pytest.approx(0.35 + 0.04 + 0.01)
 
 
 def test_price_curve_ignores_web_fixed_and_derived_columns():

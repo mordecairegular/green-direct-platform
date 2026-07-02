@@ -33,6 +33,8 @@ def test_chart_image_export_profile_uses_report_heights():
     typical = ChartResult("S03_summer", "典型日", go.Figure(), pd.DataFrame())
     heatmap = ChartResult("S04", "热力图", go.Figure(), pd.DataFrame())
     monthly = ChartResult("S05", "月度", go.Figure(), pd.DataFrame())
+    soc = ChartResult("S07", "SOC", go.Figure(), pd.DataFrame())
+    grid_exchange = ChartResult("S09", "电网交换", go.Figure(), pd.DataFrame())
     full_year = ChartResult("S10", "全年", go.Figure(), pd.DataFrame())
     multi = ChartResult("M02", "多方案", go.Figure(), pd.DataFrame())
     other = ChartResult("S02", "政策", go.Figure(), pd.DataFrame())
@@ -40,7 +42,9 @@ def test_chart_image_export_profile_uses_report_heights():
     assert profile.height_for(typical) == 1300
     assert profile.height_for(heatmap) == 1000
     assert profile.height_for(monthly) == 900
-    assert profile.height_for(full_year) == 1000
+    assert profile.height_for(soc) == 1200
+    assert profile.height_for(grid_exchange) == 1200
+    assert profile.height_for(full_year) == 1500
     assert profile.height_for(multi) == 900
     assert profile.height_for(other) == 900
 

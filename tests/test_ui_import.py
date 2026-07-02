@@ -1,5 +1,6 @@
 from concurrent.futures import Future
 from io import BytesIO
+import base64
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -3087,6 +3088,20 @@ def test_simple_markdown_report_mentions_typical_day_method():
                 "self_use_rate": 0.7,
                 "export_rate": 0.1,
                 "curtail_rate": 0.05,
+                "self_use_energy": 400.0,
+                "grid_import_energy": 600.0,
+            }
+        ]
+    )
+    economy_summary = pd.DataFrame(
+        [
+            {
+                "scenario_id": "S0001",
+                "load_landed_price_before_green_with_vat": 0.55,
+                "load_landed_price_after_green_with_vat": 0.49,
+                "green_power_settlement_price_with_vat_effective": 0.35,
+                "green_self_use_landed_price_with_vat_effective": 0.40,
+                "weighted_down_grid_landed_price_with_vat": 0.55,
             }
         ]
     )
@@ -3094,12 +3109,254 @@ def test_simple_markdown_report_mentions_typical_day_method():
     report = _build_simple_report_markdown(
         summary=summary,
         selected_scenario_id="S0001",
-        economy_summary=None,
+        economy_summary=economy_summary,
         single_entity_summary=None,
     ).decode("utf-8-sig")
 
     assert "季节中心日法" in report
     assert "S0001" in report
+    assert "用能侧结算口径" in report
+    assert "绿电结算价 + 绿电仍缴输配 + 绿电仍缴基金" in report
+    assert "下网到户价、绿电仍缴输配、绿电仍缴基金不是直接相加关系" in report
+
+
+def test_payload_size_bytes_handles_report_bytes_and_text():
+    from green_direct.ui.app import _payload_size_bytes
+
+    assert _payload_size_bytes("中文") == len("中文".encode("utf-8"))
+    assert _payload_size_bytes("中文".encode("utf-8-sig")) == len("中文".encode("utf-8-sig"))
+
+
+def test_official_docx_report_template_contains_formula_and_scenario():
+    from green_direct.ui.app import _build_official_docx_report_template
+
+    summary = pd.DataFrame(
+        [
+            {
+                "scenario_id": "S0001",
+                "方案类型": "风光储方案",
+                "pv_capacity": 10.0,
+                "wind_capacity": 5.0,
+                "bess_power": 2.0,
+                "bess_energy": 4.0,
+                "pass_policy": True,
+                "green_load_rate": 0.4,
+                "self_use_rate": 0.7,
+                "export_rate": 0.1,
+                "curtail_rate": 0.05,
+            }
+        ]
+    )
+    economy_summary = pd.DataFrame(
+        [
+            {
+                "scenario_id": "S0001",
+                "firr": 0.081,
+                "fnpv": 1234.0,
+                "static_payback_year": 8.5,
+                "load_landed_price_before_green_with_vat": 0.55,
+                "load_landed_price_after_green_with_vat": 0.49,
+                "green_power_settlement_price_with_vat_effective": 0.35,
+                "green_self_use_landed_price_with_vat_effective": 0.40,
+                "weighted_down_grid_landed_price_with_vat": 0.55,
+            }
+        ]
+    )
+    portfolio = pd.DataFrame(
+        [
+            {
+                "scenario_id": "S0001",
+                "seat_id": "power_side_firr_best",
+                "recommendation_labels": "电源侧 FIRR 最优",
+                "recommendation_reason": "在政策达标且电源侧 FIRR 可可靠计算的候选集中，FIRR 最高。",
+            }
+        ]
+    )
+
+    content = _build_official_docx_report_template(
+        summary=summary,
+        selected_scenario_id="S0001",
+        economy_summary=economy_summary,
+        single_entity_summary=None,
+        comparison_summary=summary,
+        recommendation_portfolio=portfolio,
+    )
+    archive = ZipFile(BytesIO(content))
+    document_xml = archive.read("word/document.xml").decode("utf-8")
+
+    assert "[Content_Types].xml" in archive.namelist()
+    assert "S0001" in document_xml
+    assert "绿电直连项目方案策划报告" in document_xml
+    assert "用能侧结算口径" in document_xml
+    assert "绿电结算价 + 绿电仍缴输配 + 绿电仍缴基金" in document_xml
+    assert "不要把下网到户价与仍缴费用直接相加" in document_xml
+    assert "代表方案组合汇总表" in document_xml
+    assert "容量单位：万千瓦" in document_xml
+    assert "建设投资：亿元" in document_xml
+    assert "电源侧IRR最优" in document_xml
+    assert "代表方案技术指标对比" in document_xml
+    assert "代表方案经济性与用能侧结算对比" in document_xml
+    assert "柴油" not in document_xml
+    assert "离网" not in document_xml
+    assert "候选方案池完整结果" not in document_xml
+    assert "推荐方案逐小时能量台账摘要" not in document_xml
+
+
+def test_official_docx_report_template_compares_multiple_representative_scenarios():
+    from green_direct.ui.app import _build_official_docx_report_template
+
+    summary = pd.DataFrame(
+        [
+            {
+                "scenario_id": "S0001",
+                "pv_capacity": 0.0,
+                "wind_capacity": 5.0,
+                "bess_power": 0.0,
+                "bess_energy": 0.0,
+                "pass_policy": True,
+                "green_load_rate": 0.346,
+                "self_use_rate": 0.8053,
+                "curtail_rate": 0.0,
+                "export_rate": 0.1947,
+                "grid_import_rate": 0.654,
+            },
+            {
+                "scenario_id": "S0019",
+                "pv_capacity": 5.0,
+                "wind_capacity": 5.0,
+                "bess_power": 4.0,
+                "bess_energy": 8.0,
+                "pass_policy": True,
+                "green_load_rate": 0.573,
+                "self_use_rate": 0.7985,
+                "curtail_rate": 0.0,
+                "export_rate": 0.427,
+                "grid_import_rate": 0.427,
+            },
+        ]
+    )
+    economy_summary = pd.DataFrame(
+        [
+            {
+                "scenario_id": "S0001",
+                "firr": 0.1623,
+                "fnpv": 1000.0,
+                "load_landed_price_after_green_with_vat": 0.626,
+                "load_landed_price_delta_with_vat": -0.024,
+            },
+            {
+                "scenario_id": "S0019",
+                "firr": 0.091,
+                "fnpv": 600.0,
+                "load_landed_price_after_green_with_vat": 0.610,
+                "load_landed_price_delta_with_vat": -0.040,
+            },
+        ]
+    )
+    portfolio = pd.DataFrame(
+        [
+            {
+                "scenario_id": "S0001",
+                "seat_id": "power_side_firr_best",
+                "recommendation_labels": "电源侧 FIRR 最优",
+                "recommendation_reason": "电源侧 FIRR 最高。",
+            },
+            {
+                "scenario_id": "S0019",
+                "seat_id": "load_side_tradable_benefit",
+                "recommendation_labels": "负荷侧可成交收益最优",
+                "recommendation_reason": "负荷侧年度综合用能收益最高。",
+                "load_side_annual_benefit": 1318.0,
+            },
+        ]
+    )
+
+    content = _build_official_docx_report_template(
+        summary=summary,
+        selected_scenario_id="S0001",
+        economy_summary=economy_summary,
+        single_entity_summary=None,
+        comparison_summary=summary,
+        recommendation_portfolio=portfolio,
+    )
+    document_xml = ZipFile(BytesIO(content)).read("word/document.xml").decode("utf-8")
+
+    assert "S0001" in document_xml
+    assert "S0019" in document_xml
+    assert "最终推荐" in document_xml
+    assert "负荷侧收益最优" in document_xml
+    assert "绿电后综合结算单价" in document_xml
+    assert "光伏" in document_xml
+    assert "风电" in document_xml
+    assert "储能功率" in document_xml
+    assert "建设投资" in document_xml
+
+
+def test_official_docx_report_template_embeds_chart_images():
+    from green_direct.ui.app import _build_official_docx_report_template
+
+    summary = pd.DataFrame(
+        [
+            {
+                "scenario_id": "S0001",
+                "pv_capacity": 10.0,
+                "wind_capacity": 5.0,
+                "bess_power": 2.0,
+                "bess_energy": 4.0,
+                "pass_policy": True,
+            }
+        ]
+    )
+    png_bytes = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+    )
+
+    content = _build_official_docx_report_template(
+        summary=summary,
+        selected_scenario_id="S0001",
+        economy_summary=None,
+        single_entity_summary=None,
+        chart_images=[{"title": "方案组合政策指标对比图", "note": "该图用于比较代表方案政策指标。", "png_bytes": png_bytes}],
+    )
+    archive = ZipFile(BytesIO(content))
+    document_xml = archive.read("word/document.xml").decode("utf-8")
+    styles_xml = archive.read("word/styles.xml").decode("utf-8")
+    rels_xml = archive.read("word/_rels/document.xml.rels").decode("utf-8")
+    content_types_xml = archive.read("[Content_Types].xml").decode("utf-8")
+
+    assert "word/media/image1.png" in archive.namelist()
+    assert archive.read("word/media/image1.png") == png_bytes
+    assert 'r:embed="rIdImage1"' in document_xml
+    assert 'Target="media/image1.png"' in rels_xml
+    assert 'ContentType="image/png"' in content_types_xml
+    assert "图1 方案组合政策指标对比图" in document_xml
+    assert 'w:pStyle w:val="ImageCN"' in document_xml
+    assert 'w:lineRule="auto"' in document_xml
+    assert 'w:styleId="ImageCN"' in styles_xml
+    assert 'w:vAlign w:val="center"' in document_xml
+    assert 'w:color w:val="58677B"' not in styles_xml
+    assert "该图用于比较代表方案政策指标。" in document_xml
+
+
+def test_docx_report_chart_order_covers_required_report_figures():
+    from green_direct.ui.app import DOCX_REPORT_CHART_ORDER
+
+    keys = [key for key, _title in DOCX_REPORT_CHART_ORDER]
+
+    for key in [
+        "energy_flow",
+        "monthly_renewable_flow",
+        "monthly_load_source",
+        "typical_spring",
+        "typical_summer",
+        "typical_autumn",
+        "typical_winter",
+        "key_day_max_load",
+        "key_day_max_curtail",
+        "key_day_max_grid_import",
+        "full_year_operation",
+    ]:
+        assert key in keys
 
 
 def test_topbar_data_range_uses_hourly_detail_timestamp():
@@ -3140,15 +3397,22 @@ def test_first_report_scenario_prefers_valid_recommendation_portfolio_id():
     assert _first_report_scenario_id(summary, recommendation_result) == "S0002"
 
 
-def test_default_export_scenario_prefers_current_then_recommendation():
+def test_default_export_scenario_prefers_power_side_firr_then_recommendation_then_current():
     from green_direct.ui.app import _default_export_scenario_id
 
     recommendation_result = SimpleNamespace(
-        portfolio=pd.DataFrame({"scenario_id": ["S9999", "S0002", "S0003"]})
+        portfolio=pd.DataFrame(
+            {
+                "scenario_id": ["S9999", "S0002", "S0003"],
+                "seat_id": ["single_entity_firr_best", "single_entity_firr_best", "power_side_firr_best"],
+            }
+        )
     )
 
-    assert _default_export_scenario_id(["S0001", "S0002", "S0003"], "S0003", recommendation_result) == "S0003"
-    assert _default_export_scenario_id(["S0001", "S0002", "S0003"], None, recommendation_result) == "S0002"
+    assert _default_export_scenario_id(["S0001", "S0002", "S0003"], "S0002", recommendation_result) == "S0003"
+    assert _default_export_scenario_id(["S0001", "S0002", "S0003"], None, recommendation_result) == "S0003"
+    fallback_result = SimpleNamespace(portfolio=pd.DataFrame({"scenario_id": ["S9999", "S0002"]}))
+    assert _default_export_scenario_id(["S0001", "S0002", "S0003"], "S0003", fallback_result) == "S0002"
     assert _default_export_scenario_id(["S0001", "S0002"], "S9999", None) == "S0001"
 
 

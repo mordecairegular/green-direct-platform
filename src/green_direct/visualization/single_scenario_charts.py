@@ -137,6 +137,121 @@ def _series_or_zero(data: pd.DataFrame, column: str) -> pd.Series:
     return pd.Series([0.0] * len(data), index=data.index, dtype=float)
 
 
+def _hourly_energy(hourly: pd.DataFrame, column: str) -> float:
+    if column not in hourly.columns:
+        return 0.0
+    return float(pd.to_numeric(hourly[column], errors="coerce").fillna(0.0).sum())
+
+
+def build_energy_flow_chart(hourly: pd.DataFrame, summary_row: pd.Series | dict) -> ChartResult:
+    row = pd.Series(summary_row)
+    fields = [
+        "pv_generation_power",
+        "wind_generation_power",
+        "direct_self_use_energy",
+        "bess_charge_energy",
+        "grid_export_energy",
+        "curtail_energy",
+        "bess_discharge_to_load",
+        "bess_loss_energy",
+        "grid_import_energy",
+    ]
+    pv_gen = _hourly_energy(hourly, "pv_generation_power")
+    wind_gen = _hourly_energy(hourly, "wind_generation_power")
+    total_gen = pv_gen + wind_gen
+    if total_gen <= 0:
+        fallback_total = float(row.get("total_renewable_generation", 0.0) or 0.0)
+        total_gen = fallback_total
+        pv_gen = fallback_total * 0.5
+        wind_gen = fallback_total * 0.5
+
+    direct = float(row.get("direct_self_use_energy", 0.0) or 0.0)
+    bess_charge = float(row.get("bess_charge_energy", 0.0) or 0.0)
+    grid_export = float(row.get("grid_export_energy", 0.0) or 0.0)
+    curtail = float(row.get("curtail_energy", 0.0) or 0.0)
+    bess_discharge = float(row.get("bess_discharge_to_load", 0.0) or 0.0)
+    bess_loss = float(row.get("bess_loss_energy", 0.0) or 0.0)
+    grid_import = float(row.get("grid_import_energy", 0.0) or 0.0)
+
+    source_share = [pv_gen / total_gen if total_gen else 0.0, wind_gen / total_gen if total_gen else 0.0]
+    labels = ["光伏", "风电", "储能", "负荷", "上网", "弃电", "损耗", "电网下网"]
+    colors = [
+        CHART_COLORS["pv"],
+        CHART_COLORS["wind"],
+        CHART_COLORS["bess"],
+        "#2f3542",
+        CHART_COLORS["grid_export"],
+        CHART_COLORS["curtail"],
+        CHART_COLORS["loss"],
+        CHART_COLORS["grid_import"],
+    ]
+    destinations = [(3, direct), (2, bess_charge), (4, grid_export), (5, curtail)]
+    source: list[int] = []
+    target: list[int] = []
+    value: list[float] = []
+    for source_index, share in enumerate(source_share):
+        for destination, amount in destinations:
+            if amount > 0 and share > 0:
+                source.append(source_index)
+                target.append(destination)
+                value.append(amount * share)
+    if bess_discharge > 0:
+        source.append(2)
+        target.append(3)
+        value.append(bess_discharge)
+    if bess_loss > 0:
+        source.append(2)
+        target.append(6)
+        value.append(bess_loss)
+    if grid_import > 0:
+        source.append(7)
+        target.append(3)
+        value.append(grid_import)
+
+    data = pd.DataFrame(
+        {
+            "source": [labels[index] for index in source],
+            "target": [labels[index] for index in target],
+            "energy": value,
+        }
+    )
+    fig = go.Figure(
+        data=[
+            go.Sankey(
+                textfont=dict(family="Arial, sans-serif", size=13, color="#111827"),
+                node=dict(
+                    label=labels,
+                    pad=18,
+                    thickness=18,
+                    color=colors,
+                    line=dict(color="rgba(17, 24, 39, 0.18)", width=0.4),
+                ),
+                link=dict(
+                    source=source,
+                    target=target,
+                    value=value,
+                    color="rgba(88, 199, 223, 0.18)",
+                    hovertemplate="%{source.label} → %{target.label}<br>%{value:,.0f} 万kWh<extra></extra>",
+                ),
+            )
+        ]
+    )
+    fig.update_layout(
+        title="年度能源流向",
+        height=500,
+        margin=dict(l=10, r=10, t=50, b=10),
+        font=dict(family="Arial, sans-serif", size=13, color="#111827"),
+    )
+    return _result(
+        "S04",
+        "年度能源流向图",
+        fig,
+        data,
+        fields,
+        display_basis="光伏、风电去向按年度发电占比分摊展示；年度电量来自 summary 和 hourly_detail 汇总，不重新计算调度。",
+    )
+
+
 def build_operation_day_figure(day: pd.DataFrame, title: str, *, height: int = 620) -> go.Figure:
     """Build the same 24H operation figure used by the web page and exports."""
 

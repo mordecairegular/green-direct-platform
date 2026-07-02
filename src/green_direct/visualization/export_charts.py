@@ -29,9 +29,9 @@ class ChartImageExportProfile:
         default_factory=lambda: {
             "S03": 1300,
             "S04": 1000,
-            "S07": 1000,
-            "S09": 1000,
-            "S10": 1000,
+            "S07": 1200,
+            "S09": 1200,
+            "S10": 1500,
             "S05": 900,
             "S06": 900,
             "M": 900,

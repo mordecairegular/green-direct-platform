@@ -73,6 +73,20 @@ PRICE_COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
         "政府基金及附加",
         "政府基金附加费",
     ),
+    "green_direct_retained_transmission_distribution_tariff_with_vat": (
+        "green_direct_retained_transmission_distribution_tariff_with_vat",
+        "绿电仍缴输配",
+        "绿电仍缴输配电价",
+        "绿电仍缴输配电价(元/kWh,含税)",
+        "绿电仍缴输配电价（元/kWh，含税）",
+    ),
+    "green_direct_retained_gov_fund_surcharge": (
+        "green_direct_retained_gov_fund_surcharge",
+        "绿电仍缴基金",
+        "绿电仍缴政府性基金及附加",
+        "绿电仍缴政府性基金及附加(元/kWh)",
+        "绿电仍缴政府性基金及附加（元/kWh）",
+    ),
 }
 
 PRICE_VALUE_COLUMNS = tuple(PRICE_COLUMN_ALIASES.keys())
@@ -422,6 +436,20 @@ def _series_with_default(frame: pd.DataFrame, column: str, default: float) -> pd
     return pd.to_numeric(frame[column], errors="coerce").astype(float).fillna(float(default))
 
 
+def _retained_fee_series(
+    frame: pd.DataFrame,
+    column: str,
+    *,
+    explicit_default: float,
+    bill_component_default: pd.Series,
+) -> pd.Series:
+    if column in frame.columns:
+        return pd.to_numeric(frame[column], errors="coerce").astype(float).fillna(float(explicit_default))
+    if explicit_default > 0:
+        return pd.Series(float(explicit_default), index=frame.index, dtype=float)
+    return bill_component_default.copy()
+
+
 def _row_has_bill_curve(frame: pd.DataFrame) -> pd.Series:
     columns = [column for column in BILL_COMPONENT_COLUMNS if column in frame.columns]
     if not columns:
@@ -487,8 +515,18 @@ def build_effective_hourly_prices(
         index=price_frame.index,
         dtype=float,
     )
-    retained_td = transmission_distribution.copy()
-    retained_gov = gov_fund.copy()
+    retained_td = _retained_fee_series(
+        price_frame,
+        "green_direct_retained_transmission_distribution_tariff_with_vat",
+        explicit_default=avoided_grid_params.green_direct_retained_transmission_distribution_tariff_with_vat,
+        bill_component_default=transmission_distribution,
+    )
+    retained_gov = _retained_fee_series(
+        price_frame,
+        "green_direct_retained_gov_fund_surcharge",
+        explicit_default=avoided_grid_params.green_direct_retained_gov_fund_surcharge,
+        bill_component_default=gov_fund,
+    )
 
     taxable_price_with_vat = energy_market + line_loss + system_operation + transmission_distribution
     bill_net_price = ((taxable_price_with_vat - retained_td) / (1 + vat_rate)) + gov_fund - retained_gov
@@ -496,8 +534,8 @@ def build_effective_hourly_prices(
     down_grid_landed_price = taxable_price_with_vat + gov_fund
     green_self_use_landed_price = (
         result["green_power_settlement_price_with_vat"]
-        + transmission_distribution
-        + gov_fund
+        + retained_td
+        + retained_gov
     )
     has_bill_curve = _row_has_bill_curve(price_frame)
 
@@ -597,10 +635,14 @@ def _scenario_price_summary(
 
     fixed_net = calc_net_avoided_grid_cost_price(avoided_grid_params)
     fixed_cash = calc_avoided_grid_purchase_cash_price(avoided_grid_params)
+    green_self_use_landed_curve = pd.to_numeric(
+        prices["green_self_use_landed_price_with_vat"],
+        errors="coerce",
+    ).dropna()
     green_self_use_landed_fallback = (
-        float(green_power_settlement_price_with_vat)
-        + float(avoided_grid_params.transmission_distribution_tariff_with_vat)
-        + float(avoided_grid_params.gov_fund_surcharge)
+        float(green_self_use_landed_curve.mean())
+        if not green_self_use_landed_curve.empty
+        else float(green_power_settlement_price_with_vat)
     )
     before_green_price = _weighted_average(
         before_green_landed_cost,

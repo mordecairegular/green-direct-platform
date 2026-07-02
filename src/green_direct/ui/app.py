@@ -114,6 +114,7 @@ from green_direct.visualization.multi_scenario_charts import (
 )
 from green_direct.visualization.single_scenario_charts import (
     build_daily_balance_chart,
+    build_energy_flow_chart,
     build_full_year_operation_chart,
     build_grid_exchange_chart,
     build_monthly_load_source_chart,
@@ -349,9 +350,23 @@ WORKBENCH_CSS = """
     --gd-green: #16a34a;
     --gd-blue: #2474c7;
     --gd-orange: #d97706;
+    --gd-control-border: #cbd5e1;
+    --gd-control-bg: #ffffff;
+    --gd-control-muted-bg: #f1f5f9;
+    color-scheme: light;
 }
 [data-testid="stAppViewContainer"] {
     background: var(--gd-bg);
+    color: var(--gd-text);
+    color-scheme: light;
+}
+[data-testid="stMain"] {
+    color: var(--gd-text);
+}
+[data-testid="stMain"] label,
+[data-testid="stMain"] label p,
+[data-testid="stMain"] [data-testid="stWidgetLabel"] p {
+    color: var(--gd-text);
 }
 [data-testid="stHeader"] {
     display: block !important;
@@ -390,6 +405,15 @@ WORKBENCH_CSS = """
     min-width: 248px !important;
     max-width: 248px !important;
     width: 248px !important;
+}
+[data-testid="stSidebar"][aria-expanded="true"] [data-testid="stSidebarHeader"] {
+    min-height: 30px !important;
+    height: 30px !important;
+    padding: 2px 8px !important;
+    margin-bottom: 0 !important;
+}
+[data-testid="stSidebar"][aria-expanded="true"] [data-testid="stSidebarUserContent"] {
+    padding: 0 10px 12px 10px !important;
 }
 [data-testid="stSidebar"][aria-expanded="false"] {
     transform: none !important;
@@ -477,17 +501,22 @@ button[data-testid="stExpandSidebarButton"] * {
     width: 100% !important;
     max-width: 100% !important;
 }
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"],
+[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"],
+[data-testid="stSidebar"] [data-testid="stElementContainer"] {
+    gap: 4px !important;
+}
 [data-testid="stSidebar"] .stButton > button {
     width: 100%;
-    height: 46px;
-    min-height: 46px;
-    max-height: 46px;
+    height: 38px;
+    min-height: 38px;
+    max-height: 38px;
     justify-content: flex-start;
     color: #dbeafe !important;
     background: rgba(255, 255, 255, 0.055);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 7px;
-    padding: 8px 11px;
+    padding: 6px 9px;
     font-weight: 680;
     line-height: 1.18;
     white-space: nowrap;
@@ -504,12 +533,12 @@ button[data-testid="stExpandSidebarButton"] * {
     gap: 10px;
     width: 100%;
     box-sizing: border-box;
-    height: 46px;
-    min-height: 46px;
-    max-height: 46px;
-    padding: 8px 11px;
+    height: 38px;
+    min-height: 38px;
+    max-height: 38px;
+    padding: 6px 9px;
     border-radius: 7px;
-    margin: 0 0 6px 0;
+    margin: 0 0 4px 0;
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid rgba(255, 255, 255, 0.1);
 }
@@ -555,18 +584,57 @@ button[data-testid="stExpandSidebarButton"] * {
     border-color: #dc2626;
     color: #ffffff;
 }
+[data-testid="stMain"] .stButton > button:disabled,
+[data-testid="stMain"] .stButton > button[disabled],
+[data-testid="stMain"] [data-testid="stDownloadButton"] button:disabled,
+[data-testid="stMain"] [data-testid="stDownloadButton"] button[disabled] {
+    background: var(--gd-control-muted-bg);
+    border-color: #d9e2ec;
+    color: var(--gd-muted);
+    opacity: 1;
+}
+[data-testid="stMain"] input,
+[data-testid="stMain"] textarea {
+    background: var(--gd-control-bg);
+    color: var(--gd-text);
+}
+[data-testid="stMain"] input::placeholder,
+[data-testid="stMain"] textarea::placeholder {
+    color: #98a2b3;
+}
+[data-testid="stMain"] [data-baseweb="input"],
+[data-testid="stMain"] [data-baseweb="textarea"],
+[data-testid="stMain"] [data-baseweb="select"] {
+    background: var(--gd-control-bg);
+    color: var(--gd-text);
+}
+[data-testid="stMain"] [data-testid="stFileUploader"] section,
+[data-testid="stMain"] [data-testid="stFileUploaderDropzone"] {
+    background: var(--gd-control-bg);
+    color: var(--gd-text);
+    border-color: var(--gd-line);
+}
+[data-testid="stMain"] [data-testid="stFileUploaderFile"] {
+    background: var(--gd-control-bg);
+    color: var(--gd-text);
+    border-color: var(--gd-line);
+}
+[data-testid="stMain"] [data-testid="stFileUploaderFile"] svg,
+[data-testid="stMain"] [data-testid="stFileUploaderFile"] button {
+    color: var(--gd-text);
+}
 [data-testid="stSidebar"] div[data-testid="stButton"] button,
 [data-testid="stSidebar"] button[kind="secondary"] {
     width: 100% !important;
-    height: 46px !important;
-    min-height: 46px !important;
-    max-height: 46px !important;
+    height: 38px !important;
+    min-height: 38px !important;
+    max-height: 38px !important;
     justify-content: flex-start !important;
     color: #dbeafe !important;
     background: rgba(255, 255, 255, 0.055) !important;
     border: 1px solid rgba(255, 255, 255, 0.08) !important;
     border-radius: 7px !important;
-    padding: 8px 11px !important;
+    padding: 6px 9px !important;
     font-weight: 680 !important;
     line-height: 1.18 !important;
     white-space: nowrap !important;
@@ -607,24 +675,22 @@ div[data-testid="stExpander"] {
     color: #0b2b52 !important;
 }
 .gd-sidebar-brand {
-    padding: 12px 4px 16px 4px;
+    padding: 3px 2px 5px 2px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-    margin-bottom: 14px;
+    margin-bottom: 4px;
 }
 .gd-sidebar-brand .gd-brand-title {
     color: #ffffff;
-    font-size: 18px;
+    font-size: 15px;
     font-weight: 760;
-    line-height: 1.25;
+    line-height: 1.08;
 }
 .gd-sidebar-brand .gd-brand-subtitle {
-    color: #a9b8cf;
-    font-size: 12px;
-    margin-top: 6px;
+    display: none;
 }
 .gd-sidebar-status {
-    margin-top: 18px;
-    padding: 12px;
+    margin-top: 10px;
+    padding: 8px 9px;
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.05);
@@ -633,43 +699,40 @@ div[data-testid="stExpander"] {
     display: flex;
     justify-content: space-between;
     gap: 10px;
-    font-size: 12px;
-    margin: 6px 0;
+    font-size: 11px;
+    margin: 3px 0;
 }
 .gd-sidebar-metrics {
-    margin-top: 12px;
-    padding: 12px;
+    margin-top: 8px;
+    padding: 8px 9px;
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.055);
 }
 .gd-sidebar-metrics-title {
     color: #ffffff;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 740;
-    margin-bottom: 8px;
+    margin-bottom: 5px;
 }
 .gd-sidebar-metric-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
     align-items: baseline;
-    font-size: 12px;
-    margin: 6px 0;
+    font-size: 11px;
+    margin: 3px 0;
 }
 .gd-sidebar-metric-row span {
     color: #b9c7da;
 }
 .gd-sidebar-metric-row strong {
     color: #ffffff;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 760;
 }
 .gd-sidebar-metrics-note {
-    color: #9fb0c7;
-    font-size: 11px;
-    line-height: 1.35;
-    margin-top: 8px;
+    display: none;
 }
 .gd-topbar {
     display: grid;
@@ -814,6 +877,9 @@ div[data-testid="stExpander"] {
     border-radius: 8px;
     padding: 13px 15px;
 }
+.gd-launch-panel {
+    margin-top: 8px;
+}
 .gd-launch-card h3,
 .gd-launch-panel h3 {
     color: var(--gd-text);
@@ -837,12 +903,6 @@ div[data-testid="stExpander"] {
     font-size: 16px;
     overflow-wrap: anywhere;
 }
-.gd-launch-panels {
-    display: grid;
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-    gap: 12px;
-    margin-top: 8px;
-}
 .gd-launch-row {
     display: grid;
     grid-template-columns: minmax(120px, 0.55fr) minmax(0, 1fr) auto;
@@ -855,24 +915,6 @@ div[data-testid="stExpander"] {
 }
 .gd-launch-row:first-of-type {
     border-top: 0;
-}
-.gd-boundary-table {
-    width: 100%;
-    border-collapse: collapse;
-    color: #344054;
-    font-size: 13px;
-}
-.gd-boundary-table th,
-.gd-boundary-table td {
-    border-bottom: 1px solid #edf2f7;
-    padding: 9px 8px;
-    text-align: left;
-    vertical-align: top;
-}
-.gd-boundary-table th {
-    color: var(--gd-muted);
-    background: #fbfdff;
-    font-weight: 650;
 }
 .gd-economy-overview {
     display: grid;
@@ -923,6 +965,62 @@ div[data-testid="stExpander"] {
     font-size: 14px;
     line-height: 1.2;
 }
+.gd-economy-status-panel {
+    border: 1px solid #dce6f2;
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 9px 10px;
+    color: var(--gd-text);
+}
+.gd-economy-status-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 7px;
+}
+.gd-economy-status-title span {
+    color: var(--gd-muted);
+    font-size: 12px;
+    font-weight: 650;
+}
+.gd-economy-status-title strong {
+    color: var(--gd-text);
+    font-size: 14px;
+}
+.gd-economy-status-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    color: var(--gd-muted);
+    font-size: 11px;
+    line-height: 1.3;
+    margin-top: 4px;
+}
+.gd-economy-status-row strong {
+    color: var(--gd-text);
+    font-weight: 700;
+}
+.gd-inline-field-label {
+    color: var(--gd-text);
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 34px;
+    min-height: 34px;
+    white-space: nowrap;
+}
+.gd-economy-subhead {
+    color: var(--gd-text);
+    font-size: 13px;
+    font-weight: 760;
+    line-height: 1.2;
+    margin: 4px 0 8px 0;
+}
+.gd-economy-divider {
+    height: 1px;
+    background: #edf2f7;
+    margin: 12px 0 10px 0;
+}
 .gd-economy-card-title {
     color: var(--gd-text);
     font-size: 15px;
@@ -942,9 +1040,6 @@ div[data-testid="stExpander"] {
     background: transparent !important;
 }
 @media (max-width: 900px) {
-    .gd-launch-panels {
-        grid-template-columns: 1fr;
-    }
     .gd-launch-row {
         grid-template-columns: 1fr;
         gap: 4px;
@@ -1281,9 +1376,9 @@ div[data-testid="stExpander"] {
 }
 .gd-sim-kpis {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
-    margin: 8px 0 0 0;
+    margin: 0;
 }
 .gd-sim-kpi {
     border: 1px solid #e5edf6;
@@ -1411,6 +1506,15 @@ class _LocalSampleFile:
 
     def getvalue(self) -> bytes:
         return self.path.read_bytes()
+
+
+class _GeneratedCurveFile:
+    def __init__(self, name: str, payload: bytes):
+        self.name = name
+        self._payload = payload
+
+    def getvalue(self) -> bytes:
+        return self._payload
 
 
 def _safe_html_text(value) -> str:
@@ -1730,13 +1834,15 @@ def _render_project_status_bar(st, current_page: str) -> None:
 
 def _render_page_heading(st, page: str, subtitle: str | None = None) -> None:
     meta = WORKFLOW_PAGE_META.get(page, WORKFLOW_PAGE_META["欢迎页"])
+    subtitle_text = meta["subtitle"] if subtitle is None else subtitle
+    subtitle_html = f'<div class="gd-page-subtitle">{_safe_html_text(subtitle_text)}</div>' if subtitle_text else ""
     st.markdown(
         f"""
         <div class="gd-page-heading">
           <div class="gd-page-index">{_safe_html_text(meta["index"])}</div>
           <div>
             <div class="gd-page-title">{_safe_html_text(meta["title"])}</div>
-            <div class="gd-page-subtitle">{_safe_html_text(subtitle or meta["subtitle"])}</div>
+            {subtitle_html}
           </div>
         </div>
         """,
@@ -2326,6 +2432,12 @@ def _pilot_transient_export_download_kwargs(
             "metadata": metadata,
         },
     }
+
+
+def _payload_size_bytes(payload: str | bytes | bytearray | memoryview) -> int:
+    if isinstance(payload, str):
+        return len(payload.encode("utf-8"))
+    return len(bytes(payload))
 
 
 def _pilot_project_option_label(option: tuple[Project, ProjectMembership]) -> str:
@@ -4365,18 +4477,10 @@ def _render_project_price_curve_status(st, *, active_label: str = "已上传项�
 
 def _render_simulation_kpis(st, scenario_count: int | None, scenario_grid: dict | None, duration_text: str) -> None:
     count_text = "-" if scenario_count is None else f"{scenario_count:,}"
-    if scenario_grid:
-        pv_text = _scenario_range_text(scenario_grid["pv_capacity"])
-        wind_text = _scenario_range_text(scenario_grid["wind_capacity"])
-    else:
-        pv_text = "-"
-        wind_text = "-"
     st.markdown(
         f"""
         <div class="gd-sim-kpis">
           <div class="gd-sim-kpi"><span>当前表单方案数</span><strong>{_safe_html_text(count_text)}</strong></div>
-          <div class="gd-sim-kpi"><span>光伏 / 风电配置</span><strong>{_safe_html_text(pv_text)} / {_safe_html_text(wind_text)}</strong></div>
-          <div class="gd-sim-kpi"><span>储能时长</span><strong>{_safe_html_text(duration_text)}</strong></div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -4442,6 +4546,36 @@ def _single_scenario_grid_from_exact(
         },
         [],
     )
+
+
+def _scenario_grid_has_positive_capacity(scenario_grid: dict | None, key: str) -> bool:
+    if not scenario_grid or key not in scenario_grid:
+        return True
+    spec = scenario_grid.get(key)
+    try:
+        if isinstance(spec, dict):
+            values = [spec.get("start"), spec.get("end")]
+        elif isinstance(spec, (list, tuple, set)):
+            values = list(spec)
+        else:
+            values = [spec]
+        return any(float(value) > 0 for value in values if value is not None)
+    except (TypeError, ValueError):
+        return True
+
+
+def _zero_pu_curve_from_load(
+    load_df: pd.DataFrame | None,
+    load_time_col: str | None,
+    *,
+    file_name: str,
+    value_col: str,
+) -> tuple[pd.DataFrame | None, _GeneratedCurveFile | None, str | None, str | None]:
+    if load_df is None or load_time_col is None or load_time_col not in load_df.columns:
+        return None, None, None, None
+    zero_df = pd.DataFrame({"timestamp": load_df[load_time_col], value_col: 0.0})
+    payload = zero_df.to_csv(index=False).encode("utf-8-sig")
+    return zero_df, _GeneratedCurveFile(file_name, payload), "utf-8-sig", "timestamp"
 
 
 def _sequential_scenario_ids(limit: int, *, scenario_count: int | None = None) -> tuple[str, ...]:
@@ -5566,8 +5700,8 @@ def _render_landed_price_cards(
         mini_metrics = [
             ("绿电占比", _format_report_value(green_load_rate, rate=True) if green_load_rate is not None else "-"),
             ("绿电结算价", _format_price_value(row.get("green_power_settlement_price_with_vat_effective"))),
-            ("绿电后绿电到户", _format_price_value(row.get("green_self_use_landed_price_with_vat_effective"))),
-            ("下网加权价", _format_price_value(row.get("weighted_down_grid_landed_price_with_vat"))),
+            ("绿电自用到户价", _format_price_value(row.get("green_self_use_landed_price_with_vat_effective"))),
+            ("下网路径到户价", _format_price_value(row.get("weighted_down_grid_landed_price_with_vat"))),
             ("下网比例", _format_report_value(grid_import_rate, rate=True) if grid_import_rate is not None else "-"),
             ("后-前", _format_price_value(row.get("load_landed_price_delta_with_vat"), signed=True)),
         ]
@@ -5604,24 +5738,6 @@ def _recommendation_metric(label: str, value, *, rate: bool = False, digits: int
     )
 
 
-def _recommendation_economy_metric(row: pd.Series) -> str:
-    labels = str(row.get("recommendation_labels", ""))
-    if "负荷侧" in labels and _is_present(row.get("load_side_annual_benefit")):
-        return _recommendation_metric("负荷侧收益", row.get("load_side_annual_benefit"), digits=0)
-    if "同一主体" in labels and _is_present(row.get("single_entity_firr_pre_tax")):
-        return _recommendation_metric("同一主体FIRR", row.get("single_entity_firr_pre_tax"), rate=True)
-    if "电源侧" in labels and _is_present(row.get("firr")):
-        return _recommendation_metric("电源侧FIRR", row.get("firr"), rate=True)
-    for label, field, is_rate, digits in [
-        ("同一主体FIRR", "single_entity_firr_pre_tax", True, 2),
-        ("电源侧FIRR", "firr", True, 2),
-        ("负荷侧收益", "load_side_annual_benefit", False, 0),
-    ]:
-        if _is_present(row.get(field)):
-            return _recommendation_metric(label, row.get(field), rate=is_rate, digits=digits)
-    return _recommendation_metric("经济性", None)
-
-
 def _recommendation_status_display(status) -> tuple[str, str]:
     normalized = str(status or "").strip().lower()
     if normalized in {"selected", "ok", "recommended"}:
@@ -5656,9 +5772,11 @@ def _render_recommendation_cards(st, portfolio: pd.DataFrame) -> None:
                 _recommendation_metric("绿电前到户价", row.get("load_landed_price_before_green_with_vat"), digits=3),
                 _recommendation_metric("绿电后到户价", row.get("load_landed_price_after_green_with_vat"), digits=3),
                 _recommendation_metric("绿电结算价", row.get("green_power_settlement_price_with_vat_effective"), digits=3),
-                _recommendation_metric("下网加权价", row.get("weighted_down_grid_landed_price_with_vat"), digits=3),
+                _recommendation_metric("下网路径到户价", row.get("weighted_down_grid_landed_price_with_vat"), digits=3),
                 _recommendation_metric("下网比例", row.get("grid_import_rate"), rate=True),
-                _recommendation_economy_metric(row),
+                _recommendation_metric("同一主体FIRR", row.get("single_entity_firr_pre_tax"), rate=True),
+                _recommendation_metric("电源侧FIRR", row.get("firr"), rate=True),
+                _recommendation_metric("负荷侧收益", row.get("load_side_annual_benefit"), digits=0),
             ]
         )
         cards.append(
@@ -6038,8 +6156,61 @@ def _range_inputs(
     return {"start": start, "end": end, "step": step}
 
 
+def _range_inputs_on_columns(
+    st,
+    columns,
+    label: str,
+    defaults: tuple[float, float, float],
+    *,
+    key_prefix: str | None = None,
+) -> dict:
+    start_key = f"{key_prefix}_start" if key_prefix else None
+    end_key = f"{key_prefix}_end" if key_prefix else None
+    step_key = f"{key_prefix}_step" if key_prefix else None
+    start = columns[0].number_input(
+        f"{label}起始",
+        value=float(_stored_widget_value(st, start_key, defaults[0])),
+        min_value=0.0,
+        step=1.0,
+        key=start_key,
+        on_change=_sync_stored_widget_value if start_key else None,
+        args=(st, start_key) if start_key else None,
+    )
+    end = columns[1].number_input(
+        f"{label}结束",
+        value=float(_stored_widget_value(st, end_key, defaults[1])),
+        min_value=0.0,
+        step=1.0,
+        key=end_key,
+        on_change=_sync_stored_widget_value if end_key else None,
+        args=(st, end_key) if end_key else None,
+    )
+    step = columns[2].number_input(
+        f"{label}步长",
+        value=float(_stored_widget_value(st, step_key, defaults[2])),
+        min_value=0.000001,
+        step=1.0,
+        key=step_key,
+        on_change=_sync_stored_widget_value if step_key else None,
+        args=(st, step_key) if step_key else None,
+    )
+    _store_widget_value(st, start_key, start)
+    _store_widget_value(st, end_key, end)
+    _store_widget_value(st, step_key, step)
+    return {"start": start, "end": end, "step": step}
+
+
 def _trim_number(value: float) -> str:
     return f"{value:g}"
+
+
+def _label_with_unit_help(label: str, help_text: str | None = None) -> tuple[str, str | None]:
+    match = re.match(r"^(?P<name>.+?)\s*[（(](?P<unit>[^（）()]+)[）)]\s*$", label)
+    if not match:
+        return label, help_text
+    unit_help = f"单位：{match.group('unit').strip()}"
+    merged_help = f"{unit_help}。{help_text}" if help_text else unit_help
+    return match.group("name").strip(), merged_help
 
 
 def _float_text_input(
@@ -6056,10 +6227,11 @@ def _float_text_input(
 ) -> float:
     state_st = state_st or st
     stored_value = _stored_widget_value(state_st, key, value)
+    display_label, display_help = _label_with_unit_help(label, help)
     raw = st.text_input(
-        label,
+        display_label,
         value=_trim_number(float(stored_value)) if _is_present(stored_value) else "",
-        help=help,
+        help=display_help,
         disabled=disabled,
         key=key,
     )
@@ -6102,13 +6274,14 @@ def _economy_float_input(
     if key in root_st.session_state:
         root_st.session_state[key] = _coerce_float(root_st.session_state[key], stored_value)
     step = abs(float(quick_step)) if quick_step else 1.0
+    display_label, display_help = _label_with_unit_help(label, help)
     parsed = container.number_input(
-        label,
+        display_label,
         value=float(stored_value),
         min_value=min_value,
         max_value=max_value,
         step=step,
-        help=help,
+        help=display_help,
         disabled=disabled,
         key=key,
     )
@@ -6149,7 +6322,8 @@ def _optional_percent_text_input(
     max_value: float = 100.0,
     help: str | None = None,
 ) -> float | None:
-    raw = st.text_input(label, value=_trim_number(value_percent), help=help)
+    display_label, display_help = _label_with_unit_help(label, help)
+    raw = st.text_input(display_label, value=_trim_number(value_percent), help=display_help)
     if str(raw).strip() == "":
         return None
     try:
@@ -6543,6 +6717,301 @@ def _merge_landed_price_context(summary: pd.DataFrame, economy_summary: pd.DataF
     return data.merge(economy[extra_columns].drop_duplicates("scenario_id"), on="scenario_id", how="left")
 
 
+def _recommendation_economy_chart_frame(
+    summary: pd.DataFrame,
+    power_economy_summary: pd.DataFrame | None,
+    single_entity_summary: pd.DataFrame | None,
+    portfolio: pd.DataFrame | None,
+) -> pd.DataFrame:
+    if summary.empty or "scenario_id" not in summary.columns:
+        return pd.DataFrame()
+    base_columns = [
+        "scenario_id",
+        "pv_capacity",
+        "wind_capacity",
+        "bess_power",
+        "bess_energy",
+        "green_load_rate",
+        "curtail_rate",
+        "pass_policy",
+    ]
+    data = summary[[column for column in base_columns if column in summary.columns]].copy()
+    data["scenario_id"] = data["scenario_id"].astype(str)
+
+    def merge_source(source: pd.DataFrame | None, columns: list[str]) -> None:
+        nonlocal data
+        if source is None or source.empty or "scenario_id" not in source.columns:
+            return
+        extra_columns = ["scenario_id", *[column for column in columns if column in source.columns]]
+        if len(extra_columns) <= 1:
+            return
+        source_data = source[extra_columns].copy()
+        source_data["scenario_id"] = source_data["scenario_id"].astype(str)
+        data = data.merge(source_data.drop_duplicates("scenario_id"), on="scenario_id", how="left")
+
+    merge_source(power_economy_summary, ["firr", "construction_cash_outflow"])
+    merge_source(single_entity_summary, ["single_entity_firr_pre_tax", "load_side_annual_benefit"])
+    portfolio_ids: set[str] = set()
+    if portfolio is not None and not portfolio.empty and "scenario_id" in portfolio.columns:
+        portfolio_ids = set(portfolio["scenario_id"].dropna().astype(str))
+    data["is_recommended"] = data["scenario_id"].isin(portfolio_ids)
+    return data
+
+
+def _ratio_series_to_percent(series: pd.Series) -> pd.Series:
+    values = pd.to_numeric(series, errors="coerce")
+    finite = values.dropna()
+    if finite.empty:
+        return values
+    return values * 100 if float(finite.abs().max()) <= 1.5 else values
+
+
+def _build_recommendation_economy_comparison_figure(
+    summary: pd.DataFrame,
+    power_economy_summary: pd.DataFrame | None,
+    single_entity_summary: pd.DataFrame | None,
+    portfolio: pd.DataFrame | None,
+    active_scenario_id: str | None = None,
+) -> tuple[go.Figure | None, str | None]:
+    data = _recommendation_economy_chart_frame(summary, power_economy_summary, single_entity_summary, portfolio)
+    required = {"scenario_id", "pv_capacity", "wind_capacity", "bess_energy", "firr"}
+    if data.empty or not required.issubset(data.columns):
+        return None, "缺少 scenario_id、pv_capacity、wind_capacity、bess_energy 或 firr 字段，暂不能绘制经济性变化趋势。"
+
+    chart = data.copy()
+    for column in ["pv_capacity", "wind_capacity", "bess_power", "bess_energy", "firr", "single_entity_firr_pre_tax"]:
+        if column in chart.columns:
+            chart[column] = pd.to_numeric(chart[column], errors="coerce")
+    if "load_side_annual_benefit" in chart.columns:
+        chart["load_side_annual_benefit"] = pd.to_numeric(chart["load_side_annual_benefit"], errors="coerce")
+    chart = chart.dropna(subset=["pv_capacity", "wind_capacity", "bess_energy", "firr"])
+    if chart.empty:
+        return None, "经济性汇总中没有可用的 FIRR 和风光储容量组合数据。"
+
+    chart["firr_percent"] = _ratio_series_to_percent(chart["firr"])
+    if "single_entity_firr_pre_tax" in chart.columns:
+        chart["single_entity_firr_percent"] = _ratio_series_to_percent(chart["single_entity_firr_pre_tax"])
+    else:
+        chart["single_entity_firr_percent"] = pd.NA
+
+    if "load_side_annual_benefit" not in chart.columns:
+        chart["load_side_annual_benefit"] = pd.NA
+    if "pass_policy" in chart.columns:
+        chart["policy_pass"] = chart["pass_policy"].fillna(True).astype(bool)
+    else:
+        chart["policy_pass"] = True
+    chart["policy_status"] = chart["policy_pass"].map({True: "政策达标", False: "未达政策"})
+
+    custom_columns = [
+        "scenario_id",
+        "pv_capacity",
+        "wind_capacity",
+        "bess_energy",
+        "firr_percent",
+        "single_entity_firr_percent",
+        "load_side_annual_benefit",
+        "green_load_rate",
+        "curtail_rate",
+        "policy_status",
+    ]
+    custom = pd.DataFrame(index=chart.index)
+    for column in custom_columns:
+        custom[column] = chart[column] if column in chart.columns else None
+    custom = custom.astype(object).where(pd.notna(custom), None)
+
+    hover = (
+        "方案：%{customdata[0]}<br>"
+        "光伏容量：%{customdata[1]:.2f} 万kW<br>"
+        "风电容量：%{customdata[2]:.2f} 万kW<br>"
+        "储能容量：%{customdata[3]:.2f} 万kWh<br>"
+        "电源侧FIRR：%{customdata[4]:.2f}%<br>"
+        "同一主体FIRR：%{customdata[5]:.2f}%<br>"
+        "负荷侧收益：%{customdata[6]:,.0f}<br>"
+        "绿电占比：%{customdata[7]:.1%}<br>"
+        "弃电率：%{customdata[8]:.1%}<br>"
+        "政策状态：%{customdata[9]}<extra></extra>"
+    )
+
+    fig = go.Figure()
+    pass_chart = chart[chart["policy_pass"]]
+    fail_chart = chart[~chart["policy_pass"]]
+    if not pass_chart.empty:
+        fig.add_trace(
+            go.Scatter3d(
+                x=pass_chart["pv_capacity"],
+                y=pass_chart["wind_capacity"],
+                z=pass_chart["firr_percent"],
+                customdata=custom.loc[pass_chart.index].to_numpy(),
+                mode="markers",
+                name="达标候选",
+                marker=dict(
+                    size=5,
+                    symbol="circle",
+                    color=pass_chart["bess_energy"],
+                    colorscale=[[0.0, "#dbeafe"], [0.55, "#38bdf8"], [1.0, "#0f766e"]],
+                    colorbar=dict(title="储能容量<br>万kWh", len=0.72),
+                    line=dict(color="#ffffff", width=0.7),
+                    opacity=0.76,
+                ),
+                hovertemplate=hover,
+            )
+        )
+    if not fail_chart.empty:
+        fig.add_trace(
+            go.Scatter3d(
+                x=fail_chart["pv_capacity"],
+                y=fail_chart["wind_capacity"],
+                z=fail_chart["firr_percent"],
+                customdata=custom.loc[fail_chart.index].to_numpy(),
+                mode="markers",
+                name="未达政策",
+                marker=dict(
+                    size=4,
+                    symbol="x",
+                    color="#94a3b8",
+                    line=dict(color="#64748b", width=0.8),
+                    opacity=0.32,
+                ),
+                hovertemplate=hover,
+            )
+        )
+
+    recommended = chart[chart["is_recommended"]]
+    if not recommended.empty:
+        recommended_custom = custom.loc[recommended.index].to_numpy()
+        fig.add_trace(
+            go.Scatter3d(
+                x=recommended["pv_capacity"],
+                y=recommended["wind_capacity"],
+                z=recommended["firr_percent"],
+                customdata=recommended_custom,
+                mode="markers",
+                name="推荐组合",
+                marker=dict(
+                    size=8,
+                    symbol="diamond",
+                    color="#ef4444",
+                    line=dict(color="#991b1b", width=1.5),
+                    opacity=0.98,
+                ),
+                hovertemplate=hover,
+            )
+        )
+
+    active_id = str(active_scenario_id).strip() if active_scenario_id is not None else ""
+    active = chart[chart["scenario_id"].astype(str) == active_id] if active_id else pd.DataFrame()
+    if not active.empty:
+        active_row = active.iloc[0]
+        active_custom = custom.loc[[active.index[0]]].to_numpy()
+        x_val = float(active_row["pv_capacity"])
+        y_val = float(active_row["wind_capacity"])
+        z_val = float(active_row["firr_percent"])
+        x_min = float(pd.to_numeric(chart["pv_capacity"], errors="coerce").min())
+        y_min = float(pd.to_numeric(chart["wind_capacity"], errors="coerce").min())
+        z_min = float(pd.to_numeric(chart["firr_percent"], errors="coerce").min())
+        fig.add_trace(
+            go.Scatter3d(
+                x=[x_min, x_val, None, x_val, x_val, None, x_val, x_val],
+                y=[y_val, y_val, None, y_min, y_val, None, y_val, y_val],
+                z=[z_min, z_min, None, z_min, z_min, None, z_min, z_val],
+                mode="lines",
+                name="当前查看方案定位线",
+                line=dict(color="#ef4444", width=4),
+                hoverinfo="skip",
+                showlegend=False,
+            )
+        )
+        fig.add_trace(
+            go.Scatter3d(
+                x=[x_val],
+                y=[y_val],
+                z=[z_val],
+                customdata=active_custom,
+                mode="markers",
+                name="当前查看方案",
+                marker=dict(
+                    size=15,
+                    symbol="circle",
+                    color="rgba(239, 68, 68, 0.18)",
+                    line=dict(color="#ef4444", width=4),
+                    opacity=1.0,
+                ),
+                hovertemplate=hover,
+            )
+        )
+
+    fig.update_layout(
+        title="电源侧FIRR随光伏、风电和储能配置变化",
+        height=560,
+        template="plotly_white",
+        font=dict(color="#172033"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        margin=dict(l=20, r=20, t=78, b=18),
+        uirevision="recommendation-economy-3d",
+        scene=dict(
+            xaxis=dict(title="光伏容量（万kW）", backgroundcolor="#f8fafc", gridcolor="#e5edf6", zerolinecolor="#cbd5e1"),
+            yaxis=dict(title="风电容量（万kW）", backgroundcolor="#f8fafc", gridcolor="#e5edf6", zerolinecolor="#cbd5e1"),
+            zaxis=dict(title="电源侧FIRR（%）", backgroundcolor="#ffffff", gridcolor="#e5edf6", zerolinecolor="#cbd5e1"),
+            dragmode="orbit",
+            camera=dict(eye=dict(x=1.55, y=1.55, z=0.95)),
+        ),
+    )
+    return fig, None
+
+
+def _render_recommendation_economy_comparison(
+    st,
+    summary: pd.DataFrame,
+    power_economy_summary: pd.DataFrame | None,
+    single_entity_summary: pd.DataFrame | None,
+    portfolio: pd.DataFrame | None,
+) -> None:
+    valid_ids = set(summary["scenario_id"].dropna().astype(str)) if "scenario_id" in summary.columns else set()
+    active_scenario_id = None
+    for candidate in [
+        st.session_state.get("chart_overview_active_detail_scenario"),
+        st.session_state.get("_chart_overview_pending_detail_scenario"),
+        st.session_state.get("export_report_scenario"),
+    ]:
+        if candidate is not None and str(candidate) in valid_ids:
+            active_scenario_id = str(candidate)
+            break
+    if active_scenario_id is None and portfolio is not None and not portfolio.empty and "scenario_id" in portfolio.columns:
+        portfolio_ids = portfolio["scenario_id"].dropna().astype(str)
+        if not portfolio_ids.empty:
+            first_portfolio_id = str(portfolio_ids.iloc[0])
+            if first_portfolio_id in valid_ids:
+                active_scenario_id = first_portfolio_id
+
+    fig, message = _build_recommendation_economy_comparison_figure(
+        summary,
+        power_economy_summary,
+        single_entity_summary,
+        portfolio,
+        active_scenario_id=active_scenario_id,
+    )
+    with st.container(border=True):
+        _render_section_intro(
+            st,
+            "Economy",
+            "经济性对比图",
+            "读取已计算的经济性结果，观察电源侧 FIRR 随光伏、风电和储能配置变化的趋势；颜色表示储能容量，红色菱形为推荐组合，红色光环为当前查看方案。",
+        )
+        if fig is None:
+            st.info(message or "经济性对比图暂不可用。")
+            return
+        st.plotly_chart(
+            fig,
+            width="stretch",
+            config={
+                "displayModeBar": True,
+                "displaylogo": False,
+                "scrollZoom": True,
+                "responsive": True,
+            },
+        )
+
+
 def _render_recommendation_v1(
     st,
     summary: pd.DataFrame,
@@ -6620,6 +7089,13 @@ def _render_recommendation_v1(
         st.warning("电源侧最低可接受 FIRR 已留空，负荷侧可成交收益席位不参与默认排序。")
 
     _render_recommendation_cards(st, portfolio)
+    _render_recommendation_economy_comparison(
+        st,
+        summary,
+        power_economy_summary,
+        single_entity_summary,
+        portfolio,
+    )
 
     return recommendation_result
 
@@ -6696,6 +7172,145 @@ def _render_economy_task_overview(st, summary: pd.DataFrame, *, using_project_pr
     return False
 
 
+def _economy_status_snapshot(st, summary: pd.DataFrame, *, using_project_price_curve: bool) -> dict[str, str]:
+    economy_result = st.session_state.get("economy_v1_result")
+    economy_summary = economy_result.get("summary", pd.DataFrame()) if economy_result else pd.DataFrame()
+    economy_done = not economy_summary.empty
+    scenario_count = len(summary) if isinstance(summary, pd.DataFrame) else 0
+    passed_count = int(summary["pass_policy"].sum()) if not summary.empty and "pass_policy" in summary.columns else 0
+    price_mode = (
+        str(economy_result.get("price_mode", "项目级曲线" if using_project_price_curve else "固定价"))
+        if economy_result
+        else ("项目级曲线" if using_project_price_curve else "固定价/网页组价")
+    )
+    return {
+        "status": "已计算" if economy_done else "待计算",
+        "status_state": "ok" if economy_done else "pending",
+        "price_mode": price_mode,
+        "scenario_pool": f"{passed_count} 达标 / {scenario_count} 总数",
+    }
+
+
+def _render_economy_status_panel(st, summary: pd.DataFrame, *, using_project_price_curve: bool) -> None:
+    status = _economy_status_snapshot(st, summary, using_project_price_curve=using_project_price_curve)
+    st.markdown(
+        f"""
+        <div class="gd-economy-status-panel">
+          <div class="gd-economy-status-title">
+            <span>计算状态</span>
+            {_status_pill(status["status"], status["status_state"])}
+          </div>
+          <div class="gd-economy-status-row"><span>价格模式</span><strong>{_safe_html_text(status["price_mode"])}</strong></div>
+          <div class="gd-economy-status-row"><span>方案池</span><strong>{_safe_html_text(status["scenario_pool"])}</strong></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _inline_field_label(container, label: str, help_text: str | None = None) -> None:
+    title = f' title="{_safe_html_text(help_text)}"' if help_text else ""
+    container.markdown(
+        f'<div class="gd-inline-field-label"{title}>{_safe_html_text(label)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _inline_float_text_input(
+    root_st,
+    container,
+    label: str,
+    value: float,
+    *,
+    key: str,
+    min_value: float | None = None,
+    max_value: float | None = None,
+    help: str | None = None,
+    allow_blank: bool = False,
+) -> float | None:
+    display_label, display_help = _label_with_unit_help(label, help)
+    label_col, input_col = container.columns([0.9, 1.05], gap="small")
+    _inline_field_label(label_col, display_label, display_help)
+    stored_value = _stored_widget_value(root_st, key, value)
+    raw_value = "" if allow_blank and not _is_present(stored_value) else _trim_number(float(stored_value))
+    raw = input_col.text_input(
+        f"{display_label}输入",
+        value=raw_value,
+        help=display_help,
+        key=key,
+        label_visibility="collapsed",
+    )
+    if allow_blank and str(raw).strip() == "":
+        _store_widget_value(root_st, key, None)
+        return None
+    try:
+        parsed = float(str(raw).replace(",", "").strip())
+    except ValueError:
+        root_st.error(f"{label} 必须填写数字。")
+        root_st.stop()
+    if min_value is not None and parsed < min_value:
+        root_st.error(f"{label} 不能小于 {_trim_number(min_value)}。")
+        root_st.stop()
+    if max_value is not None and parsed > max_value:
+        root_st.error(f"{label} 不能大于 {_trim_number(max_value)}。")
+        root_st.stop()
+    return _store_widget_value(root_st, key, parsed)
+
+
+def _inline_int_text_input(
+    root_st,
+    container,
+    label: str,
+    value: int,
+    *,
+    key: str,
+    min_value: int | None = None,
+    max_value: int | None = None,
+    help: str | None = None,
+) -> int:
+    parsed = _inline_float_text_input(
+        root_st,
+        container,
+        label,
+        float(value),
+        key=key,
+        min_value=float(min_value) if min_value is not None else None,
+        max_value=float(max_value) if max_value is not None else None,
+        help=help,
+    )
+    assert parsed is not None
+    if float(parsed) != float(int(parsed)):
+        root_st.error(f"{label} 必须填写整数。")
+        root_st.stop()
+    return int(parsed)
+
+
+def _inline_percent_text_input(
+    root_st,
+    container,
+    label: str,
+    value_percent: float,
+    *,
+    key: str,
+    min_value: float = 0.0,
+    max_value: float = 100.0,
+    help: str | None = None,
+    allow_blank: bool = False,
+) -> float | None:
+    parsed = _inline_float_text_input(
+        root_st,
+        container,
+        label,
+        value_percent,
+        key=key,
+        min_value=min_value,
+        max_value=max_value,
+        help=help,
+        allow_blank=allow_blank,
+    )
+    return None if parsed is None else parsed / 100
+
+
 def _render_economy_card_heading(st, title: str, subtitle: str | None = None) -> None:
     subtitle_html = (
         f'<div class="gd-economy-card-subtitle">{_safe_html_text(subtitle)}</div>'
@@ -6728,55 +7343,63 @@ def _render_economy_v1(
     project_price_curve_data = _project_price_curve_data(st)
     using_project_price_curve = project_price_curve_data is not None
     if using_project_price_curve:
-        st.info("本次使用已上传的项目级下网电价曲线；固定下网价格和电费组价不会覆盖曲线结果。")
-        _render_project_price_curve_status(st, active_label="已上传下网电价曲线")
+        st.caption(f"电价曲线：{_price_curve_status_text(st)}。固定下网价格和电费组价不会覆盖曲线结果。")
     else:
-        st.info("当前未上传项目级下网电价曲线，经济性测算将按固定价/网页组价模式执行。")
+        st.caption("电价模式：未上传项目级下网电价曲线，按固定价/网页组价模式执行。")
 
     cashflow_retention_plan = _economy_cashflow_retention_plan(summary)
     if cashflow_retention_plan["mode"] == "summary_first":
         st.info(str(cashflow_retention_plan["message"]))
 
-    run_economy_top_clicked = _render_economy_task_overview(
-        st,
-        summary,
-        using_project_price_curve=using_project_price_curve,
-    )
+    run_economy_top_clicked = False
 
     with st.form("economy_v1_params_form", clear_on_submit=False):
-        submit_col, _ = st.columns([1.15, 4.85])
-        run_economy_form_top_clicked = submit_col.form_submit_button(
-            "计算经济性 V1",
-            type="primary",
-            disabled=summary.empty,
-        )
-        row1_left, row1_right = st.columns([0.72, 1.28], gap="small")
-        with row1_left.container(border=True):
-            _render_economy_card_heading(st, "运行口径")
-            c1, c2 = st.columns(2, gap="small")
-            operation_years = int(
-                c1.number_input(
-                    "运营期（年）",
-                    value=int(_stored_widget_value(st, "economy_operation_years", 25)),
-                    min_value=1,
-                    max_value=40,
-                    step=1,
-                    key="economy_operation_years",
-                )
-            )
-            _store_widget_value(st, "economy_operation_years", operation_years)
-            discount_rate = _percent_text_input(c2, "折现率（%）", 6, min_value=-99, max_value=100)
-            min_power_side_acceptable_firr = _optional_percent_text_input(
+        top_left, top_right = st.columns([4.4, 1.35], gap="small")
+        with top_left.container(border=True):
+            _render_economy_card_heading(st, "运行参数")
+            c1, c2, c3 = st.columns([1.0, 1.0, 1.25], gap="small")
+            operation_years = _inline_int_text_input(
                 st,
-                "电源侧最低可接受 FIRR（%）",
+                c1,
+                "运营期（年）",
+                25,
+                key="economy_operation_years",
+                min_value=1,
+                max_value=40,
+            )
+            discount_rate = _inline_percent_text_input(
+                st,
+                c2,
+                "折现率（%）",
+                6,
+                key="economy_discount_rate",
+                min_value=-99,
+                max_value=100,
+            )
+            min_power_side_acceptable_firr = _inline_percent_text_input(
+                st,
+                c3,
+                "FIRR 门槛（%）",
                 7,
+                key="economy_min_power_side_firr",
                 min_value=0,
                 max_value=100,
                 help="用于负荷侧可成交收益席位筛选。留空时，该席位不参与默认排序。",
+                allow_blank=True,
+            )
+        with top_right.container():
+            _render_economy_status_panel(st, summary, using_project_price_curve=using_project_price_curve)
+            run_economy_form_top_clicked = st.form_submit_button(
+                "计算经济性 V1",
+                type="primary",
+                disabled=summary.empty,
+                width="stretch",
             )
 
-        with row1_right.container(border=True):
-            _render_economy_card_heading(st, "建设投资")
+        left_block, right_block = st.columns([1.02, 0.98], gap="small")
+        with left_block.container(border=True):
+            _render_economy_card_heading(st, "建设投资与成本费用")
+            st.markdown('<div class="gd-economy-subhead">建设投资</div>', unsafe_allow_html=True)
             c1, c2, c3 = st.columns(3, gap="small")
             wind_capex = _economy_float_input(
                 st,
@@ -6811,9 +7434,7 @@ def _render_economy_v1(
             other_fixed_asset = _float_text_input(c2, "其他固定资产投资（万元，含税）", 0, min_value=0.0)
             construction_vat_rate = _percent_text_input(c3, "进项税率（%）", 10)
 
-        row2_left, row2_right = st.columns([0.9, 1.1], gap="small")
-        with row2_left.container(border=True):
-            _render_economy_card_heading(st, "运维成本")
+            st.markdown('<div class="gd-economy-divider"></div><div class="gd-economy-subhead">成本费用</div>', unsafe_allow_html=True)
             c1, c2, c3 = st.columns(3, gap="small")
             wind_om = _economy_float_input(
                 st,
@@ -6844,9 +7465,20 @@ def _render_economy_v1(
             )
             other_operating_cost = _float_text_input(st, "其他运行成本（万元/年）", 0, min_value=0.0)
 
-        with row2_right.container(border=True):
+            with st.expander("高级：储能更换", expanded=False):
+                st.markdown(
+                    '<div class="gd-economy-compact-note">按日历寿命和循环寿命先到者触发更换。</div>',
+                    unsafe_allow_html=True,
+                )
+                c1, c2 = st.columns(2, gap="small")
+                replacement_ratio = _percent_text_input(c1, "更换投资比例（%）", 50)
+                replacement_vat_rate = _percent_text_input(c2, "更换进项税率（%）", 13)
+            replacement_calendar_life = float(bess_calendar_life_years)
+
+        with right_block.container(border=True):
             _render_economy_card_heading(st, "收入和税金")
-            c1, c2, c3, c4 = st.columns(4, gap="small")
+            st.markdown('<div class="gd-economy-subhead">收益电价</div>', unsafe_allow_html=True)
+            c1, c2 = st.columns(2, gap="small")
             grid_export_price = _float_text_input(c1, "上网电价（元/kWh，含税）", 0.25, min_value=0.0)
             self_use_price = _float_text_input(
                 c2,
@@ -6855,8 +7487,9 @@ def _render_economy_v1(
                 min_value=0.0,
                 help="原“自发自用电价”。电源侧视角中作为绿电售电收入，负荷侧视角中作为绿电购电成本。非用户到户电价，不含输配电价、政府基金及附加、系统运行费和容需量电费等。",
             )
+            c1, c2 = st.columns(2, gap="small")
             net_avoided_grid_cost_price = _float_text_input(
-                c3,
+                c1,
                 "外部购电净成本（元/kWh）",
                 0.50,
                 min_value=0.0,
@@ -6868,19 +7501,18 @@ def _render_economy_v1(
                 ),
                 disabled=using_project_price_curve,
             )
-            environmental_value = _float_text_input(c4, "环境价值（元/kWh）", 0, min_value=0.0)
+            environmental_value = _float_text_input(c2, "环境价值（元/kWh）", 0, min_value=0.0)
+
+            st.markdown('<div class="gd-economy-divider"></div><div class="gd-economy-subhead">税金</div>', unsafe_allow_html=True)
             c1, c2, c3 = st.columns(3, gap="small")
             output_vat_rate = _percent_text_input(c1, "销项税率（%）", 13)
             income_tax_rate = _percent_text_input(c2, "企业所得税率（%）", 25)
             urban_area = c3.selectbox("城建税地区", ["县城、镇 5%", "市区 7%", "其他 1%"])
             urban_tax_rate = {"市区 7%": 0.07, "县城、镇 5%": 0.05, "其他 1%": 0.01}[urban_area]
 
-        row3_left, row3_right = st.columns([1.08, 0.92], gap="small")
-        with row3_left.container(border=True):
-            _render_economy_card_heading(
-                st,
-                "到户电价展示",
-                "仅用于展示绿电接入前后综合到户价，不等同于同一主体净节费单价。",
+            st.markdown('<div class="gd-economy-divider"></div><div class="gd-economy-subhead">用能侧结算口径</div>', unsafe_allow_html=True)
+            st.caption(
+                "关系：下网电量 × 下网到户价；自发自用绿电量 ×（绿电结算价 + 绿电仍缴输配 + 绿电仍缴基金）。三项不是直接相加。"
             )
             c1, c2, c3 = st.columns(3, gap="small")
             fixed_down_grid_landed_price = _float_text_input(
@@ -6889,7 +7521,7 @@ def _render_economy_v1(
                 0.55,
                 min_value=0.0,
                 disabled=using_project_price_curve,
-                help="无逐时下网电价曲线时，绿电前综合到户价直接使用该值；绿电后按下网电量和自发自用绿电量加权。",
+                help="只作用于外部购网/下网电量。无逐时下网电价曲线时，绿电前综合到户价直接使用该值；绿电后综合价按下网电量和自发自用绿电量加权。",
             )
             green_self_use_td_fee = _float_text_input(
                 c2,
@@ -6897,7 +7529,7 @@ def _render_economy_v1(
                 0.15,
                 min_value=0.0,
                 disabled=using_project_price_curve,
-                help="无逐时下网电价曲线时，用于自发自用绿电的到户综合价展示：绿电结算价 + 输配电价 + 政府基金及附加。",
+                help="只加在自发自用绿电路径上，不再与下网到户价相加。绿电自用到户价 = 绿电结算价 + 绿电仍缴输配 + 绿电仍缴基金。",
             )
             green_self_use_gov_fee = _float_text_input(
                 c3,
@@ -6905,22 +7537,11 @@ def _render_economy_v1(
                 0.03,
                 min_value=0.0,
                 disabled=using_project_price_curve,
+                help="只加在自发自用绿电路径上，用于展示绿电自用到户价和绿电后综合到户价。",
             )
             fixed_green_self_use_extra_fee = green_self_use_td_fee + green_self_use_gov_fee
 
-        with row3_right.container(border=True):
-            _render_economy_card_heading(st, "高级参数")
-            with st.expander("储能更换", expanded=False):
-                st.markdown(
-                    '<div class="gd-economy-compact-note">按日历寿命和循环寿命先到者触发更换。</div>',
-                    unsafe_allow_html=True,
-                )
-                c1, c2 = st.columns(2, gap="small")
-                replacement_ratio = _percent_text_input(c1, "更换投资比例（%）", 50)
-                replacement_vat_rate = _percent_text_input(c2, "更换进项税率（%）", 13)
-            replacement_calendar_life = float(bess_calendar_life_years)
-
-            with st.expander("其他经营收入", expanded=False):
+            with st.expander("高级：其他经营收入", expanded=False):
                 st.caption("一般项目可不填。可输入负值；负值在 V1 中不产生进项税，按收入抵减或额外经营性支出处理。")
                 default_other = pd.DataFrame(
                     [
@@ -6941,7 +7562,7 @@ def _render_economy_v1(
                 )
                 st.session_state["economy_other_revenue_df"] = other_revenue_df
 
-            with st.expander("电费清单组价", expanded=False):
+            with st.expander("高级：电费清单组价", expanded=False):
                 if using_project_price_curve:
                     st.caption("当前使用已上传的逐时下网电价曲线；本节固定组价参数不会覆盖曲线结果。")
                     _store_widget_value(st, "economy_use_grid_price_build_up", False)
@@ -6975,12 +7596,14 @@ def _render_economy_v1(
                         "绿电仍缴输配（元/kWh）",
                         transmission_distribution_tariff,
                         min_value=0.0,
+                        help="组价模式下仍只作用于自发自用绿电路径；外部购网路径仍使用原下网账单组价。",
                     )
                     retained_gov_fund_surcharge = _float_text_input(
                         c2,
                         "绿电仍缴基金（元/kWh）",
                         gov_fund_surcharge,
                         min_value=0.0,
+                        help="组价模式下仍只作用于自发自用绿电路径；不与下网到户价重复相加。",
                     )
                     net_avoided_grid_cost_price_for_calc = None
                 else:
@@ -7025,12 +7648,7 @@ def _render_economy_v1(
                 else:
                     st.caption("未上传项目级下网电价曲线时使用固定价或本页电费清单组价。")
 
-        run_economy_form_bottom_clicked = st.form_submit_button(
-            "计算经济性 V1（当前已实现视角）",
-            type="primary",
-            disabled=summary.empty,
-        )
-    run_economy_form_clicked = run_economy_form_top_clicked or run_economy_form_bottom_clicked
+    run_economy_form_clicked = run_economy_form_top_clicked
 
     try:
         other_revenues = _build_other_revenue_items(other_revenue_df)
@@ -7192,13 +7810,6 @@ def _render_economy_v1(
             ]
             display_columns = [column for column in display_columns if column in display_economic_summary.columns]
             st.success("电源侧经济性 V1 已计算。技术方案汇总表仍保持纯技术指标；下载请前往“图表下载和报告生成”。")
-            _render_landed_price_cards(
-                st,
-                display_economic_summary,
-                title="负荷到户电价对比",
-                description="按本次经济性输入展示绿电接入前后综合到户价；曲线模式按逐时下网电价加权，固定价模式按页面固定到户价计算。",
-                limit=4,
-            )
 
             with st.expander("高级：电源侧经济性汇总复核表", expanded=False):
                 st.dataframe(
@@ -7478,7 +8089,7 @@ def _render_welcome_page(st) -> None:
     _render_page_heading(
         st,
         "欢迎页",
-        "首页不再只是欢迎文字，而是项目启动台：看准备度、下一步、推荐状态和交付准备。",
+        "",
     )
 
     batch_result = st.session_state.get("batch_result")
@@ -7489,7 +8100,6 @@ def _render_welcome_page(st) -> None:
     recommendation_ready = _workflow_step_done(st, "方案推荐")
     chart_ready = _workflow_step_done(st, "图表概览")
     has_price_curve = _project_price_curve_data(st) is not None
-    price_curve_meta = _project_price_curve_meta(st)
     scenario_count = int(getattr(batch_result, "scenario_count", 0)) if batch_result else 0
     passed_count = int(summary["pass_policy"].sum()) if not summary.empty and "pass_policy" in summary.columns else 0
     metrics = st.session_state.get("curve_metric_snapshot") or {}
@@ -7558,40 +8168,11 @@ def _render_welcome_page(st) -> None:
             f"{_status_pill(status, state)}"
             "</div>"
         )
-    price_source = (
-        f"{price_curve_meta.get('source_name', '项目级曲线')} · {price_curve_meta.get('row_count', '-')} 行"
-        if has_price_curve
-        else "未上传项目级下网电价曲线；经济性会使用网页端固定价/组价模式"
-    )
-    boundary_rows = [
-        ("项目模式", "并网绿电直连", "柴油/离网可靠性后续作为显式资产和模式接入。"),
-        ("储能策略", "仅由富余新能源充电", "不允许电网充电，不允许储能放电上网。"),
-        ("推荐口径", "经济 V1 + 技术约束", "经济和推荐只读取技术结果，不反向改变逐小时调度。"),
-        ("电价来源", price_source, "下网曲线只影响经济性和推荐排序。"),
-        ("导出范围", "代表方案优先", "全量枚举留在高级复核和导出，不作为主入口。"),
-    ]
-    boundary_html = "".join(
-        "<tr>"
-        f"<td>{_safe_html_text(label)}</td>"
-        f"<td>{_safe_html_text(value)}</td>"
-        f"<td>{_safe_html_text(note)}</td>"
-        "</tr>"
-        for label, value, note in boundary_rows
-    )
     st.markdown(
         f"""
-        <div class="gd-launch-panels">
-          <div class="gd-launch-panel">
-            <h3>下一步建议</h3>
-            {''.join(next_rows)}
-          </div>
-          <div class="gd-launch-panel">
-            <h3>项目边界</h3>
-            <table class="gd-boundary-table">
-              <thead><tr><th>边界项</th><th>当前值</th><th>说明</th></tr></thead>
-              <tbody>{boundary_html}</tbody>
-            </table>
-          </div>
+        <div class="gd-launch-panel">
+          <h3>下一步建议</h3>
+          {''.join(next_rows)}
         </div>
         """,
         unsafe_allow_html=True,
@@ -7873,6 +8454,7 @@ def _build_compact_policy_comparison_figure(comparison: pd.DataFrame, thresholds
                 text=text_matrix,
                 customdata=custom_matrix,
                 texttemplate="%{text}",
+                textfont=dict(color="#172033", size=12),
                 hovertemplate="%{customdata}<br>%{x}: %{z:+.1%}<extra></extra>",
                 zmid=0,
                 zmin=-max_abs,
@@ -7884,7 +8466,10 @@ def _build_compact_policy_comparison_figure(comparison: pd.DataFrame, thresholds
                     [0.52, "#dcfce7"],
                     [1.0, "#16a34a"],
                 ],
-                colorbar=dict(title="余量"),
+                colorbar=dict(
+                    title=dict(text="余量", font=dict(color="#334155")),
+                    tickfont=dict(color="#334155"),
+                ),
             )
         ]
     )
@@ -7895,7 +8480,19 @@ def _build_compact_policy_comparison_figure(comparison: pd.DataFrame, thresholds
         plot_bgcolor="#ffffff",
         font=dict(family="Arial, sans-serif", size=12, color="#172033"),
     )
-    fig.update_xaxes(side="top", tickangle=0, automargin=True)
+    fig.update_xaxes(
+        side="top",
+        tickangle=0,
+        automargin=True,
+        tickfont=dict(color="#334155"),
+        title_font=dict(color="#334155"),
+        linecolor="#94a3b8",
+    )
+    fig.update_yaxes(
+        tickfont=dict(color="#334155"),
+        title_font=dict(color="#334155"),
+        linecolor="#94a3b8",
+    )
     return fig, []
 
 
@@ -7943,6 +8540,7 @@ def _build_capacity_comparison_figure(comparison: pd.DataFrame):
                 text=text_matrix,
                 customdata=custom_matrix,
                 texttemplate="%{text}",
+                textfont=dict(color="#172033", size=12),
                 hovertemplate="%{customdata}<br>%{x}: %{text}<br>相对规模 %{z:.0%}<extra></extra>",
                 zmin=0,
                 zmax=1,
@@ -7951,7 +8549,10 @@ def _build_capacity_comparison_figure(comparison: pd.DataFrame):
                     [0.45, "#d9eaff"],
                     [1.0, "#7fb2f0"],
                 ],
-                colorbar=dict(title="相对规模"),
+                colorbar=dict(
+                    title=dict(text="相对规模", font=dict(color="#334155")),
+                    tickfont=dict(color="#334155"),
+                ),
             )
         ]
     )
@@ -7962,7 +8563,19 @@ def _build_capacity_comparison_figure(comparison: pd.DataFrame):
         plot_bgcolor="#ffffff",
         font=dict(family="Arial, sans-serif", size=12, color="#172033"),
     )
-    fig.update_xaxes(side="top", tickangle=0, automargin=True)
+    fig.update_xaxes(
+        side="top",
+        tickangle=0,
+        automargin=True,
+        tickfont=dict(color="#334155"),
+        title_font=dict(color="#334155"),
+        linecolor="#94a3b8",
+    )
+    fig.update_yaxes(
+        tickfont=dict(color="#334155"),
+        title_font=dict(color="#334155"),
+        linecolor="#94a3b8",
+    )
     return fig, []
 
 
@@ -8080,8 +8693,8 @@ def _render_recommendation_dashboard_overview(
     _render_landed_price_cards(
         st,
         comparison,
-        title="方案组到户电价对比",
-        description="展示当前图表组合中各方案的绿电接入前后综合到户价、绿电结算价、下网加权价和下网比例。",
+        title="方案组用能侧结算对比",
+        description="展示当前图表组合中各方案的绿电接入前后综合到户价、绿电结算价、绿电自用到户价、下网路径到户价和下网比例。",
         scenario_ids=comparison["scenario_id"].astype(str).tolist(),
         limit=len(comparison),
     )
@@ -8267,6 +8880,25 @@ def _render_recommendation_analysis_page(st, batch_result, summary: pd.DataFrame
             return
         st.info("当前展示的是从项目历史恢复的推荐组合；不包含推荐席位输入，无法在此页重新排序。")
         _render_recommendation_cards(st, restored_recommendation.portfolio)
+        restored_power_summary = (
+            economy_result["summary"]
+            if economy_result and isinstance(economy_result.get("summary"), pd.DataFrame) and not economy_result["summary"].empty
+            else None
+        )
+        restored_single_summary = (
+            single_entity_result["summary"]
+            if single_entity_result
+            and isinstance(single_entity_result.get("summary"), pd.DataFrame)
+            and not single_entity_result["summary"].empty
+            else None
+        )
+        _render_recommendation_economy_comparison(
+            st,
+            summary,
+            restored_power_summary,
+            restored_single_summary,
+            restored_recommendation.portfolio,
+        )
         _render_recommendation_detail_tables(st, restored_recommendation)
         if st.button("进入图表概览", type="primary", key="recommendation_go_chart_overview_restored"):
             _go_to_workflow_page(st, "图表概览")
@@ -8463,6 +9095,29 @@ def _build_simple_report_markdown(
             ]
         )
 
+    landed = power_economy if power_economy is not None else single_entity
+    lines.extend(
+        [
+            "",
+            "## 用能侧结算口径",
+            "",
+            "- 外部购网路径：下网电量 × 下网到户价。",
+            "- 自发自用绿电路径：自发自用绿电量 ×（绿电结算价 + 绿电仍缴输配 + 绿电仍缴基金）。",
+            "- 绿电后综合到户价 =（下网电量 × 下网到户价 + 自发自用绿电量 × 绿电自用到户价）/ 总负荷电量。",
+            "- 注意：下网到户价、绿电仍缴输配、绿电仍缴基金不是直接相加关系；前者属于外部购网路径，后两者只属于自用绿电路径。",
+        ]
+    )
+    if landed is not None:
+        lines.extend(
+            [
+                f"- 绿电前综合到户价：{_format_price_value(landed.get('load_landed_price_before_green_with_vat'))}",
+                f"- 绿电后综合到户价：{_format_price_value(landed.get('load_landed_price_after_green_with_vat'))}",
+                f"- 绿电结算价：{_format_price_value(landed.get('green_power_settlement_price_with_vat_effective'))}",
+                f"- 绿电自用到户价：{_format_price_value(landed.get('green_self_use_landed_price_with_vat_effective'))}",
+                f"- 下网路径到户价：{_format_price_value(landed.get('weighted_down_grid_landed_price_with_vat'))}",
+            ]
+        )
+
     lines.extend(
         [
             "",
@@ -8474,6 +9129,873 @@ def _build_simple_report_markdown(
         ]
     )
     return "\n".join(lines).encode("utf-8-sig")
+
+
+DOCX_A4_CONTENT_WIDTH_DXA = 8844
+DOCX_A4_LANDSCAPE_CONTENT_WIDTH_DXA = 13777
+DOCX_EMU_PER_DXA = 635
+DOCX_A4_CONTENT_WIDTH_EMU = DOCX_A4_CONTENT_WIDTH_DXA * DOCX_EMU_PER_DXA
+DOCX_MAX_IMAGE_HEIGHT_EMU = int(7.1 * 914400)
+
+
+def _docx_escape(value) -> str:
+    return html.escape("" if value is None else str(value), quote=True)
+
+
+def _docx_run(
+    text: str,
+    *,
+    bold: bool = False,
+    font: str = "仿宋_GB2312",
+    size_half_points: int | None = None,
+    color: str = "000000",
+) -> str:
+    size_xml = f'<w:sz w:val="{int(size_half_points)}"/><w:szCs w:val="{int(size_half_points)}"/>' if size_half_points else ""
+    bold_xml = "<w:b/><w:bCs/>" if bold else ""
+    color_xml = f'<w:color w:val="{_docx_escape(color)}"/>'
+    return (
+        "<w:r><w:rPr>"
+        f'<w:rFonts w:ascii="{_docx_escape(font)}" w:hAnsi="{_docx_escape(font)}" '
+        f'w:eastAsia="{_docx_escape(font)}" w:cs="{_docx_escape(font)}"/>'
+        f"{bold_xml}{size_xml}{color_xml}"
+        f'</w:rPr><w:t xml:space="preserve">{_docx_escape(text)}</w:t></w:r>'
+    )
+
+
+def _docx_paragraph(
+    text: str = "",
+    *,
+    style: str = "BodyCN",
+    alignment: str | None = None,
+    bold: bool = False,
+    font: str = "仿宋_GB2312",
+    size_half_points: int | None = None,
+) -> str:
+    align_xml = f'<w:jc w:val="{alignment}"/>' if alignment else ""
+    return (
+        "<w:p>"
+        f'<w:pPr><w:pStyle w:val="{style}"/>{align_xml}</w:pPr>'
+        f"{_docx_run(text, bold=bold, font=font, size_half_points=size_half_points)}"
+        "</w:p>"
+    )
+
+
+def _docx_cell(text: str, width_dxa: int, *, header: bool = False) -> str:
+    fill_xml = '<w:shd w:val="clear" w:color="auto" w:fill="F2F4F7"/>' if header else ""
+    return (
+        "<w:tc>"
+        "<w:tcPr>"
+        f'<w:tcW w:w="{int(width_dxa)}" w:type="dxa"/>'
+        '<w:vAlign w:val="center"/>'
+        f"{fill_xml}"
+        '<w:tcMar><w:top w:w="100" w:type="dxa"/><w:left w:w="120" w:type="dxa"/>'
+        '<w:bottom w:w="100" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar>'
+        "</w:tcPr>"
+        f'{_docx_paragraph(text, style="TableTextCN", bold=header, font="黑体" if header else "仿宋_GB2312")}'
+        "</w:tc>"
+    )
+
+
+def _docx_table(
+    headers: list[str],
+    rows: list[list[str]],
+    widths_dxa: list[int],
+    *,
+    table_width_dxa: int | None = None,
+) -> str:
+    grid = "".join(f'<w:gridCol w:w="{int(width)}"/>' for width in widths_dxa)
+    header_row = "".join(_docx_cell(text, widths_dxa[index], header=True) for index, text in enumerate(headers))
+    table_width = int(table_width_dxa) if table_width_dxa is not None else sum(int(width) for width in widths_dxa)
+    body_rows = "".join(
+        "<w:tr>"
+        + "".join(
+            _docx_cell(str(row[index]) if index < len(row) else "", widths_dxa[index])
+            for index in range(len(widths_dxa))
+        )
+        + "</w:tr>"
+        for row in rows
+    )
+    return (
+        "<w:tbl>"
+        "<w:tblPr>"
+        f'<w:tblW w:w="{table_width}" w:type="dxa"/>'
+        '<w:tblInd w:w="120" w:type="dxa"/>'
+        '<w:tblBorders><w:top w:val="single" w:sz="4" w:color="D0D7DE"/>'
+        '<w:left w:val="single" w:sz="4" w:color="D0D7DE"/>'
+        '<w:bottom w:val="single" w:sz="4" w:color="D0D7DE"/>'
+        '<w:right w:val="single" w:sz="4" w:color="D0D7DE"/>'
+        '<w:insideH w:val="single" w:sz="4" w:color="D0D7DE"/>'
+        '<w:insideV w:val="single" w:sz="4" w:color="D0D7DE"/></w:tblBorders>'
+        '<w:tblLook w:val="04A0" w:firstRow="1" w:lastRow="0" w:firstColumn="0" w:lastColumn="0" '
+        'w:noHBand="1" w:noVBand="1"/>'
+        "</w:tblPr>"
+        f"<w:tblGrid>{grid}</w:tblGrid>"
+        f"<w:tr><w:trPr><w:tblHeader/></w:trPr>{header_row}</w:tr>{body_rows}"
+        "</w:tbl>"
+    )
+
+
+def _png_dimensions(png_bytes: bytes) -> tuple[int, int] | None:
+    if len(png_bytes) < 24 or not png_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        return None
+    width = int.from_bytes(png_bytes[16:20], "big")
+    height = int.from_bytes(png_bytes[20:24], "big")
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def _docx_image_paragraph(rel_id: str, image_index: int, title: str, png_bytes: bytes) -> str:
+    dimensions = _png_dimensions(png_bytes) or (1600, 900)
+    width_px, height_px = dimensions
+    width_emu = DOCX_A4_CONTENT_WIDTH_EMU
+    height_emu = max(1, int(width_emu * height_px / width_px))
+    if height_emu > DOCX_MAX_IMAGE_HEIGHT_EMU:
+        scale = DOCX_MAX_IMAGE_HEIGHT_EMU / height_emu
+        height_emu = DOCX_MAX_IMAGE_HEIGHT_EMU
+        width_emu = max(1, int(width_emu * scale))
+    doc_pr_id = 1000 + image_index
+    safe_title = _docx_escape(title)
+    return (
+        '<w:p><w:pPr><w:pStyle w:val="ImageCN"/>'
+        '<w:keepNext/><w:spacing w:before="80" w:after="80" w:line="240" w:lineRule="auto"/>'
+        '<w:jc w:val="center"/></w:pPr><w:r><w:drawing>'
+        '<wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" '
+        'distT="0" distB="0" distL="0" distR="0">'
+        f'<wp:extent cx="{width_emu}" cy="{height_emu}"/>'
+        f'<wp:docPr id="{doc_pr_id}" name="图{image_index} {safe_title}"/>'
+        '<wp:cNvGraphicFramePr>'
+        '<a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/>'
+        '</wp:cNvGraphicFramePr>'
+        '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+        '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+        '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+        '<pic:nvPicPr>'
+        f'<pic:cNvPr id="{image_index}" name="image{image_index}.png" descr="{safe_title}"/>'
+        '<pic:cNvPicPr/>'
+        '</pic:nvPicPr>'
+        '<pic:blipFill>'
+        f'<a:blip r:embed="{_docx_escape(rel_id)}"/>'
+        '<a:stretch><a:fillRect/></a:stretch>'
+        '</pic:blipFill>'
+        '<pic:spPr>'
+        '<a:xfrm><a:off x="0" y="0"/>'
+        f'<a:ext cx="{width_emu}" cy="{height_emu}"/></a:xfrm>'
+        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+        '</pic:spPr>'
+        '</pic:pic>'
+        '</a:graphicData>'
+        '</a:graphic>'
+        '</wp:inline>'
+        '</w:drawing></w:r></w:p>'
+    )
+
+
+def _docx_styles_xml() -> str:
+    return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:docDefaults>
+    <w:rPrDefault><w:rPr><w:rFonts w:ascii="仿宋_GB2312" w:hAnsi="仿宋_GB2312" w:eastAsia="仿宋_GB2312" w:cs="仿宋_GB2312"/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr></w:rPrDefault>
+    <w:pPrDefault><w:pPr><w:spacing w:after="120" w:line="560" w:lineRule="exact"/></w:pPr></w:pPrDefault>
+  </w:docDefaults>
+  <w:style w:type="paragraph" w:default="1" w:styleId="Normal">
+    <w:name w:val="Normal"/><w:qFormat/>
+    <w:pPr><w:spacing w:after="120" w:line="560" w:lineRule="exact"/></w:pPr>
+    <w:rPr><w:rFonts w:ascii="仿宋_GB2312" w:hAnsi="仿宋_GB2312" w:eastAsia="仿宋_GB2312" w:cs="仿宋_GB2312"/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="ReportTitleCN">
+    <w:name w:val="Report Title CN"/><w:basedOn w:val="Normal"/><w:qFormat/>
+    <w:pPr><w:jc w:val="center"/><w:spacing w:before="120" w:after="240" w:line="640" w:lineRule="exact"/></w:pPr>
+    <w:rPr><w:rFonts w:ascii="方正小标宋简体" w:hAnsi="方正小标宋简体" w:eastAsia="方正小标宋简体" w:cs="方正小标宋简体"/><w:b/><w:bCs/><w:sz w:val="44"/><w:szCs w:val="44"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="MetaCN">
+    <w:name w:val="Meta CN"/><w:basedOn w:val="Normal"/>
+    <w:pPr><w:jc w:val="center"/><w:spacing w:after="80" w:line="360" w:lineRule="exact"/></w:pPr>
+    <w:rPr><w:rFonts w:ascii="仿宋_GB2312" w:hAnsi="仿宋_GB2312" w:eastAsia="仿宋_GB2312" w:cs="仿宋_GB2312"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading1CN">
+    <w:name w:val="Heading 1 CN"/><w:basedOn w:val="Normal"/><w:qFormat/>
+    <w:pPr><w:keepNext/><w:ind w:firstLine="560"/><w:spacing w:before="240" w:after="120" w:line="560" w:lineRule="exact"/></w:pPr>
+    <w:rPr><w:rFonts w:ascii="黑体" w:hAnsi="黑体" w:eastAsia="黑体" w:cs="黑体"/><w:b/><w:bCs/><w:sz w:val="32"/><w:szCs w:val="32"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading2CN">
+    <w:name w:val="Heading 2 CN"/><w:basedOn w:val="Normal"/><w:qFormat/>
+    <w:pPr><w:keepNext/><w:ind w:firstLine="560"/><w:spacing w:before="160" w:after="80" w:line="520" w:lineRule="exact"/></w:pPr>
+    <w:rPr><w:rFonts w:ascii="楷体_GB2312" w:hAnsi="楷体_GB2312" w:eastAsia="楷体_GB2312" w:cs="楷体_GB2312"/><w:b/><w:bCs/><w:sz w:val="30"/><w:szCs w:val="30"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="BodyCN">
+    <w:name w:val="Body CN"/><w:basedOn w:val="Normal"/>
+    <w:pPr><w:ind w:firstLine="560"/><w:jc w:val="both"/><w:spacing w:after="120" w:line="560" w:lineRule="exact"/></w:pPr>
+    <w:rPr><w:rFonts w:ascii="仿宋_GB2312" w:hAnsi="仿宋_GB2312" w:eastAsia="仿宋_GB2312" w:cs="仿宋_GB2312"/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="CaptionCN">
+    <w:name w:val="Caption CN"/><w:basedOn w:val="Normal"/>
+    <w:pPr><w:spacing w:before="80" w:after="80" w:line="360" w:lineRule="exact"/></w:pPr>
+    <w:rPr><w:rFonts w:ascii="仿宋_GB2312" w:hAnsi="仿宋_GB2312" w:eastAsia="仿宋_GB2312" w:cs="仿宋_GB2312"/><w:color w:val="000000"/><w:sz w:val="21"/><w:szCs w:val="21"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="ImageCN">
+    <w:name w:val="Image CN"/><w:basedOn w:val="Normal"/>
+    <w:pPr><w:keepNext/><w:spacing w:before="80" w:after="80" w:line="240" w:lineRule="auto"/></w:pPr>
+    <w:rPr><w:rFonts w:ascii="仿宋_GB2312" w:hAnsi="仿宋_GB2312" w:eastAsia="仿宋_GB2312" w:cs="仿宋_GB2312"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="TableTextCN">
+    <w:name w:val="Table Text CN"/><w:basedOn w:val="Normal"/>
+    <w:pPr><w:spacing w:before="0" w:after="0" w:line="300" w:lineRule="auto"/></w:pPr>
+    <w:rPr><w:rFonts w:ascii="仿宋_GB2312" w:hAnsi="仿宋_GB2312" w:eastAsia="仿宋_GB2312" w:cs="仿宋_GB2312"/><w:sz w:val="21"/><w:szCs w:val="21"/></w:rPr>
+  </w:style>
+</w:styles>"""
+
+
+def _docx_section_properties_xml(orientation: str = "portrait") -> str:
+    if orientation == "landscape":
+        page_size = '<w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/>'
+    else:
+        page_size = '<w:pgSz w:w="11906" w:h="16838"/>'
+    return (
+        "<w:sectPr>"
+        f"{page_size}"
+        '<w:pgMar w:top="2098" w:right="1474" w:bottom="1984" w:left="1587" w:header="851" w:footer="992" w:gutter="0"/>'
+        '<w:cols w:space="425"/><w:docGrid w:type="lines" w:linePitch="312"/>'
+        "</w:sectPr>"
+    )
+
+
+def _docx_section_break_paragraph(orientation: str) -> str:
+    return f"<w:p><w:pPr>{_docx_section_properties_xml(orientation)}</w:pPr></w:p>"
+
+
+def _docx_document_xml(blocks: list[str]) -> str:
+    body = "".join(blocks)
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        f"<w:body>{body}"
+        f"{_docx_section_properties_xml('portrait')}</w:body></w:document>"
+    )
+
+
+def _docx_content_types_xml(*, include_png: bool = False) -> str:
+    png_default = '  <Default Extension="png" ContentType="image/png"/>\n' if include_png else ""
+    return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+{png_default.rstrip()}
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+  <Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>"""
+
+
+def _docx_package_rels_xml() -> str:
+    return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>"""
+
+
+def _docx_document_rels_xml(*, image_count: int = 0) -> str:
+    image_rels = "".join(
+        f'  <Relationship Id="rIdImage{index}" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
+        f'Target="media/image{index}.png"/>\n'
+        for index in range(1, image_count + 1)
+    )
+    return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>
+{image_rels.rstrip()}
+</Relationships>"""
+
+
+def _docx_core_xml() -> str:
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
+        'xmlns:dc="http://purl.org/dc/elements/1.1/" '
+        'xmlns:dcterms="http://purl.org/dc/terms/" '
+        'xmlns:dcmitype="http://purl.org/dc/dcmitype/" '
+        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+        "<dc:title>绿电直连项目方案策划报告模板</dc:title>"
+        "<dc:creator>Green Direct Planning Platform</dc:creator>"
+        "<cp:lastModifiedBy>Green Direct Planning Platform</cp:lastModifiedBy>"
+        f'<dcterms:created xsi:type="dcterms:W3CDTF">{timestamp}</dcterms:created>'
+        f'<dcterms:modified xsi:type="dcterms:W3CDTF">{timestamp}</dcterms:modified>'
+        "</cp:coreProperties>"
+    )
+
+
+def _docx_app_xml() -> str:
+    return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+  <Application>Green Direct Planning Platform</Application>
+</Properties>"""
+
+
+def _docx_settings_xml() -> str:
+    return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:zoom w:percent="100"/>
+  <w:defaultTabStop w:val="420"/>
+  <w:characterSpacingControl w:val="doNotCompress"/>
+</w:settings>"""
+
+
+def _docx_report_value(row: pd.Series | None, field: str, *, rate: bool = False, digits: int = 2) -> str:
+    if row is None:
+        return "-"
+    return _format_report_value(row.get(field), rate=rate, digits=digits)
+
+
+def _docx_report_price(row: pd.Series | None, field: str, *, signed: bool = False) -> str:
+    if row is None:
+        return "-"
+    return _format_price_value(row.get(field), signed=signed)
+
+
+def _report_landed_row(*rows: pd.Series | None) -> pd.Series | None:
+    for row in rows:
+        if row is not None and any(_is_present(row.get(field)) for field in LANDED_PRICE_FIELDS):
+            return row
+    return None
+
+
+def _report_context_row(
+    *,
+    summary: pd.DataFrame,
+    economy_summary: pd.DataFrame | None,
+    single_entity_summary: pd.DataFrame | None,
+    recommendation_portfolio: pd.DataFrame | None,
+    scenario_id: str,
+) -> pd.Series | None:
+    merged: dict[str, object] = {}
+    found = False
+    for source in [
+        _row_for_scenario(summary, scenario_id),
+        _row_for_scenario(economy_summary, scenario_id),
+        _row_for_scenario(single_entity_summary, scenario_id),
+        _row_for_scenario(recommendation_portfolio, scenario_id),
+    ]:
+        if source is None:
+            continue
+        found = True
+        for key, value in source.items():
+            if key not in merged or not _is_present(merged.get(key)):
+                merged[key] = value
+    if not found:
+        return None
+    merged["scenario_id"] = str(scenario_id)
+    return pd.Series(merged)
+
+
+def _report_scenario_ids(
+    *,
+    summary: pd.DataFrame,
+    selected_scenario_id: str,
+    comparison_summary: pd.DataFrame | None,
+    recommendation_portfolio: pd.DataFrame | None,
+    max_items: int = 5,
+) -> list[str]:
+    valid_ids = set(_valid_scenario_ids(summary))
+    if not valid_ids:
+        return []
+    ids: list[str] = []
+    for source_ids in [
+        [str(selected_scenario_id)],
+        (
+            recommendation_portfolio["scenario_id"].dropna().astype(str).tolist()
+            if recommendation_portfolio is not None and not recommendation_portfolio.empty and "scenario_id" in recommendation_portfolio.columns
+            else []
+        ),
+        (
+            comparison_summary["scenario_id"].dropna().astype(str).tolist()
+            if comparison_summary is not None and not comparison_summary.empty and "scenario_id" in comparison_summary.columns
+            else []
+        ),
+        summary["scenario_id"].dropna().astype(str).tolist() if "scenario_id" in summary.columns else [],
+    ]:
+        for raw_id in source_ids:
+            scenario_id = str(raw_id)
+            if scenario_id in valid_ids and scenario_id not in ids:
+                ids.append(scenario_id)
+            if len(ids) >= max_items:
+                return ids
+    return ids
+
+
+def _report_seat_text(row: pd.Series | None, *, final: bool = False) -> str:
+    if row is None:
+        return "最终推荐方案" if final else "-"
+    labels = (
+        str(row.get("recommendation_labels") or "")
+        .strip()
+        .replace(" FIRR ", "IRR")
+        .replace("电源侧IRR 最优", "电源侧IRR最优")
+        .replace("负荷侧可成交收益最优", "负荷侧收益最优")
+    )
+    if final:
+        return f"最终推荐/{labels}" if labels else "最终推荐方案"
+    return labels or "-"
+
+
+def _report_metric_row_value(row: pd.Series | None, field: str, *, rate: bool = False, digits: int = 2) -> str:
+    if row is None:
+        return "-"
+    return _format_report_value(row.get(field), rate=rate, digits=digits)
+
+
+def _report_investment_yi_value(row: pd.Series | None) -> str:
+    if row is None:
+        return "-"
+    for field in ("construction_cash_outflow_with_vat", "construction_cash_outflow", "initial_investment_basis"):
+        value = row.get(field)
+        if _is_present(value):
+            try:
+                return _format_report_value(float(value) / 10000.0, digits=2)
+            except (TypeError, ValueError):
+                return "-"
+    return "-"
+
+
+def _report_price_row_value(row: pd.Series | None, field: str, *, signed: bool = False) -> str:
+    if row is None:
+        return "-"
+    return _format_price_value(row.get(field), signed=signed)
+
+
+def _report_range_text(frame: pd.DataFrame | None, field: str, *, rate: bool = False, digits: int = 2) -> str:
+    if frame is None or frame.empty or field not in frame.columns:
+        return "-"
+    values = pd.to_numeric(frame[field], errors="coerce").dropna()
+    if values.empty:
+        return "-"
+    min_value = float(values.min())
+    max_value = float(values.max())
+    min_text = _format_report_value(min_value, rate=rate, digits=digits)
+    max_text = _format_report_value(max_value, rate=rate, digits=digits)
+    if min_text == max_text:
+        return min_text
+    return f"{min_text} 至 {max_text}"
+
+
+def _chart_sum_value(frame: pd.DataFrame | None, field: str) -> float:
+    if frame is None or frame.empty or field not in frame.columns:
+        return 0.0
+    return float(pd.to_numeric(frame[field], errors="coerce").fillna(0.0).sum())
+
+
+def _docx_chart_data_note(key: str, data: pd.DataFrame | None) -> str:
+    if data is None or data.empty:
+        return ""
+    if key == "energy_flow" and {"source", "target", "energy"}.issubset(data.columns):
+        values = pd.to_numeric(data["energy"], errors="coerce").fillna(0.0)
+        if not values.empty and float(values.max()) > 0:
+            row = data.loc[values.idxmax()]
+            return (
+                f"图中最大年度流向为{row.get('source')}至{row.get('target')}，"
+                f"约 {_format_report_value(values.max(), digits=0)} 万千瓦时。"
+            )
+    if key == "monthly_load_source":
+        required = ["direct_self_use_power", "bess_discharge_power", "grid_import_power"]
+        if "month" in data.columns and all(field in data.columns for field in required):
+            monthly = data.copy()
+            total = sum(pd.to_numeric(monthly[field], errors="coerce").fillna(0.0) for field in required)
+            grid = pd.to_numeric(monthly["grid_import_power"], errors="coerce").fillna(0.0)
+            share = grid / total.replace(0, pd.NA)
+            if share.notna().any():
+                idx = share.idxmax()
+                return (
+                    f"其中 {int(monthly.loc[idx, 'month'])} 月下网占比相对最高，"
+                    f"约 {_format_report_value(float(share.loc[idx]), rate=True)}，可作为低绿电覆盖月份重点复核。"
+                )
+    if key == "monthly_renewable_flow":
+        if "month" in data.columns and "curtail_power" in data.columns:
+            curtail = pd.to_numeric(data["curtail_power"], errors="coerce").fillna(0.0)
+            if not curtail.empty and float(curtail.max()) > 0:
+                idx = curtail.idxmax()
+                return (
+                    f"其中 {int(data.loc[idx, 'month'])} 月弃电量相对最高，"
+                    f"约 {_format_report_value(float(curtail.loc[idx]), digits=0)} 万千瓦时，需结合上网边界和储能利用复核。"
+                )
+    if key.startswith("typical_") or key.startswith("key_day_"):
+        load = pd.to_numeric(data.get("load_power", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
+        peak_text = ""
+        if not load.empty and float(load.max()) > 0:
+            idx = load.idxmax()
+            timestamp = pd.to_datetime(data.loc[idx, "timestamp"], errors="coerce") if "timestamp" in data.columns else pd.NaT
+            hour_text = f"{int(timestamp.hour)}时" if pd.notna(timestamp) else "峰值时段"
+            peak_text = f"该日负荷峰值约 {_format_report_value(float(load.max()))} 万千瓦，出现在{hour_text}。"
+        grid_import = _chart_sum_value(data, "grid_import_power")
+        curtail = _chart_sum_value(data, "curtail_power")
+        export = _chart_sum_value(data, "grid_export_power")
+        return (
+            f"{peak_text}"
+            f"该日下网电量约 {_format_report_value(grid_import, digits=0)} 万千瓦时，"
+            f"上网电量约 {_format_report_value(export, digits=0)} 万千瓦时，"
+            f"弃电量约 {_format_report_value(curtail, digits=0)} 万千瓦时。"
+        )
+    return ""
+
+
+def _report_final_summary_sentence(final_row: pd.Series | None, scenario_id: str, comparison_count: int) -> str:
+    if final_row is None:
+        return f"本报告默认以 {scenario_id} 作为最终推荐方案，并纳入 {comparison_count} 个代表方案进行横向比选。"
+    policy_text = "政策达标" if bool(final_row.get("pass_policy", False)) else "政策状态需复核"
+    green = _report_metric_row_value(final_row, "green_load_rate", rate=True)
+    firr = _report_metric_row_value(final_row, "firr", rate=True)
+    after_price = _report_price_row_value(final_row, "load_landed_price_after_green_with_vat")
+    return (
+        f"本报告默认以 {scenario_id} 作为最终推荐方案，纳入 {comparison_count} 个代表方案进行横向比选。"
+        f"该方案{policy_text}，绿电占比为 {green}，电源侧 FIRR 为 {firr}，绿电后综合用能侧结算单价为 {after_price}。"
+        "上述结论均读取平台既有技术仿真、经济性测算和推荐组合结果，不重新计算逐小时调度。"
+    )
+
+
+def _docx_chart_note(
+    key: str,
+    *,
+    selected_scenario_id: str,
+    selected_row: pd.Series | None,
+    comparison_summary: pd.DataFrame | None,
+    result_note: str | None,
+    result_data: pd.DataFrame | None = None,
+) -> str:
+    base_note = str(result_note or "").strip()
+    data_note = _docx_chart_data_note(key, result_data)
+    capacity = _capacity_config_text(selected_row) if selected_row is not None else "-"
+    if key == "multi_policy":
+        return (
+            f"该图用于比较报告组合内各代表方案的政策与运行指标。最终推荐方案 {selected_scenario_id} "
+            f"绿电占比为 {_report_metric_row_value(selected_row, 'green_load_rate', rate=True)}、"
+            f"自发自用率为 {_report_metric_row_value(selected_row, 'self_use_rate', rate=True)}、"
+            f"弃电率为 {_report_metric_row_value(selected_row, 'curtail_rate', rate=True)}、"
+            f"上网比例为 {_report_metric_row_value(selected_row, 'export_rate', rate=True)}；"
+            "正文结论应结合指标均衡性而不是单一最高值判断。"
+        )
+    if key == "multi_capacity":
+        return (
+            f"该图展示代表方案容量配置差异。最终推荐方案 {selected_scenario_id} 配置为 {capacity}；"
+            f"对比组光伏容量范围为 {_report_range_text(comparison_summary, 'pv_capacity')} 万kW，"
+            f"风电容量范围为 {_report_range_text(comparison_summary, 'wind_capacity')} 万kW，"
+            f"储能功率范围为 {_report_range_text(comparison_summary, 'bess_power')} 万kW，"
+            f"储能容量范围为 {_report_range_text(comparison_summary, 'bess_energy')} 万kWh。"
+        )
+    if key == "energy_flow":
+        return (
+            f"该图展示 {selected_scenario_id} 年度新能源、电网下网、储能、负荷、上网、弃电和损耗之间的能量流向。"
+            f"方案全年绿电占比为 {_report_metric_row_value(selected_row, 'green_load_rate', rate=True)}，"
+            f"自发自用率为 {_report_metric_row_value(selected_row, 'self_use_rate', rate=True)}，"
+            f"下网比例为 {_report_metric_row_value(selected_row, 'grid_import_rate', rate=True)}。"
+            "图中光伏、风电到各去向的拆分按年度发电占比分摊展示，年度电量来自 summary 和 hourly_detail 汇总。"
+            + (f"{data_note}" if data_note else "")
+        )
+    if key.startswith("typical_"):
+        season_labels = {
+            "typical_spring": "春季典型日",
+            "typical_summer": "夏季典型日",
+            "typical_autumn": "秋季典型日",
+            "typical_winter": "冬季典型日",
+        }
+        prefix = season_labels.get(key, "典型季节日")
+        return (
+            f"该图用于复核 {selected_scenario_id} 在{prefix}真实 24 小时内的负荷、新能源出力、下网、上网、弃电和储能 SOC 联动关系。"
+            "四季典型日应结合阅读，用于识别季节性资源差异、日内新能源消纳窗口和下网补充供电时段。"
+            "图中曲线仅读取逐小时台账进行展示，不平滑、不插值、不重算储能调度。"
+            + (f"{data_note}" if data_note else "")
+            + (f" {base_note}" if base_note else "")
+        )
+    if key.startswith("key_day_"):
+        key_day_labels = {
+            "key_day_max_load": "最大负荷日",
+            "key_day_max_curtail": "最大弃电日",
+            "key_day_max_grid_import": "最大下网日",
+            "key_day_soc_low": "SOC 最低日",
+            "key_day_soc_high": "SOC 最高日",
+        }
+        prefix = key_day_labels.get(key, "关键运行日")
+        return (
+            f"该图用于复核 {selected_scenario_id} 在{prefix}的运行边界。"
+            "关键运行日不是平均状态，而是用于暴露容量配置、消纳能力、下网依赖或储能边界的压力场景。"
+            "若该日出现集中下网、弃电或 SOC 长时间贴近上下限，正式报告应在风险提示中说明后续接入和调度复核重点。"
+            + (f"{data_note}" if data_note else "")
+            + (f" {base_note}" if base_note else "")
+        )
+    if key == "full_year_operation":
+        return (
+            f"该图用于复核 {selected_scenario_id} 全年逐小时运行边界。"
+            f"方案全年绿电占比为 {_report_metric_row_value(selected_row, 'green_load_rate', rate=True)}，"
+            f"下网比例为 {_report_metric_row_value(selected_row, 'grid_import_rate', rate=True)}，"
+            f"弃电率为 {_report_metric_row_value(selected_row, 'curtail_rate', rate=True)}。"
+            + (f"{data_note}" if data_note else "")
+        )
+    if key == "soc_full_year":
+        return (
+            f"该图用于检查 {selected_scenario_id} 储能 SOC 是否在全年运行中连续滚动并保持在约束范围内。"
+            f"当前储能配置为 {_report_metric_row_value(selected_row, 'bess_power')} 万kW / "
+            f"{_report_metric_row_value(selected_row, 'bess_energy')} 万kWh；若储能容量为 0，则该图主要作为无储能边界复核。"
+            + (f"{data_note}" if data_note else "")
+        )
+    if key == "grid_exchange":
+        return (
+            f"该图用于说明 {selected_scenario_id} 与电网的交换功率特征。"
+            f"报告口径下，上网比例为 {_report_metric_row_value(selected_row, 'export_rate', rate=True)}，"
+            f"下网比例为 {_report_metric_row_value(selected_row, 'grid_import_rate', rate=True)}；"
+            "需重点关注峰荷时段下网需求和新能源高发时段上网/弃电边界。"
+            + (f"{data_note}" if data_note else "")
+        )
+    if key == "monthly_load_source":
+        return (
+            f"该图按月拆分 {selected_scenario_id} 负荷由新能源自用和外部下网承担的结构，"
+            f"用于解释绿电占比 {_report_metric_row_value(selected_row, 'green_load_rate', rate=True)} "
+            "在季节之间的波动来源。"
+            + (f"{data_note}" if data_note else "")
+        )
+    if key == "monthly_renewable_flow":
+        return (
+            f"该图按月展示 {selected_scenario_id} 新能源发电去向。"
+            f"全年自发自用率为 {_report_metric_row_value(selected_row, 'self_use_rate', rate=True)}，"
+            f"弃电率为 {_report_metric_row_value(selected_row, 'curtail_rate', rate=True)}；"
+            "可用于判断储能配置、上网约束和负荷匹配之间的主要矛盾。"
+            + (f"{data_note}" if data_note else "")
+        )
+    return base_note or "本图读取平台已生成的数据表和逐小时台账，用于报告展示和人工复核。"
+
+
+def _build_official_docx_report_template(
+    *,
+    summary: pd.DataFrame,
+    selected_scenario_id: str,
+    economy_summary: pd.DataFrame | None,
+    single_entity_summary: pd.DataFrame | None,
+    comparison_summary: pd.DataFrame | None = None,
+    recommendation_portfolio: pd.DataFrame | None = None,
+    chart_images: list[dict[str, object]] | None = None,
+    chart_warnings: list[str] | None = None,
+) -> bytes:
+    technical = _row_for_scenario(summary, selected_scenario_id)
+    power_economy = _row_for_scenario(economy_summary, selected_scenario_id)
+    single_entity = _row_for_scenario(single_entity_summary, selected_scenario_id)
+    landed = _report_landed_row(power_economy, single_entity)
+    capacity = _capacity_config_text(technical) if technical is not None else "-"
+    normalized_chart_images: list[dict[str, object]] = []
+    for item in chart_images or []:
+        if not isinstance(item, dict):
+            continue
+        png_bytes = item.get("png_bytes")
+        if isinstance(png_bytes, bytearray):
+            png_bytes = bytes(png_bytes)
+        if not isinstance(png_bytes, bytes) or not png_bytes:
+            continue
+        title = str(item.get("title") or item.get("chart_name") or item.get("key") or f"报告图表{len(normalized_chart_images) + 1}")
+        note = str(item.get("note") or "")
+        normalized_chart_images.append({"title": title, "note": note, "png_bytes": png_bytes})
+
+    report_scenario_ids = _report_scenario_ids(
+        summary=summary,
+        selected_scenario_id=selected_scenario_id,
+        comparison_summary=comparison_summary,
+        recommendation_portfolio=recommendation_portfolio,
+        max_items=5,
+    )
+    final_row = _report_context_row(
+        summary=summary,
+        economy_summary=economy_summary,
+        single_entity_summary=single_entity_summary,
+        recommendation_portfolio=recommendation_portfolio,
+        scenario_id=selected_scenario_id,
+    )
+    context_rows = [
+        _report_context_row(
+            summary=summary,
+            economy_summary=economy_summary,
+            single_entity_summary=single_entity_summary,
+            recommendation_portfolio=recommendation_portfolio,
+            scenario_id=scenario_id,
+        )
+        for scenario_id in report_scenario_ids
+    ]
+    context_rows = [row for row in context_rows if row is not None]
+    comparison_context = pd.DataFrame([row.to_dict() for row in context_rows]) if context_rows else pd.DataFrame()
+    final_sentence = _report_final_summary_sentence(final_row, selected_scenario_id, len(report_scenario_ids))
+    representative_rows = []
+    for row in context_rows:
+        scenario_id = str(row.get("scenario_id", "-"))
+        representative_rows.append(
+            [
+                _report_seat_text(row, final=scenario_id == str(selected_scenario_id)),
+                scenario_id,
+                _report_metric_row_value(row, "pv_capacity"),
+                _report_metric_row_value(row, "wind_capacity"),
+                _report_metric_row_value(row, "bess_power"),
+                _report_metric_row_value(row, "bess_energy"),
+                _report_metric_row_value(row, "green_load_rate", rate=True),
+                _report_metric_row_value(row, "curtail_rate", rate=True),
+                _report_metric_row_value(row, "self_use_rate", rate=True),
+                _report_investment_yi_value(row),
+                _report_metric_row_value(row, "firr", rate=True),
+            ]
+        )
+    technical_compare_rows = [
+        [
+            str(row.get("scenario_id", "-")),
+            _report_metric_row_value(row, "green_load_rate", rate=True),
+            _report_metric_row_value(row, "self_use_rate", rate=True),
+            _report_metric_row_value(row, "curtail_rate", rate=True),
+            _report_metric_row_value(row, "export_rate", rate=True),
+            _report_metric_row_value(row, "grid_import_rate", rate=True),
+        ]
+        for row in context_rows
+    ]
+    economy_compare_rows = [
+        [
+            str(row.get("scenario_id", "-")),
+            _report_price_row_value(row, "load_landed_price_after_green_with_vat"),
+            _report_price_row_value(row, "load_landed_price_delta_with_vat", signed=True),
+            _report_metric_row_value(row, "firr", rate=True),
+            _report_metric_row_value(row, "single_entity_firr_pre_tax", rate=True),
+            _report_metric_row_value(row, "load_side_annual_benefit", digits=0),
+        ]
+        for row in context_rows
+    ]
+
+    technical_rows = [
+        ["方案编号", str(selected_scenario_id), "跨模块主键"],
+        ["容量配置", capacity, "光伏/风电/储能功率/储能容量"],
+        ["政策达标", "是" if technical is not None and bool(technical.get("pass_policy", False)) else "否或暂缺", "按当前政策约束判断"],
+        ["绿电占比", _docx_report_value(technical, "green_load_rate", rate=True), "自发自用绿电量/总负荷电量"],
+        ["自发自用率", _docx_report_value(technical, "self_use_rate", rate=True), "自发自用绿电量/新能源发电量"],
+        ["上网比例", _docx_report_value(technical, "export_rate", rate=True), "上网电量/新能源发电量"],
+        ["弃电率", _docx_report_value(technical, "curtail_rate", rate=True), "弃电量/新能源发电量"],
+    ]
+    price_rows = [
+        ["外部购网路径", "下网电量 × 下网到户价", "下网到户价只作用于外部购网/下网电量。"],
+        [
+            "绿电自用路径",
+            "自发自用绿电量 ×（绿电结算价 + 绿电仍缴输配 + 绿电仍缴基金）",
+            "绿电仍缴输配和绿电仍缴基金只作用于自发自用绿电路径。",
+        ],
+        [
+            "绿电后综合到户价",
+            "（下网电量 × 下网到户价 + 自发自用绿电量 × 绿电自用到户价）/ 总负荷电量",
+            "不要把下网到户价与仍缴费用直接相加。",
+        ],
+        ["绿电前综合到户价", _docx_report_price(landed, "load_landed_price_before_green_with_vat"), "绿电接入前全部负荷按下网路径计价。"],
+        ["绿电后综合到户价", _docx_report_price(landed, "load_landed_price_after_green_with_vat"), "绿电接入后按下网路径和绿电自用路径加权。"],
+        ["绿电自用到户价", _docx_report_price(landed, "green_self_use_landed_price_with_vat_effective"), "绿电结算价 + 仍缴输配 + 仍缴基金。"],
+        ["下网路径到户价", _docx_report_price(landed, "weighted_down_grid_landed_price_with_vat"), "固定价模式为页面输入值，曲线模式为下网电量加权价。"],
+    ]
+    economy_rows = [
+        ["电源侧 FIRR", _docx_report_value(power_economy, "firr", rate=True), "电源侧投资评价指标"],
+        ["电源侧 FNPV", f"{_docx_report_value(power_economy, 'fnpv', digits=0)} 万元", "折现后净现值"],
+        ["静态回收期", f"{_docx_report_value(power_economy, 'static_payback_year', digits=1)} 年", "未折现现金流口径"],
+        ["同一主体税前 FIRR", _docx_report_value(single_entity, "single_entity_firr_pre_tax", rate=True), "同一主体视角"],
+        ["同一主体税前 FNPV", f"{_docx_report_value(single_entity, 'single_entity_fnpv_pre_tax', digits=0)} 万元", "同一主体视角"],
+    ]
+    chart_rows = [
+        ["图1", "方案组合政策指标与容量配置对比图", "说明代表方案之间的政策余量、容量配置和推荐取舍。"],
+        ["图2", "推荐方案年度能源流向图", "说明新能源、电网下网、储能、负荷、上网、弃电和损耗之间的年度流向。"],
+        ["图3", "月度新能源能量流向与负荷供电来源图", "说明新能源电量去向、负荷来源和季节性外部购网依赖。"],
+        ["图4", "四季典型日 24H 运行曲线图", "春、夏、秋、冬各选一个真实典型日，说明季节差异。"],
+        ["图5", "关键运行日 24H 运行曲线图", "至少包含最大负荷、最大弃电、最大下网等压力场景。"],
+        ["图6", "全年 8760/8784 运行曲线、SOC 与电网交换图", "说明全年运行边界、储能利用和公共电网交互特征。"],
+    ]
+    chart_image_blocks: list[str] = []
+    for index, image in enumerate(normalized_chart_images, start=1):
+        title = str(image["title"])
+        png_bytes = image["png_bytes"]
+        assert isinstance(png_bytes, bytes)
+        chart_image_blocks.append(_docx_image_paragraph(f"rIdImage{index}", index, title, png_bytes))
+        chart_image_blocks.append(_docx_paragraph(f"图{index} {title}", style="CaptionCN", alignment="center"))
+        if image.get("note"):
+            chart_image_blocks.append(_docx_paragraph(str(image["note"]), style="CaptionCN"))
+    if chart_warnings:
+        chart_image_blocks.append(_docx_paragraph("图表生成说明", style="Heading2CN", font="楷体_GB2312", bold=True))
+        for warning in chart_warnings[:8]:
+            chart_image_blocks.append(_docx_paragraph(f"（{warning}）", style="CaptionCN"))
+
+    blocks = [
+        _docx_paragraph("绿电直连项目方案策划报告", style="ReportTitleCN", alignment="center", font="方正小标宋简体", bold=True),
+        _docx_paragraph("（平台自动生成报告模板）", style="MetaCN", alignment="center"),
+        _docx_paragraph("编制单位：______________    编制日期：____年__月__日", style="MetaCN", alignment="center"),
+        _docx_paragraph("一、项目摘要与结论", style="Heading1CN", font="黑体", bold=True),
+        _docx_paragraph(final_sentence),
+        _docx_paragraph(
+            "报告正文聚焦 3-5 个代表方案的横向比较：最终推荐方案用于形成结论，其他代表方案用于说明政策、容量、消纳和经济性之间的取舍。全量方案汇总、所选方案逐小时台账和现金流明细由平台 Excel/ZIP 导出包提供，DOCX 正文不重复承载明细表。",
+        ),
+        _docx_section_break_paragraph("portrait"),
+        _docx_paragraph("表1 代表方案组合汇总表（容量单位：万千瓦；储能容量：万千瓦时；建设投资：亿元）", style="CaptionCN"),
+        _docx_table(
+            ["方案定位", "方案编号", "光伏", "风电", "储能功率", "储能容量", "绿电占比", "弃电率", "自发自用率", "建设投资", "电源侧IRR"],
+            representative_rows,
+            [2200, 1100, 850, 850, 1050, 1050, 1250, 1100, 1400, 1200, 1727],
+            table_width_dxa=DOCX_A4_LANDSCAPE_CONTENT_WIDTH_DXA,
+        ),
+        _docx_section_break_paragraph("landscape"),
+        _docx_paragraph("表2 最终推荐方案核心指标", style="CaptionCN"),
+        _docx_table(["项目", "当前值", "说明"], technical_rows, [1800, 4300, 2744]),
+        _docx_paragraph("二、输入数据与测算口径", style="Heading1CN", font="黑体", bold=True),
+        _docx_paragraph(
+            "平台以小时级负荷、光伏和风电曲线作为技术测算基础。储能按既有基线策略运行：仅由富余新能源充电，不从电网充电，不向电网放电，并按逐小时 SOC 连续滚动。经济性模块读取技术结果和用户输入参数，不反向改变逐小时调度路径。",
+        ),
+        _docx_paragraph("三、代表方案技术指标对比", style="Heading1CN", font="黑体", bold=True),
+        _docx_paragraph(
+            "技术指标对比用于判断方案是否均衡：绿电占比反映负荷由绿电覆盖的程度，自发自用率反映新能源消纳效率，弃电率和上网比例反映容量配置与负荷匹配关系，下网比例反映外部电网依赖程度。",
+        ),
+        _docx_paragraph("表3 代表方案技术指标对比", style="CaptionCN"),
+        _docx_table(["方案编号", "绿电占比", "自发自用率", "弃电率", "上网比例", "下网比例"], technical_compare_rows, [1300, 1500, 1500, 1400, 1400, 1744]),
+        _docx_paragraph("四、用能侧结算口径", style="Heading1CN", font="黑体", bold=True),
+        _docx_paragraph(
+            "用能侧结算采用两条路径分别计价：外部购网路径使用下网到户价；自发自用绿电路径使用绿电结算价加仍需缴纳的输配电价和政府性基金及附加。二者按对应电量加权形成绿电后综合到户价。",
+        ),
+        _docx_paragraph("表4 用能侧结算关系和最终推荐方案展示值", style="CaptionCN"),
+        _docx_table(["项目", "公式或当前值", "说明"], price_rows, [1800, 4100, 2944]),
+        _docx_paragraph("五、经济性测算结果", style="Heading1CN", font="黑体", bold=True),
+        _docx_paragraph(
+            "本节列示平台当前已实现的经济性视角结果。若某项显示为“-”，说明当前流程尚未生成对应视角或该方案缺少必要现金流数据，不应在正式报告中作外推结论。",
+        ),
+        _docx_paragraph("表5 代表方案经济性与用能侧结算对比", style="CaptionCN"),
+        _docx_table(["方案编号", "绿电后综合结算单价", "后-前", "电源侧FIRR", "同一主体FIRR", "负荷侧收益"], economy_compare_rows, [1300, 1850, 1200, 1500, 1650, 1344]),
+        _docx_paragraph("表6 最终推荐方案经济性摘要", style="CaptionCN"),
+        _docx_table(["指标", "数值", "说明"], economy_rows, [2200, 2500, 4144]),
+        _docx_paragraph("六、图表复核与报告插图", style="Heading1CN", font="黑体", bold=True),
+        _docx_paragraph(
+            "本节自动嵌入可生成的关键图表，正文图表聚焦推荐方案的比选、运行边界和能量流向；全量小时级数据、全量方案池和完整现金流由平台导出包提供，避免 DOCX 正文变成软件截图或明细表合集。",
+        ),
+        _docx_paragraph("表7 报告插图清单", style="CaptionCN"),
+        _docx_table(["序号", "图表名称", "使用说明"], chart_rows, [900, 2600, 5344]),
+        *chart_image_blocks,
+        _docx_paragraph("七、结论及建议", style="Heading1CN", font="黑体", bold=True),
+        _docx_paragraph(
+            "建议结合推荐方案席位、政策达标情况、绿电占比、弃电率、上网比例、到户电价变化和经济性指标进行综合判断。正式报告应补充项目业主、接入边界、政策批复、投资估算来源、价格依据和风险提示等外部资料。",
+        ),
+        _docx_paragraph("配套导出说明", style="Heading1CN", font="黑体", bold=True),
+        _docx_paragraph(
+            "完整候选方案池、所选方案逐小时能量台账、全部 PNG/HTML 图表包和经济性现金流复核表应通过下载报告页面的 Excel/ZIP 导出功能另行提供。本 DOCX 只保留关键结论、代表方案对比、核心图表和必要口径说明，不嵌入完整明细表。",
+        ),
+    ]
+
+    output = BytesIO()
+    with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", _docx_content_types_xml(include_png=bool(normalized_chart_images)))
+        archive.writestr("_rels/.rels", _docx_package_rels_xml())
+        archive.writestr("docProps/core.xml", _docx_core_xml())
+        archive.writestr("docProps/app.xml", _docx_app_xml())
+        archive.writestr("word/document.xml", _docx_document_xml(blocks))
+        archive.writestr("word/_rels/document.xml.rels", _docx_document_rels_xml(image_count=len(normalized_chart_images)))
+        archive.writestr("word/styles.xml", _docx_styles_xml())
+        archive.writestr("word/settings.xml", _docx_settings_xml())
+        for index, image in enumerate(normalized_chart_images, start=1):
+            png_bytes = image["png_bytes"]
+            assert isinstance(png_bytes, bytes)
+            archive.writestr(f"word/media/image{index}.png", png_bytes)
+    return output.getvalue()
 
 
 def _safe_export_name(text: str) -> str:
@@ -8503,6 +10025,40 @@ def _comparison_summary_from_portfolio(
     return comparison.sort_values("_display_order").drop(columns=["_display_order"])
 
 
+def _first_portfolio_export_scenario_id(scenario_ids: list[str], recommendation_result) -> str | None:
+    if not scenario_ids:
+        return None
+    portfolio = getattr(recommendation_result, "portfolio", None)
+    if isinstance(portfolio, pd.DataFrame) and not portfolio.empty and "scenario_id" in portfolio.columns:
+        valid_ids = set(str(item) for item in scenario_ids)
+        for raw_id in portfolio["scenario_id"].dropna().astype(str).tolist():
+            if raw_id in valid_ids:
+                return raw_id
+    return None
+
+
+def _power_side_firr_export_scenario_id(scenario_ids: list[str], recommendation_result) -> str | None:
+    if not scenario_ids:
+        return None
+    portfolio = getattr(recommendation_result, "portfolio", None)
+    if not isinstance(portfolio, pd.DataFrame) or portfolio.empty or "scenario_id" not in portfolio.columns:
+        return None
+    valid_ids = set(str(item) for item in scenario_ids)
+    if "seat_id" in portfolio.columns:
+        for _, row in portfolio.iterrows():
+            scenario_id = str(row.get("scenario_id", ""))
+            seat_id = str(row.get("seat_id", ""))
+            if scenario_id in valid_ids and "power_side_firr_best" in seat_id:
+                return scenario_id
+    if "recommendation_labels" in portfolio.columns:
+        for _, row in portfolio.iterrows():
+            scenario_id = str(row.get("scenario_id", ""))
+            labels = str(row.get("recommendation_labels", ""))
+            if scenario_id in valid_ids and "电源" in labels and ("FIRR" in labels or "IRR" in labels):
+                return scenario_id
+    return None
+
+
 def _default_export_scenario_id(
     scenario_ids: list[str],
     current_value: str | None,
@@ -8511,15 +10067,15 @@ def _default_export_scenario_id(
     if not scenario_ids:
         return None
     scenario_ids = [str(item) for item in scenario_ids]
+
+    power_side_default = _power_side_firr_export_scenario_id(scenario_ids, recommendation_result)
+    if power_side_default is not None:
+        return power_side_default
+    portfolio_default = _first_portfolio_export_scenario_id(scenario_ids, recommendation_result)
+    if portfolio_default is not None:
+        return portfolio_default
     if current_value is not None and str(current_value) in scenario_ids:
         return str(current_value)
-
-    portfolio = getattr(recommendation_result, "portfolio", None)
-    if isinstance(portfolio, pd.DataFrame) and not portfolio.empty and "scenario_id" in portfolio.columns:
-        valid_ids = set(scenario_ids)
-        for raw_id in portfolio["scenario_id"].dropna().astype(str).tolist():
-            if raw_id in valid_ids:
-                return raw_id
     return scenario_ids[0]
 
 
@@ -8565,6 +10121,71 @@ def _build_chart_html_zip(
     return output.getvalue()
 
 
+def _format_export_date_label(date_value) -> str:
+    try:
+        return pd.Timestamp(date_value).strftime("%Y-%m-%d")
+    except (TypeError, ValueError):
+        return str(date_value)
+
+
+def _export_day_frame_for_date(data: pd.DataFrame, date_value) -> pd.DataFrame:
+    if data.empty or "date" not in data.columns:
+        return pd.DataFrame()
+    day = data[data["date"] == date_value].copy()
+    if day.empty:
+        return day
+    if "hour" in day.columns:
+        day["_export_hour"] = pd.to_numeric(day["hour"], errors="coerce")
+        day = day.dropna(subset=["_export_hour"]).drop_duplicates(subset=["_export_hour"]).sort_values("_export_hour")
+        day = day[day["_export_hour"].astype(int).between(0, 23)].head(24).drop(columns=["_export_hour"])
+    elif "timestamp" in day.columns:
+        day = day.sort_values("timestamp").head(24)
+    else:
+        day = day.head(24)
+    return day.copy() if len(day) >= 24 else pd.DataFrame()
+
+
+def _select_distinct_operating_day(
+    adapted_hourly: pd.DataFrame,
+    *,
+    mode: str,
+    used_dates: set[object],
+) -> tuple[pd.DataFrame, str]:
+    ranking = {
+        "最大负荷日": ("load_power", "sum", False),
+        "最大弃电日": ("curtail_power", "sum", False),
+        "最大下网日": ("grid_import_power", "sum", False),
+        "SOC 最低日": ("soc_end", "min", True),
+        "SOC 最高日": ("soc_end", "max", False),
+    }
+    if "date" not in adapted_hourly.columns or mode not in ranking:
+        return select_operating_day(adapted_hourly, mode=mode)
+    field, agg, ascending = ranking[mode]
+    if field not in adapted_hourly.columns:
+        return select_operating_day(adapted_hourly, mode=mode)
+
+    daily = (
+        adapted_hourly.dropna(subset=["date"])
+        .assign(_export_metric=pd.to_numeric(adapted_hourly[field], errors="coerce"))
+        .groupby("date")["_export_metric"]
+        .agg(agg)
+        .dropna()
+        .sort_values(ascending=ascending)
+    )
+    fallback: tuple[pd.DataFrame, str] | None = None
+    for date_value, metric_value in daily.items():
+        day = _export_day_frame_for_date(adapted_hourly, date_value)
+        if day.empty:
+            continue
+        label = f"{_format_export_date_label(date_value)}（{mode}，指标值 {_compact_number(metric_value, digits=2)}）"
+        candidate = (day, label)
+        if fallback is None:
+            fallback = candidate
+        if date_value not in used_dates:
+            return candidate
+    return fallback if fallback is not None else select_operating_day(adapted_hourly, mode=mode)
+
+
 def _build_chart_export_items(
     summary: pd.DataFrame,
     selected_scenario_id: str,
@@ -8586,6 +10207,7 @@ def _build_chart_export_items(
 
     if selected_summary is not None:
         chart_items.append(("single_policy", build_policy_bar_chart(selected_summary)))
+        chart_items.append(("energy_flow", build_energy_flow_chart(hourly, selected_summary)))
 
     for season in ["春季", "夏季", "秋季", "冬季"]:
         season_key = season_export_keys[season]
@@ -8597,22 +10219,26 @@ def _build_chart_export_items(
         if selected_date.empty:
             warnings.append(f"{season}典型日未生成：无法解析选中日期。")
             continue
+        selected_date_value = selected_date.iloc[0]
+        selected_date_label = _format_export_date_label(selected_date_value)
         result = build_daily_balance_chart(
             hourly,
-            selected_date=selected_date.iloc[0],
-            title=f"24H 典型日运行策略 · {season}",
-            chart_name=f"{season}典型日运行策略图",
+            selected_date=selected_date_value,
+            title=f"24H 典型日运行策略 · {season}（{selected_date_label}）",
+            chart_name=f"{season}典型日运行策略图（{selected_date_label}）",
         )
         result.chart_id = f"S03_{season_key}"
-        result.chart_name = f"{season}典型日运行策略图"
+        result.chart_name = f"{season}典型日运行策略图（{selected_date_label}）"
         result.meta["typical_day_label"] = selection.label
+        result.meta["selected_date"] = selected_date_label
         result.meta["typical_day_season"] = season
         result.meta["typical_day_method"] = selection.method
         chart_items.append((f"typical_{season_key}", result))
 
     adapted_hourly = adapt_hourly(hourly).data
+    used_key_day_dates: set[object] = set()
     for mode, key in key_day_export_keys.items():
-        day, label = select_operating_day(adapted_hourly, mode=mode)
+        day, label = _select_distinct_operating_day(adapted_hourly, mode=mode, used_dates=used_key_day_dates)
         if day.empty or "timestamp" not in day.columns:
             warnings.append(f"{mode}未生成：缺少可用逐小时日期。")
             continue
@@ -8620,16 +10246,20 @@ def _build_chart_export_items(
         if selected_date.empty:
             warnings.append(f"{mode}未生成：无法解析选中日期。")
             continue
+        selected_date_value = selected_date.iloc[0]
+        selected_date_label = _format_export_date_label(selected_date_value)
+        used_key_day_dates.add(selected_date_value)
         result = build_daily_balance_chart(
             hourly,
-            selected_date=selected_date.iloc[0],
-            title=f"24H 关键运行日 · {mode}",
-            chart_name=f"关键运行日运行策略图（{mode}）",
+            selected_date=selected_date_value,
+            title=f"24H 关键运行日 · {mode}（{selected_date_label}）",
+            chart_name=f"关键运行日运行策略图（{mode}，{selected_date_label}）",
         )
         result.chart_id = f"S03_key_{key}"
-        result.chart_name = f"关键运行日运行策略图（{mode}）"
+        result.chart_name = f"关键运行日运行策略图（{mode}，{selected_date_label}）"
         result.meta["key_day_label"] = label
         result.meta["key_day_mode"] = mode
+        result.meta["selected_date"] = selected_date_label
         result.meta["key_day_method"] = "按逐小时台账对应指标排序选取真实 24 小时日期。"
         chart_items.append((f"key_day_{key}", result))
 
@@ -8649,6 +10279,80 @@ def _build_chart_export_items(
     )
 
     return chart_items, warnings, comparison_summary
+
+
+DOCX_REPORT_CHART_ORDER = [
+    ("multi_policy", "方案组合政策指标对比图"),
+    ("multi_capacity", "推荐方案容量配置对比图"),
+    ("energy_flow", "推荐方案年度能源流向图"),
+    ("monthly_renewable_flow", "推荐方案月度新能源能量流向图"),
+    ("monthly_load_source", "推荐方案月度负荷供电来源图"),
+    ("typical_spring", "春季典型日 24H 运行曲线图"),
+    ("typical_summer", "夏季典型日 24H 运行曲线图"),
+    ("typical_autumn", "秋季典型日 24H 运行曲线图"),
+    ("typical_winter", "冬季典型日 24H 运行曲线图"),
+    ("key_day_max_load", "最大负荷日 24H 运行曲线图"),
+    ("key_day_max_curtail", "最大弃电日 24H 运行曲线图"),
+    ("key_day_max_grid_import", "最大下网日 24H 运行曲线图"),
+    ("full_year_operation", "推荐方案全年运行时序图"),
+    ("soc_full_year", "推荐方案储能 SOC 全年变化图"),
+    ("grid_exchange", "推荐方案电网交换功率图"),
+]
+
+
+def _build_docx_report_chart_images(
+    summary: pd.DataFrame,
+    selected_scenario_id: str,
+    hourly: pd.DataFrame,
+    comparison_summary: pd.DataFrame | None = None,
+) -> tuple[list[dict[str, object]], list[str]]:
+    profile = DOCX_A4_PORTRAIT_PROFILE
+    selected_summary = _row_for_scenario(summary, selected_scenario_id)
+    chart_items, warnings, _comparison_summary = _build_chart_export_items(
+        summary,
+        selected_scenario_id,
+        hourly,
+        comparison_summary=comparison_summary,
+    )
+    chart_by_key = {key: result for key, result in chart_items}
+    render_plan = []
+    for key, title in DOCX_REPORT_CHART_ORDER:
+        result = chart_by_key.get(key)
+        if result is None:
+            warnings.append(f"{title}未生成：缺少可用图表数据。")
+            continue
+        if result.figure is None:
+            warnings.extend(result.warnings)
+            warnings.append(f"{title}未生成：图表对象为空。")
+            continue
+        render_plan.append((key, title, result))
+
+    images: list[dict[str, object]] = []
+    for index, (key, title, result) in enumerate(render_plan):
+        try:
+            png_bytes = chart_to_png_bytes(result, profile=profile)
+        except Exception as exc:  # noqa: BLE001 - keep report generation alive
+            warnings.append(f"{title} PNG 生成失败：{exc}")
+            continue
+        image_title = title
+        if key.startswith("typical_") or key.startswith("key_day_"):
+            image_title = str(result.chart_name or title)
+        images.append(
+            {
+                "key": key,
+                "title": image_title,
+                "note": _docx_chart_note(
+                    key,
+                    selected_scenario_id=selected_scenario_id,
+                    selected_row=selected_summary,
+                    comparison_summary=_comparison_summary,
+                    result_note=result.note,
+                    result_data=result.data,
+                ),
+                "png_bytes": png_bytes,
+            }
+        )
+    return images, warnings
 
 
 def _build_chart_png_docx_zip(
@@ -9036,11 +10740,24 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
         except Exception:  # noqa: BLE001 - export page should continue without recommendation scope
             recommendation_result_for_export = None
 
-    default_export_id = _default_export_scenario_id(
-        scenario_ids,
-        st.session_state.get("export_report_scenario"),
-        recommendation_result_for_export,
+    recommended_default_id = (
+        _power_side_firr_export_scenario_id(scenario_ids, recommendation_result_for_export)
+        or _first_portfolio_export_scenario_id(scenario_ids, recommendation_result_for_export)
     )
+    default_anchor_key = "_export_report_recommendation_default_id"
+    if recommended_default_id is not None and st.session_state.get(default_anchor_key) != recommended_default_id:
+        st.session_state["export_report_scenario"] = recommended_default_id
+        st.session_state[default_anchor_key] = recommended_default_id
+
+    current_export_value = st.session_state.get("export_report_scenario")
+    if current_export_value is not None and str(current_export_value) in scenario_ids:
+        default_export_id = str(current_export_value)
+    else:
+        default_export_id = _default_export_scenario_id(
+            scenario_ids,
+            current_export_value,
+            recommendation_result_for_export,
+        )
     selected_index = scenario_ids.index(default_export_id) if default_export_id in scenario_ids else 0
     selected_id = st.selectbox(
         "选择报告和逐小时复核方案",
@@ -9074,6 +10791,17 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
         unsafe_allow_html=True,
     )
 
+    report_summary = _merge_landed_price_context(summary, economy_summary)
+    recommendation_portfolio_for_export = (
+        recommendation_result_for_export.portfolio
+        if recommendation_result_for_export and isinstance(recommendation_result_for_export.portfolio, pd.DataFrame)
+        else None
+    )
+    comparison_summary = _comparison_summary_from_portfolio(
+        report_summary,
+        selected_id,
+        recommendation_portfolio_for_export,
+    )
     technical_col, chart_col, report_col = st.columns(3)
     with technical_col:
         with st.container(border=True):
@@ -9149,15 +10877,10 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
                 """,
                 unsafe_allow_html=True,
             )
-            comparison_summary = _comparison_summary_from_portfolio(
-                summary,
-                selected_id,
-                recommendation_result_for_export.portfolio if recommendation_result_for_export else None,
-            )
-            _render_chart_png_docx_export_panel(st, summary, selected_id, hourly, comparison_summary)
+            _render_chart_png_docx_export_panel(st, report_summary, selected_id, hourly, comparison_summary)
             if st.checkbox("准备所选方案图表 HTML ZIP", value=False, key="export_prepare_chart_html"):
                 with st.spinner("正在生成图表 HTML ZIP..."):
-                    chart_zip = _build_chart_html_zip(summary, selected_id, hourly, comparison_summary=comparison_summary)
+                    chart_zip = _build_chart_html_zip(report_summary, selected_id, hourly, comparison_summary=comparison_summary)
                 chart_html_file = f"chart_html_{selected_id}.zip"
                 st.download_button(
                     "下载所选方案图表 HTML ZIP",
@@ -9242,7 +10965,7 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
                     export_key="simple_markdown_report",
                     file_name=f"green_direct_report_{selected_id}.md",
                     content_type="text/markdown",
-                    size_bytes=len(markdown_report.encode("utf-8")),
+                    size_bytes=_payload_size_bytes(markdown_report),
                     metadata={"scenario_id": selected_id},
                 ),
             )
@@ -9258,6 +10981,89 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
                 )
                 if persisted is not None:
                     st.success("Markdown 报告已保存到项目历史。")
+
+            docx_signature_payload = "|".join(
+                [
+                    "official_docx_report_v4",
+                    _chart_png_docx_export_signature(selected_id, report_summary, hourly, comparison_summary),
+                    _dataframe_content_signature(economy_summary),
+                    _dataframe_content_signature(single_entity_summary),
+                    _dataframe_content_signature(recommendation_portfolio_for_export),
+                ]
+            )
+            docx_signature = hashlib.sha1(docx_signature_payload.encode("utf-8")).hexdigest()[:16]
+            docx_cache = st.session_state.get("_official_docx_report_cache")
+            cached_docx_ready = (
+                isinstance(docx_cache, dict)
+                and docx_cache.get("signature") == docx_signature
+                and isinstance(docx_cache.get("bytes"), (bytes, bytearray))
+            )
+            prepare_docx = st.checkbox(
+                "准备公文版 DOCX 报告（含图表）",
+                value=bool(cached_docx_ready),
+                key="export_prepare_official_docx_report",
+                help="勾选后才渲染 Word 用 PNG 并生成 DOCX，避免进入导出页时被静态图生成阻塞。",
+            )
+            if not prepare_docx:
+                st.caption("DOCX 含图表报告按需生成；页面先保持轻量，Excel、Markdown 和图表包可先下载。")
+            else:
+                if cached_docx_ready:
+                    docx_report = bytes(docx_cache["bytes"])
+                    docx_chart_warnings = docx_cache.get("warnings", [])
+                else:
+                    with st.spinner("正在生成含图表的 DOCX 报告模板..."):
+                        docx_chart_images, docx_chart_warnings = _build_docx_report_chart_images(
+                            report_summary,
+                            selected_id,
+                            hourly,
+                            comparison_summary=comparison_summary,
+                        )
+                        docx_report = _build_official_docx_report_template(
+                            summary=report_summary,
+                            selected_scenario_id=selected_id,
+                            economy_summary=economy_summary,
+                            single_entity_summary=single_entity_summary,
+                            comparison_summary=comparison_summary,
+                            recommendation_portfolio=recommendation_portfolio_for_export,
+                            chart_images=docx_chart_images,
+                            chart_warnings=docx_chart_warnings,
+                        )
+                    st.session_state["_official_docx_report_cache"] = {
+                        "signature": docx_signature,
+                        "bytes": docx_report,
+                        "warnings": docx_chart_warnings,
+                    }
+                if docx_chart_warnings:
+                    st.caption("DOCX 已生成；部分图表未能生成静态图片，原因已写入报告正文的图表生成说明。")
+                docx_file = f"green_direct_report_template_{selected_id}.docx"
+                st.download_button(
+                    "下载公文版 DOCX 报告模板（含图表）",
+                    data=docx_report,
+                    file_name=docx_file,
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    key="export_official_docx_report_template",
+                    help="已写入最终推荐方案、3-5 个代表方案对比、关键技术/经济/用能侧结算口径和可生成图表；全量明细仍通过 Excel/ZIP 导出复核。",
+                    **_pilot_transient_export_download_kwargs(
+                        st,
+                        export_key="official_docx_report_template",
+                        file_name=docx_file,
+                        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        size_bytes=_payload_size_bytes(docx_report),
+                        metadata={"scenario_id": selected_id},
+                    ),
+                )
+                if _pilot_auth_enabled() and st.button("保存 DOCX 报告模板到项目历史", key="export_store_docx_report_template"):
+                    persisted = _persist_pilot_export_artifact_if_enabled(
+                        st,
+                        artifact_key="docx_template",
+                        payload=docx_report,
+                        filename=f"green_direct_report_template_{selected_file_key}.docx",
+                        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        artifact_kind=ArtifactKind.REPORT,
+                        metadata={"scenario_id": selected_id},
+                    )
+                    if persisted is not None:
+                        st.success("DOCX 报告模板已保存到项目历史。")
 
     with st.expander("高级：年度现金流与推荐组合导出", expanded=False):
         st.caption("这里保留经济性复核文件和推荐组合 Excel，避免默认导出页过载。")
@@ -9457,11 +11263,13 @@ def _render_simulation_page(st) -> None:
                 accept_multiple_files=True,
                 help=(
                     "一次选择负荷、光伏、风电 CSV，并可同时加入下网电价曲线 CSV/XLSX；"
+                    "负荷曲线单位为万kW，光伏/风电曲线为单位容量出力系数（p.u.）；"
                     "技术曲线文件名包含 load、pv/solar、wind 或中文关键词时自动识别，"
                     f"电价曲线文件名建议包含“电价/价格/下网/price”。{_upload_limit_caption()}"
                 ),
                 key="simulation_batch_curve_csv",
             )
+            st.caption("计量单位：负荷曲线为功率（万kW）；光伏、风电曲线为单位容量出力系数（p.u.，通常 0-1），平台按候选装机容量折算为万kW。")
             batch_files, batch_upload_infos = _filter_uploads_for_ui(
                 st,
                 batch_files,
@@ -9480,9 +11288,9 @@ def _render_simulation_page(st) -> None:
                     unsafe_allow_html=True,
                 )
                 c1, c2, c3 = st.columns(3)
-                load_file_manual = c1.file_uploader("负荷 CSV", type=["csv"], key="load_csv_manual")
-                pv_file_manual = c2.file_uploader("光伏 CSV", type=["csv"], key="pv_csv_manual")
-                wind_file_manual = c3.file_uploader("风电 CSV", type=["csv"], key="wind_csv_manual")
+                load_file_manual = c1.file_uploader("负荷曲线 CSV（万kW）", type=["csv"], key="load_csv_manual")
+                pv_file_manual = c2.file_uploader("光伏出力系数 CSV（p.u.）", type=["csv"], key="pv_csv_manual")
+                wind_file_manual = c3.file_uploader("风电出力系数 CSV（p.u.）", type=["csv"], key="wind_csv_manual")
                 manual_upload_infos: dict[int, UploadFileInfo] = {}
                 load_file_manual, load_file_manual_info = _validate_single_upload(
                     st,
@@ -9643,7 +11451,8 @@ def _render_simulation_page(st) -> None:
             stored_scenario_mode = str(_stored_widget_value(st, "simulation_scenario_pool_mode", scenario_mode_options[0]))
             if stored_scenario_mode not in scenario_mode_options:
                 stored_scenario_mode = scenario_mode_options[0]
-            scenario_mode = st.radio(
+            mode_left, mode_right = st.columns([1.55, 1.0], gap="large")
+            scenario_mode = mode_left.radio(
                 "方案生成方式",
                 scenario_mode_options,
                 index=scenario_mode_options.index(stored_scenario_mode),
@@ -9652,6 +11461,7 @@ def _render_simulation_page(st) -> None:
                 on_change=_sync_stored_widget_value,
                 args=(st, "simulation_scenario_pool_mode"),
             )
+            scenario_count_slot = mode_right.empty()
             _store_widget_value(st, "simulation_scenario_pool_mode", scenario_mode)
 
             with st.expander("高级：枚举性能提醒", expanded=False):
@@ -9768,28 +11578,35 @@ def _render_simulation_page(st) -> None:
                     try:
                         scenario_count = estimate_scenario_count(scenario_grid)
                         duration_display = f"{_compact_number(scenario_grid['bess_duration_hours'][0])} 小时"
-                        _render_simulation_kpis(st, scenario_count, scenario_grid, duration_display)
+                        _render_simulation_kpis(scenario_count_slot, scenario_count, scenario_grid, duration_display)
                     except Exception as exc:  # noqa: BLE001 - UI should show friendly text
                         st.error(f"指定方案设置有误：{exc}")
                         scenario_grid = None
             else:
                 pv_range = _range_inputs(st, "光伏容量", (0, 30, 5), key_prefix="simulation_pv_capacity")
                 wind_range = _range_inputs(st, "风电容量", (0, 30, 5), key_prefix="simulation_wind_capacity")
-                bess_power_range = _range_inputs(st, "储能功率", (0, 10, 2), key_prefix="simulation_bess_power")
+                storage_row = st.columns([1, 1, 1, 1.45], gap="small")
+                bess_power_range = _range_inputs_on_columns(
+                    st,
+                    storage_row[:3],
+                    "储能功率",
+                    (0, 10, 2),
+                    key_prefix="simulation_bess_power",
+                )
+                duration_text = storage_row[3].text_input(
+                    "储能时长（h）",
+                    value=duration_text,
+                    help="多个时长用英文逗号分隔；勾选无储能时会自动加入 0 小时。",
+                    key="simulation_bess_duration_text",
+                    on_change=_sync_stored_widget_value,
+                    args=(st, "simulation_bess_duration_text"),
+                )
                 include_no_bess = _boolean_input(
                     st,
                     "包含无储能方案",
                     value=True,
                     help="保留无储能基准方案，便于比较储能增益。",
                     key="simulation_include_no_bess",
-                )
-                duration_text = st.text_input(
-                    "储能时长选项（小时）",
-                    value=duration_text,
-                    help="多个时长用英文逗号分隔；勾选无储能时会自动加入 0 小时。",
-                    key="simulation_bess_duration_text",
-                    on_change=_sync_stored_widget_value,
-                    args=(st, "simulation_bess_duration_text"),
                 )
                 try:
                     durations = [float(item.strip()) for item in duration_text.split(",") if item.strip()]
@@ -9802,7 +11619,7 @@ def _render_simulation_page(st) -> None:
                         "bess_duration_hours": durations,
                     }
                     scenario_count = estimate_scenario_count(scenario_grid)
-                    _render_simulation_kpis(st, scenario_count, scenario_grid, duration_text)
+                    _render_simulation_kpis(scenario_count_slot, scenario_count, scenario_grid, duration_text)
                     if scenario_count == 0:
                         st.error("当前容量范围没有可用候选方案：至少需要配置光伏或风电容量，纯储能/无绿电来源组合不会进入候选池。")
                         scenario_grid = None
@@ -9956,6 +11773,49 @@ def _render_simulation_page(st) -> None:
             key="simulation_cycle_life",
             on_change=_sync_stored_widget_value,
             args=(st, "simulation_cycle_life"),
+        )
+
+    generated_zero_curves: dict[str, str] = {}
+    if scenario_grid is not None:
+        pv_required = _scenario_grid_has_positive_capacity(scenario_grid, "pv_capacity")
+        wind_required = _scenario_grid_has_positive_capacity(scenario_grid, "wind_capacity")
+        if not pv_required and pv_file is None:
+            zero_df, zero_file, zero_encoding, zero_time_col = _zero_pu_curve_from_load(
+                load_df,
+                load_time_col,
+                file_name="auto_zero_pv_pu.csv",
+                value_col="pv_pu",
+            )
+            if zero_df is not None and zero_file is not None:
+                pv_df = zero_df
+                pv_file = zero_file
+                pv_encoding = zero_encoding
+                pv_time_col = zero_time_col
+                pv_value_col = "pv_pu"
+                generated_zero_curves["pv_curve"] = "候选方案光伏容量全为 0，自动补零出力系数曲线。"
+        if not wind_required and wind_file is None:
+            zero_df, zero_file, zero_encoding, zero_time_col = _zero_pu_curve_from_load(
+                load_df,
+                load_time_col,
+                file_name="auto_zero_wind_pu.csv",
+                value_col="wind_pu",
+            )
+            if zero_df is not None and zero_file is not None:
+                wind_df = zero_df
+                wind_file = zero_file
+                wind_encoding = zero_encoding
+                wind_time_col = zero_time_col
+                wind_value_col = "wind_pu"
+                generated_zero_curves["wind_curve"] = "候选方案风电容量全为 0，自动补零出力系数曲线。"
+    if generated_zero_curves:
+        st.info("；".join(generated_zero_curves.values()))
+        _remember_curve_metrics(
+            st,
+            {
+                "负荷": _curve_metric_snapshot("负荷", load_df, load_time_col, load_value_col),
+                "光伏": _curve_metric_snapshot("光伏", pv_df, pv_time_col, pv_value_col),
+                "风电": _curve_metric_snapshot("风电", wind_df, wind_time_col, wind_value_col),
+            },
         )
 
     for key, value in [
@@ -10239,6 +12099,7 @@ def _render_simulation_page(st) -> None:
                         "technical_curve_suffixes": sorted(_upload_policy(".csv").allowed_suffixes),
                         "price_curve_suffixes": sorted(_upload_policy(".csv", ".xlsx", ".xlsm").allowed_suffixes),
                     },
+                    "generated_zero_curve_sources": generated_zero_curves,
                 },
             )
             technical_result = run_technical_study(

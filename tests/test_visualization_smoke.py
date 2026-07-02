@@ -7,6 +7,7 @@ from green_direct.visualization.multi_scenario_charts import (
 )
 from green_direct.visualization.single_scenario_charts import (
     build_daily_balance_chart,
+    build_energy_flow_chart,
     build_full_year_operation_chart,
     build_grid_exchange_chart,
     build_monthly_load_source_chart,
@@ -72,6 +73,7 @@ def test_single_scenario_charts_smoke():
 
     results = [
         build_policy_bar_chart(summary_row),
+        build_energy_flow_chart(hourly, summary_row),
         build_daily_balance_chart(hourly),
         build_heatmap_chart(hourly),
         build_full_year_operation_chart(hourly),
@@ -118,6 +120,10 @@ def test_report_charts_use_explicit_readable_colors():
     policy = build_policy_bar_chart(summary_row)
     assert [trace.type for trace in policy.figure.data] == ["bar", "scatter", "scatter"]
     assert {trace.name for trace in policy.figure.data} == {"实际值", "阈值线", "阈值标注"}
+
+    energy_flow = build_energy_flow_chart(hourly, summary_row)
+    assert energy_flow.figure.data[0].type == "sankey"
+    assert energy_flow.figure.data[0].textfont.color == "#111827"
 
     day = build_daily_balance_chart(hourly)
     day_colors = {trace.name: trace.marker.color for trace in day.figure.data if trace.type == "bar"}
