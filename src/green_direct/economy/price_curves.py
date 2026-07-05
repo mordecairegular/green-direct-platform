@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
-from typing import Any, BinaryIO, Mapping
+from typing import Any, BinaryIO, Callable, Mapping
 
 import pandas as pd
 
@@ -18,6 +18,7 @@ from green_direct.io.read_curves import read_csv_auto_encoding
 from green_direct.models.diagnostics import DiagnosticSeverity, InputDiagnostics
 
 PRICE_CURVE_SUPPORTED_HOURS = (8760, 8784)
+ProgressCallback = Callable[[int, int, str], None]
 
 TIMESTAMP_ALIASES = (
     "timestamp",
@@ -574,11 +575,47 @@ def _hourly_power_series(hourly: pd.DataFrame, column: str) -> pd.Series:
     return pd.to_numeric(hourly[column], errors="coerce").fillna(0.0).astype(float)
 
 
+def _progress_interval(total: int) -> int:
+    if total <= 100:
+        return 1
+    return max(1, total // 100)
+
+
+def _emit_progress(
+    progress_callback: ProgressCallback | None,
+    *,
+    current: int,
+    total: int,
+    message: str,
+    interval: int,
+) -> None:
+    if progress_callback is None:
+        return
+    if current == 1 or current == total or current % interval == 0:
+        progress_callback(current, total, message)
+
+
+def _has_same_hour_order(reference: pd.DataFrame, hourly: pd.DataFrame) -> bool:
+    if len(reference) != len(hourly):
+        return False
+    if "hour_index" in reference.columns and "hour_index" in hourly.columns:
+        left = pd.to_numeric(reference["hour_index"], errors="coerce").reset_index(drop=True)
+        right = pd.to_numeric(hourly["hour_index"], errors="coerce").reset_index(drop=True)
+        if left.notna().all() and right.notna().all():
+            return left.equals(right)
+    if "timestamp" in reference.columns and "timestamp" in hourly.columns:
+        left = pd.to_datetime(reference["timestamp"], errors="coerce").reset_index(drop=True)
+        right = pd.to_datetime(hourly["timestamp"], errors="coerce").reset_index(drop=True)
+        if left.notna().all() and right.notna().all():
+            return left.equals(right)
+    return True
+
+
 def _scenario_price_summary(
     *,
     scenario_id: str,
     hourly: pd.DataFrame,
-    aligned_prices: pd.DataFrame,
+    aligned_prices: pd.DataFrame | None,
     alignment_mode: str,
     economic_params: EconomicParams,
     avoided_grid_params: AvoidedGridPurchaseParams,
@@ -586,15 +623,21 @@ def _scenario_price_summary(
     green_power_settlement_price_with_vat: float,
     environmental_value_per_kwh: float,
     dt_hours: float,
+    effective_prices: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
-    prices = build_effective_hourly_prices(
-        aligned_prices,
-        economic_params=economic_params,
-        avoided_grid_params=avoided_grid_params,
-        load_side_avoided_charge_price=load_side_avoided_charge_price,
-        green_power_settlement_price_with_vat=green_power_settlement_price_with_vat,
-        environmental_value_per_kwh=environmental_value_per_kwh,
-    )
+    if effective_prices is None:
+        if aligned_prices is None:
+            raise PriceCurveValidationError("价格曲线尚未对齐，无法计算逐时电价。")
+        prices = build_effective_hourly_prices(
+            aligned_prices,
+            economic_params=economic_params,
+            avoided_grid_params=avoided_grid_params,
+            load_side_avoided_charge_price=load_side_avoided_charge_price,
+            green_power_settlement_price_with_vat=green_power_settlement_price_with_vat,
+            environmental_value_per_kwh=environmental_value_per_kwh,
+        )
+    else:
+        prices = effective_prices
     load_power = _hourly_power_series(hourly, "load_power")
     direct = _hourly_power_series(hourly, "direct_self_use_power")
     bess_discharge = _hourly_power_series(hourly, "bess_discharge_power")
@@ -730,26 +773,49 @@ def apply_price_curve_to_summary(
     green_power_settlement_price_with_vat: float,
     environmental_value_per_kwh: float = 0.0,
     dt_hours: float = 1.0,
+    progress_callback: ProgressCallback | None = None,
 ) -> PriceCurveApplicationResult:
     """Aggregate hourly price curves into per-scenario annual economy inputs."""
 
     diagnostics = InputDiagnostics()
     diagnostics.extend(price_curve.diagnostics)
     rows: list[dict[str, Any]] = []
-    for _, summary_row in summary.iterrows():
+    total = len(summary.index)
+    interval = _progress_interval(total)
+    reference_hourly: pd.DataFrame | None = None
+    shared_effective_prices: pd.DataFrame | None = None
+    shared_alignment_mode = ""
+    for index, (_, summary_row) in enumerate(summary.iterrows(), start=1):
         scenario_id = str(summary_row.get("scenario_id", ""))
         if scenario_id not in hourly_details:
             raise PriceCurveValidationError(f"缺少方案 {scenario_id} 的逐小时明细，无法应用价格曲线。")
-        hourly = hourly_details[scenario_id]
-        aligned, alignment_mode = align_price_curve_to_hourly(
-            price_curve,
-            hourly,
-            diagnostics=diagnostics,
-        )
+        hourly = hourly_details[scenario_id].reset_index(drop=True)
+        if reference_hourly is not None and shared_effective_prices is not None and _has_same_hour_order(reference_hourly, hourly):
+            aligned = None
+            effective_prices = shared_effective_prices
+            alignment_mode = shared_alignment_mode
+        else:
+            aligned, alignment_mode = align_price_curve_to_hourly(
+                price_curve,
+                hourly,
+                diagnostics=diagnostics,
+            )
+            effective_prices = build_effective_hourly_prices(
+                aligned,
+                economic_params=economic_params,
+                avoided_grid_params=avoided_grid_params,
+                load_side_avoided_charge_price=load_side_avoided_charge_price,
+                green_power_settlement_price_with_vat=green_power_settlement_price_with_vat,
+                environmental_value_per_kwh=environmental_value_per_kwh,
+            )
+            if reference_hourly is None:
+                reference_hourly = hourly
+                shared_effective_prices = effective_prices
+                shared_alignment_mode = alignment_mode
         rows.append(
             _scenario_price_summary(
                 scenario_id=scenario_id,
-                hourly=hourly.reset_index(drop=True),
+                hourly=hourly,
                 aligned_prices=aligned,
                 alignment_mode=alignment_mode,
                 economic_params=economic_params,
@@ -758,7 +824,15 @@ def apply_price_curve_to_summary(
                 green_power_settlement_price_with_vat=green_power_settlement_price_with_vat,
                 environmental_value_per_kwh=environmental_value_per_kwh,
                 dt_hours=dt_hours,
+                effective_prices=effective_prices,
             )
+        )
+        _emit_progress(
+            progress_callback,
+            current=index,
+            total=total,
+            message=scenario_id,
+            interval=interval,
         )
 
     price_summary = pd.DataFrame(rows)

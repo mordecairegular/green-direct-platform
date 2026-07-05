@@ -6,6 +6,8 @@ import pytest
 from green_direct.economy import (
     AvoidedGridPurchaseParams,
     EconomicParams,
+    build_avoided_grid_purchase_params_from_landed_price,
+    calc_avoided_grid_purchase_cash_price,
     calc_net_avoided_grid_cost_price,
     evaluate_batch_single_entity_pre_tax_economy,
     evaluate_single_entity_pre_tax_economy,
@@ -41,6 +43,31 @@ def test_net_avoided_grid_cost_price_strips_vat_for_bill_build_up_items():
     )
 
     assert calc_net_avoided_grid_cost_price(params) == pytest.approx(0.58 / 1.13)
+
+
+def test_landed_price_bill_inputs_derive_internal_avoided_prices():
+    params = build_avoided_grid_purchase_params_from_landed_price(
+        down_grid_landed_price_with_vat=0.70,
+        line_loss_price_with_vat=0.01,
+        system_operation_fee_with_vat=0.02,
+        transmission_distribution_tariff_with_vat=0.10,
+        gov_fund_surcharge=0.03,
+        grid_purchase_vat_rate=0.13,
+    )
+
+    assert params.energy_market_price_with_vat == pytest.approx(0.54)
+    assert params.green_direct_retained_transmission_distribution_tariff_with_vat == pytest.approx(0.10)
+    assert params.green_direct_retained_gov_fund_surcharge == pytest.approx(0.03)
+    assert calc_net_avoided_grid_cost_price(params) == pytest.approx((0.54 + 0.01 + 0.02) / 1.13)
+    assert calc_avoided_grid_purchase_cash_price(params) == pytest.approx(0.54 + 0.01 + 0.02)
+
+
+def test_landed_price_bill_inputs_reject_components_above_total():
+    with pytest.raises(ValueError, match="sum of bill components"):
+        build_avoided_grid_purchase_params_from_landed_price(
+            down_grid_landed_price_with_vat=0.10,
+            transmission_distribution_tariff_with_vat=0.12,
+        )
 
 
 def test_single_entity_uses_avoided_grid_cost_not_green_power_settlement_price():
@@ -161,3 +188,22 @@ def test_batch_single_entity_summary_only_keeps_selected_cashflows_only():
     assert summary["scenario_id"].tolist() == ["S_KEEP", "S_DROP"]
     assert set(annual_cashflows) == {"S_KEEP"}
     assert not annual_cashflows["S_KEEP"].empty
+
+
+def test_batch_single_entity_reports_progress():
+    frame = pd.DataFrame(
+        [
+            _summary(scenario_id="S_ONE", wind_capacity=1.0, self_use_energy=300.0),
+            _summary(scenario_id="S_TWO", pv_capacity=1.0, self_use_energy=250.0),
+        ]
+    )
+    calls: list[tuple[int, int, str]] = []
+
+    evaluate_batch_single_entity_pre_tax_economy(
+        frame,
+        AvoidedGridPurchaseParams(net_avoided_grid_cost_price=0.55),
+        EconomicParams(operation_years=1),
+        progress_callback=lambda done, total, scenario_id: calls.append((done, total, scenario_id)),
+    )
+
+    assert calls == [(1, 2, "S_ONE"), (2, 2, "S_TWO")]

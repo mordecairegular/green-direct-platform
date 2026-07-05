@@ -10,12 +10,15 @@ import pandas as pd
 
 from green_direct.economy.economic_evaluator import (
     EconomicResult,
+    ProgressCallback,
     _EMPTY_ANNUAL_CASHFLOW,
     _calculate_irr,
     _calculate_payback,
     _discount_factors,
+    _emit_progress,
     _other_revenue_schedule,
     _override_value,
+    _progress_interval,
     _replacement_operation_years,
     _scenario_id,
     _summary_records,
@@ -343,6 +346,7 @@ def evaluate_batch_single_entity_pre_tax_economy(
     *,
     retain_annual_cashflows: bool = True,
     annual_cashflow_scenario_ids: Iterable[str] | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     """Evaluate same-investor pre-tax cash flow for a technical summary table."""
 
@@ -352,7 +356,9 @@ def evaluate_batch_single_entity_pre_tax_economy(
     economic_params = params or EconomicParams()
     validate_avoided_grid_purchase_params(avoided_grid_params)
     context = _single_entity_economy_context(economic_params, avoided_grid_params)
-    for row in _summary_records(summary):
+    total = len(summary.index)
+    interval = _progress_interval(total)
+    for index, row in enumerate(_summary_records(summary), start=1):
         retain_cashflow = retain_annual_cashflows or _scenario_id(row) in retained_scenario_ids
         result = evaluate_single_entity_pre_tax_economy(
             row,
@@ -366,4 +372,11 @@ def evaluate_batch_single_entity_pre_tax_economy(
         results.append(result.metrics)
         if retain_cashflow:
             annual_cashflows[result.scenario_id] = result.annual_cashflow
+        _emit_progress(
+            progress_callback,
+            current=index,
+            total=total,
+            message=result.scenario_id,
+            interval=interval,
+        )
     return pd.DataFrame(results), annual_cashflows

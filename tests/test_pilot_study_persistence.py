@@ -221,6 +221,46 @@ def test_persist_technical_study_result_writes_job_artifacts_and_record(tmp_path
     )
 
 
+def test_persist_technical_study_result_replaces_visible_project_result(tmp_path):
+    service = _access_service(tmp_path)
+    service.registry.save_user(User("admin", "admin@example.local", "Admin"))
+    project = service.create_project(
+        actor_user_id="admin",
+        project=Project("project_1", "Internal pilot project"),
+    )
+
+    first = persist_technical_study_result(
+        access_service=service,
+        actor_user_id="admin",
+        project_id=project.project_id,
+        technical_result=_technical_result("study_old"),
+    )
+    second = persist_technical_study_result(
+        access_service=service,
+        actor_user_id="admin",
+        project_id=project.project_id,
+        technical_result=_technical_result("study_current"),
+    )
+
+    visible_records = service.result_store.list_project_result_records(project.project_id)
+    archived_first = service.result_store.load_result_record(
+        project.project_id,
+        first.result_record.study_id,
+        first.result_record.result_id,
+    )
+
+    assert [record.study_id for record in visible_records] == [second.result_record.study_id]
+    assert visible_records[0].result_id == "technical_result"
+    assert archived_first.is_deleted
+    assert archived_first.deleted_by_user_id == "admin"
+    assert any(
+        event.action == AuditAction.DELETE_RESULT_RECORD
+        and event.target_id == first.result_record.result_id
+        and event.metadata["reason"] == "replace_current_project_result"
+        for event in service.result_store.read_audit_log(project.project_id)
+    )
+
+
 def test_persist_technical_study_result_rejects_viewer(tmp_path):
     service = _access_service(tmp_path)
     service.registry.save_user(User("admin", "admin@example.local", "Admin"))

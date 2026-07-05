@@ -228,11 +228,12 @@ docker compose --profile worker up -d green-direct-worker
 - 创建/归档项目；
 - 维护项目成员角色；
 - 控制项目成员是否允许下载/导出结果；
+- 后续应支持按功能项组合授权，例如基础技术汇总、逐小时明细、经济汇总、经济详表/年度现金流、图表包和报告分别开关；
 - 在“任务运维”中查看排队/运行中任务，手动处理一个受支持的 queued job，并恢复超时 running 任务元数据；
 - 通过 CLI 重试 failed/canceled 终态任务；
 - 在“审计日志”中只读查看全局或项目级审计事件，并按动作筛选。
 
-当前项目角色为 `admin`、`analyst`、`viewer`，导出权限由 `can_export_artifacts` 独立控制。不可导出用户应能查看网页结果，但不能下载 artifact 或 06 页导出文件。
+当前项目角色为 `admin`、`analyst`、`viewer`，导出权限由 `can_export_artifacts` 独立控制。不可导出用户应能查看网页结果，但不能下载 artifact 或 06 页导出文件。首发不接手机号注册；如后续开放账号/密码自助注册，新账号必须默认低权限，高级导出由平台管理员手动开通。
 
 ## 6. 反向代理与 HTTPS
 

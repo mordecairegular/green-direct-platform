@@ -452,10 +452,28 @@ def run_economic_study(
     fixed_green_self_use_extra_fee_with_vat: float | None = None,
     retain_annual_cashflows: bool = True,
     annual_cashflow_scenario_ids: Iterable[str] | None = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> EconomicStudyResult:
     """Run all currently implemented economy views for a technical summary."""
 
     evaluation_summary = summary
+    scenario_total = len(evaluation_summary.index)
+    phase_count = 3 if price_curve is not None else 2
+    economy_total = max(1, scenario_total * phase_count)
+
+    def _phase_progress(phase_name: str, offset: int) -> Callable[[int, int, str], None] | None:
+        if progress_callback is None:
+            return None
+
+        def relay(done: int, total: int, scenario_id: str) -> None:
+            progress_callback(
+                min(economy_total, offset + done),
+                economy_total,
+                f"{phase_name} {done}/{total}：{scenario_id}",
+            )
+
+        return relay
+
     price_mode = "fixed_price"
     price_curve_summary = pd.DataFrame()
     landed_price_summary = pd.DataFrame()
@@ -473,6 +491,7 @@ def run_economic_study(
             green_power_settlement_price_with_vat=green_power_settlement_price_with_vat,
             environmental_value_per_kwh=environmental_value_per_kwh,
             dt_hours=dt_hours,
+            progress_callback=_phase_progress("逐小时电价匹配", 0),
         )
         evaluation_summary = price_application.summary
         price_curve_summary = price_application.price_summary
@@ -492,6 +511,7 @@ def run_economic_study(
         economic_params,
         retain_annual_cashflows=retain_annual_cashflows,
         annual_cashflow_scenario_ids=annual_cashflow_scenario_ids,
+        progress_callback=_phase_progress("电源侧经济性", scenario_total if price_curve is not None else 0),
     )
     power_summary = _merge_extra_summary(power_summary, landed_price_summary)
     single_entity_summary, single_entity_annual_cashflows = evaluate_batch_single_entity_pre_tax_economy(
@@ -500,6 +520,7 @@ def run_economic_study(
         params=economic_params,
         retain_annual_cashflows=retain_annual_cashflows,
         annual_cashflow_scenario_ids=annual_cashflow_scenario_ids,
+        progress_callback=_phase_progress("同一主体经济性", scenario_total * 2 if price_curve is not None else scenario_total),
     )
     single_entity_summary = _merge_extra_summary(single_entity_summary, landed_price_summary)
     return EconomicStudyResult(

@@ -20,9 +20,9 @@
 
 如果从内网/VPN 试用升级为可公网访问的受控 Beta，应按 Route A 理解：
 
-- 只允许邀请或管理员创建用户登录，不开放社会化自注册；
+- 首发不采用手机号注册或短信验证码，优先采用邀请、管理员创建账号或邀请码；如后续开放非手机号账号/密码自助注册，新用户必须默认低权限，不能默认开放高级导出；
 - 产品仍只是绿电直连 / 源网荷储前期方案测算和政策指标初判工具，不接 EMS、SCADA、调度自动化、真实电表或任何生产控制网络；
-- 必须区分平台管理员、项目管理员、可计算不可导出用户、可计算可导出用户；当前 `ProjectMembership.can_export_artifacts` 已提供第一版“可导出/不可导出”后端授权位，已落盘 artifact 下载和当前 06 页临时导出下载都复用该语义；未来 API、反向代理下载和对象存储签名仍必须复用同一语义；
+- 必须区分平台管理员、项目管理员、可计算不可导出用户、可计算可导出用户；当前 `ProjectMembership.can_export_artifacts` 已提供第一版“可导出/不可导出”后端授权位，已落盘 artifact 下载和当前 06 页临时导出下载都复用该语义；后续应把该总开关演进为可组合的功能项权限，至少覆盖基础技术汇总、逐小时明细、经济汇总、经济详表/年度现金流、图表包、报告、任务提交和项目成员管理；未来 API、反向代理下载和对象存储签名仍必须复用同一语义；
 - 上传、计算、结果查看、产物下载、管理员跨项目查看都应经过后端权限校验并写入审计日志；
 - 原始上传文件、逐小时明细和导出文件需要保留期限和清理机制，项目元数据、参数快照、结果摘要和审计日志应更长时间保留；当前已完成技术三曲线 input artifact、本地 artifact payload 过期清理，以及基于 input artifact 的单方案明细跨会话补算第一版，尚未覆盖价格曲线、导出文件、关键 Run 保留和定时调度；
 - 公网内测前必须补充 `.env.example`、部署 runbook、HTTPS/反向代理说明、数据卷、备份/恢复和回滚说明；当前已有内部试用部署 runbook、本地 store 备份/恢复脚本、Dockerfile、docker-compose、`README_DEPLOY.md` 和 `SECURITY.md` 第一版，仍需在目标服务器实机演练，并补系统服务托管、日志轮转、监控告警和安全扫描。
@@ -124,7 +124,7 @@ PNG 图表包后台任务也按会话隔离：
 
 - `src/green_direct/models/pilot_backend.py` 定义了持久化无关的 `User`、`Project`、`ProjectMembership`、`ProjectStudy`、`Job`、`JobArtifact`、`StudyResultRecord` 和 `AuditLog`；
 - `ProjectMembership` 已区分 `admin`、`analyst`、`viewer` 的查看、提交任务和项目管理权限；
-- `ProjectMembership.can_export_artifacts` 已作为第一版独立导出授权位，可表达“可计算、可查看但不可导出”的内部试用成员；
+- `ProjectMembership.can_export_artifacts` 已作为第一版独立导出授权位，可表达“可计算、可查看但不可导出”的内部试用成员；后续公网内测后台应扩展为多项 feature permissions，而不是只用一个导出总开关；
 - `User.is_platform_admin` 已区分平台账号管理员和项目 `admin`，项目 `admin` 只管理项目成员，不能天然创建或停用全站账号；
 - `Job` 已定义排队、运行、成功、失败、取消状态、进度字段、`worker_id`、`last_heartbeat_at`、`input_artifact_ids` 及合法状态转换；`input_artifact_ids` 用于记录后续 worker 执行所需的受控 artifact 引用，不把大输入或原始 payload 直接塞进 job JSON；
 - `ArtifactKind.JOB_INPUT` 已作为 worker 请求 payload 类型；`queue_job_with_input_artifact()` 会先把非空 JSON payload 写入 `ResultStore`，再提交引用该 payload 的 queued job，供后续 worker wrapper 读取；

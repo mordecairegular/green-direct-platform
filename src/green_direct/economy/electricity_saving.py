@@ -99,6 +99,70 @@ def calc_avoided_grid_purchase_cash_price(params: AvoidedGridPurchaseParams) -> 
     )
 
 
+def build_avoided_grid_purchase_params_from_landed_price(
+    *,
+    down_grid_landed_price_with_vat: float,
+    line_loss_price_with_vat: float = 0.0,
+    system_operation_fee_with_vat: float = 0.0,
+    transmission_distribution_tariff_with_vat: float = 0.0,
+    gov_fund_surcharge: float = 0.0,
+    grid_purchase_vat_rate: float = 0.13,
+    green_direct_retained_transmission_distribution_tariff_with_vat: float | None = None,
+    green_direct_retained_gov_fund_surcharge: float | None = None,
+    environmental_value_per_kwh: float = 0.0,
+) -> AvoidedGridPurchaseParams:
+    """Build avoided-purchase inputs from bill-facing tariff items.
+
+    ``down_grid_landed_price_with_vat`` is the customer-facing electricity bill
+    energy price. The market/energy component is derived as the residual after
+    subtracting the bill items users can usually read directly.
+    """
+
+    bill_items = [
+        ("down_grid_landed_price_with_vat", down_grid_landed_price_with_vat),
+        ("line_loss_price_with_vat", line_loss_price_with_vat),
+        ("system_operation_fee_with_vat", system_operation_fee_with_vat),
+        ("transmission_distribution_tariff_with_vat", transmission_distribution_tariff_with_vat),
+        ("gov_fund_surcharge", gov_fund_surcharge),
+    ]
+    for name, value in bill_items:
+        if float(value) < 0:
+            raise ValueError(f"{name} must be non-negative.")
+    retained_td = (
+        float(transmission_distribution_tariff_with_vat)
+        if green_direct_retained_transmission_distribution_tariff_with_vat is None
+        else float(green_direct_retained_transmission_distribution_tariff_with_vat)
+    )
+    retained_fund = (
+        float(gov_fund_surcharge)
+        if green_direct_retained_gov_fund_surcharge is None
+        else float(green_direct_retained_gov_fund_surcharge)
+    )
+    energy_market_price_with_vat = (
+        float(down_grid_landed_price_with_vat)
+        - float(line_loss_price_with_vat)
+        - float(system_operation_fee_with_vat)
+        - float(transmission_distribution_tariff_with_vat)
+        - float(gov_fund_surcharge)
+    )
+    if energy_market_price_with_vat < -1e-9:
+        raise ValueError(
+            "down_grid_landed_price_with_vat must be greater than or equal to the sum of bill components."
+        )
+    return AvoidedGridPurchaseParams(
+        net_avoided_grid_cost_price=None,
+        energy_market_price_with_vat=max(0.0, energy_market_price_with_vat),
+        line_loss_price_with_vat=float(line_loss_price_with_vat),
+        system_operation_fee_with_vat=float(system_operation_fee_with_vat),
+        transmission_distribution_tariff_with_vat=float(transmission_distribution_tariff_with_vat),
+        gov_fund_surcharge=float(gov_fund_surcharge),
+        green_direct_retained_transmission_distribution_tariff_with_vat=retained_td,
+        green_direct_retained_gov_fund_surcharge=retained_fund,
+        grid_purchase_vat_rate=float(grid_purchase_vat_rate),
+        environmental_value_per_kwh=float(environmental_value_per_kwh),
+    )
+
+
 def calc_self_use_saving(self_use_energy: float, params: AvoidedGridPurchaseParams) -> float:
     """Return annual self-use saving in 万元."""
 

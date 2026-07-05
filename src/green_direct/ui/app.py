@@ -18,6 +18,7 @@ import sys
 import time
 from tempfile import TemporaryDirectory
 from typing import Iterable
+from urllib.parse import quote
 import uuid
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -35,7 +36,9 @@ from green_direct.economy import (
     AvoidedGridPurchaseParams,
     EconomicParams,
     OtherOperatingRevenueItem,
+    build_avoided_grid_purchase_params_from_landed_price,
     calc_avoided_grid_purchase_cash_price,
+    calc_net_avoided_grid_cost_price,
     read_price_curve,
 )
 from green_direct.export.csv_exporter import export_hourly_details_zip
@@ -157,6 +160,13 @@ PROJECT_PRICE_CURVE_DATA_KEY = "project_price_curve_data"
 PROJECT_PRICE_CURVE_META_KEY = "project_price_curve_meta"
 PROJECT_PRICE_CURVE_NOTICE_KEY = "_project_price_curve_notice"
 PROJECT_PRICE_CURVE_SESSION_UPLOAD_KEY = "_project_price_curve_uploaded_current_session"
+RECOMMENDATION_ACTIVE_ECONOMY_SCENARIO_KEY = "_recommendation_active_economy_scenario"
+RECOMMENDATION_CARD_QUERY_PARAM = "gd_rec_scenario"
+HUNAN_110KV_DEFAULT_DOWN_GRID_LANDED_PRICE_WITH_VAT = 0.6523
+HUNAN_110KV_DEFAULT_LINE_LOSS_PRICE_WITH_VAT = 0.0220
+HUNAN_110KV_DEFAULT_SYSTEM_OPERATION_FEE_WITH_VAT = 0.0500
+HUNAN_110KV_DEFAULT_TRANSMISSION_DISTRIBUTION_TARIFF_WITH_VAT = 0.1104
+HUNAN_110KV_DEFAULT_GOV_FUND_SURCHARGE = 0.0463
 RUNTIME_STATE_DIR = PROJECT_ROOT / ".runtime"
 LATEST_SESSION_SNAPSHOT_PATH = RUNTIME_STATE_DIR / "latest_session_snapshot.pkl"
 RUNTIME_SNAPSHOT_ENV = "GREEN_DIRECT_ENABLE_RUNTIME_SNAPSHOT"
@@ -168,6 +178,13 @@ ECONOMY_RETAINED_CASHFLOW_LIMIT_ENV = "GREEN_DIRECT_ECONOMY_RETAINED_CASHFLOW_LI
 PILOT_AUTH_ENV = "GREEN_DIRECT_ENABLE_PILOT_AUTH"
 PILOT_STORE_DIR_ENV = "GREEN_DIRECT_PILOT_STORE_DIR"
 PILOT_DEFAULT_STORE_DIR = RUNTIME_STATE_DIR / "pilot_store"
+LOCAL_PROJECTS_ENV = "GREEN_DIRECT_ENABLE_LOCAL_PROJECTS"
+LOCAL_PROJECT_STORE_DIR_ENV = "GREEN_DIRECT_LOCAL_PROJECT_STORE_DIR"
+LOCAL_PROJECT_DEFAULT_STORE_DIR = RUNTIME_STATE_DIR / "local_project_store"
+LOCAL_PROJECT_USER_ID_ENV = "GREEN_DIRECT_LOCAL_PROJECT_USER_ID"
+LOCAL_PROJECT_DEFAULT_USER_ID = "local_user"
+LOCAL_PROJECT_DEFAULT_LOGIN_NAME = "local@green-direct.local"
+LOCAL_PROJECT_DEFAULT_DISPLAY_NAME = "本地用户"
 PILOT_SESSION_ID_KEY = "_pilot_auth_session_id"
 PILOT_SESSION_TOKEN_KEY = "_pilot_auth_session_token"
 PILOT_USER_ID_KEY = "_pilot_auth_user_id"
@@ -227,6 +244,7 @@ PILOT_AUTH_WORK_STATE_KEYS = tuple(
             PILOT_RECOMMENDATION_STORE_SIGNATURE_KEY,
             PILOT_HISTORY_ARTIFACT_DOWNLOADS_KEY,
             TECHNICAL_STUDY_INPUT_KEY,
+            RECOMMENDATION_ACTIVE_ECONOMY_SCENARIO_KEY,
             "download_payloads",
             "chart_png_docx_export",
             "chart_png_docx_export_error",
@@ -439,6 +457,15 @@ WORKBENCH_CSS = """
     padding: 0 !important;
     justify-content: center !important;
 }
+body:has([data-testid="stSidebar"][aria-expanded="false"]) .block-container {
+    padding-left: 64px;
+}
+@media (max-width: 720px) {
+    .block-container {
+        padding-left: 64px;
+        padding-right: 1rem;
+    }
+}
 [data-testid="stSidebar"][aria-expanded="false"] [data-testid="stSidebarCollapseButton"] {
     position: fixed !important;
     top: 12px !important;
@@ -493,6 +520,36 @@ button[data-testid="stExpandSidebarButton"] * {
 }
 [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
     color: #b9c7da;
+}
+[data-testid="stSidebar"] [data-testid="stTextInput"] input,
+[data-testid="stSidebar"] [data-baseweb="input"],
+[data-testid="stSidebar"] [data-baseweb="input"] *,
+[data-testid="stSidebar"] [data-baseweb="select"],
+[data-testid="stSidebar"] [data-baseweb="select"] *,
+[data-testid="stSidebar"] [data-baseweb="popover"],
+[data-testid="stSidebar"] [data-baseweb="popover"] *,
+[data-testid="stSidebar"] [role="combobox"],
+[data-testid="stSidebar"] [role="combobox"] * {
+    color: var(--gd-text) !important;
+}
+[data-testid="stSidebar"] [data-baseweb="input"],
+[data-testid="stSidebar"] [data-baseweb="select"] {
+    background: var(--gd-control-bg) !important;
+}
+[data-testid="stSidebar"] [data-baseweb="select"] svg {
+    color: #475467 !important;
+}
+[data-testid="stSidebar"] div[data-testid="stExpander"] {
+    background: rgba(255, 255, 255, 0.055) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 7px !important;
+}
+[data-testid="stSidebar"] div[data-testid="stExpander"] summary {
+    background: transparent !important;
+}
+[data-testid="stSidebar"] div[data-testid="stExpander"] summary *,
+[data-testid="stSidebar"] div[data-testid="stExpander"] [data-testid="stMarkdownContainer"] p {
+    color: #dbeafe !important;
 }
 [data-testid="stSidebar"] [data-testid="stElementContainer"],
 [data-testid="stSidebar"] div[data-testid="stButton"],
@@ -809,6 +866,36 @@ div[data-testid="stExpander"] {
 .gd-status-ok { background: #e8f7ee; color: #116b35; }
 .gd-status-pending { background: #eef2f7; color: #475467; }
 .gd-status-warn { background: #fff4dd; color: #8a5200; }
+.gd-status-error { background: #fee4e2; color: #b42318; }
+.gd-compact-status-list {
+    margin: 8px 0 12px 0;
+    border-top: 1px solid #e4ebf4;
+}
+.gd-compact-status-row {
+    padding: 9px 0;
+    border-bottom: 1px solid #e4ebf4;
+}
+.gd-compact-status-main {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+}
+.gd-compact-status-label {
+    color: var(--gd-text);
+    font-size: 13px;
+    font-weight: 720;
+    line-height: 1.35;
+    word-break: break-word;
+}
+.gd-compact-status-meta {
+    margin-top: 4px;
+    color: var(--gd-muted);
+    font-size: 12px;
+    line-height: 1.45;
+    word-break: break-word;
+}
 .gd-page-heading {
     display: flex;
     align-items: flex-start;
@@ -966,10 +1053,9 @@ div[data-testid="stExpander"] {
     line-height: 1.2;
 }
 .gd-economy-status-panel {
-    border: 1px solid #dce6f2;
-    border-radius: 8px;
-    background: #ffffff;
-    padding: 9px 10px;
+    border: 0;
+    background: transparent;
+    padding: 0 0 8px 0;
     color: var(--gd-text);
 }
 .gd-economy-status-title {
@@ -1028,6 +1114,15 @@ div[data-testid="stExpander"] {
     line-height: 1.22;
     margin: 0 0 8px 0;
 }
+.gd-economy-card-title-row {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    margin: 0 0 8px 0;
+}
+.gd-economy-card-title-row .gd-economy-card-title {
+    margin: 0;
+}
 .gd-economy-card-subtitle {
     color: var(--gd-muted);
     font-size: 12px;
@@ -1055,12 +1150,45 @@ div[data-testid="stExpander"] {
     background: #ffffff;
     border: 1px solid var(--gd-line);
     border-radius: 8px;
+    cursor: pointer;
     padding: 11px 13px;
+    position: relative;
     min-height: 186px;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
 }
-.gd-rec-card:first-child {
+.gd-rec-card-link,
+.gd-rec-card-link:visited,
+.gd-rec-card-link:hover,
+.gd-rec-card-link:active {
+    color: inherit !important;
+    display: block;
+    text-decoration: none !important;
+}
+.gd-rec-card-link * {
+    user-select: text;
+}
+.gd-rec-card.is-active {
     border-color: #d8a20c;
     box-shadow: inset 0 3px 0 #d8a20c;
+}
+.gd-rec-card.is-active .gd-rec-id::after {
+    content: "当前查看";
+    display: inline-flex;
+    margin-left: 8px;
+    transform: translateY(-1px);
+    border-radius: 999px;
+    background: #fff7e6;
+    color: #8a5a00;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 7px;
+}
+div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]:has(.gd-rec-click-frame) {
+    position: relative;
+}
+.gd-rec-card-link:focus-visible .gd-rec-card {
+    outline: 2px solid #d8a20c;
+    outline-offset: -2px;
 }
 .gd-rec-top {
     display: flex;
@@ -1480,6 +1608,49 @@ div[data-testid="stExpander"] {
     min-height: 34px !important;
     height: 34px !important;
 }
+.gd-compact-stepper-label {
+    align-items: center;
+    color: var(--gd-text);
+    display: flex;
+    font-size: 0.86rem;
+    font-weight: 650;
+    gap: 6px;
+    justify-content: space-between;
+    line-height: 1.25;
+    margin: 0 0 0.15rem 0;
+    min-height: 22px;
+    white-space: nowrap;
+}
+.gd-compact-stepper-label .gd-info-dot {
+    height: 16px;
+    width: 16px;
+    font-size: 11px;
+}
+div[class*="st-key-economy_stepper_input_"] [data-testid="stTextInput"] {
+    margin-bottom: 0 !important;
+}
+div[class*="st-key-economy_stepper_input_"] [data-testid="stTextInput"] input {
+    padding-left: 0.58rem !important;
+    padding-right: 0.58rem !important;
+}
+div[class*="st-key-economy_stepper_"] .stButton > button,
+div[class*="st-key-economy_stepper_"] [data-testid="stFormSubmitButton"] button {
+    background: #ffffff !important;
+    border: 1px solid #d8e1ee !important;
+    border-radius: 7px !important;
+    color: var(--gd-text) !important;
+    font-size: 14px !important;
+    font-weight: 800 !important;
+    height: 34px !important;
+    min-height: 34px !important;
+    padding: 0 !important;
+    width: 100% !important;
+}
+div[class*="st-key-economy_stepper_"] .stButton > button:hover,
+div[class*="st-key-economy_stepper_"] [data-testid="stFormSubmitButton"] button:hover {
+    border-color: #9fb2ca !important;
+    background: #f8fbff !important;
+}
 @media (max-width: 720px) {
     .gd-topbar {
         grid-template-columns: 1fr;
@@ -1733,8 +1904,45 @@ def _status_pill(text: str, state: str) -> str:
         "ok": "gd-status-ok",
         "warn": "gd-status-warn",
         "pending": "gd-status-pending",
+        "error": "gd-status-error",
     }.get(state, "gd-status-pending")
     return f'<span class="gd-status-pill {state_class}">{_safe_html_text(text)}</span>'
+
+
+def _compact_status_pill_state(status: str) -> str:
+    if status in {"已就绪", "已上传", "已识别"}:
+        return "ok"
+    if status in {"缺失", "需复核", "格式不支持", "需调整文件名"}:
+        return "error"
+    if status in {"有警告", "重复文件", "未使用"}:
+        return "warn"
+    return "pending"
+
+
+def _compact_status_rows_html(rows: list[dict[str, str]], *, label_key: str, status_key: str, meta_keys: list[str]) -> str:
+    row_html: list[str] = []
+    for row in rows:
+        label = row.get(label_key, "-")
+        status = row.get(status_key, "-")
+        meta_parts = [
+            f"{key}：{row.get(key, '-')}"
+            for key in meta_keys
+            if str(row.get(key, "-")) not in {"", "-"}
+        ]
+        meta_html = ""
+        if meta_parts:
+            meta_text = " · ".join(_safe_html_text(part) for part in meta_parts)
+            meta_html = f'<div class="gd-compact-status-meta">{meta_text}</div>'
+        row_html.append(
+            '<div class="gd-compact-status-row">'
+            '<div class="gd-compact-status-main">'
+            f'<span class="gd-compact-status-label">{_safe_html_text(label)}</span>'
+            f"{_status_pill(status, _compact_status_pill_state(status))}"
+            "</div>"
+            f"{meta_html}"
+            "</div>"
+        )
+    return f'<div class="gd-compact-status-list">{"".join(row_html)}</div>'
 
 
 def _topbar_cell(label: str, value: str, detail: str | None = None) -> str:
@@ -1930,8 +2138,12 @@ def _truthy_env(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on", "local"}
 
 
+def _falsy_env(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"0", "false", "no", "off", "disabled"}
+
+
 def _runtime_snapshot_enabled() -> bool:
-    if _pilot_auth_enabled():
+    if _project_store_enabled():
         return False
     return _truthy_env(os.environ.get(RUNTIME_SNAPSHOT_ENV))
 
@@ -1940,20 +2152,47 @@ def _pilot_auth_enabled() -> bool:
     return _truthy_env(os.environ.get(PILOT_AUTH_ENV))
 
 
+def _local_project_mode_enabled() -> bool:
+    if _pilot_auth_enabled():
+        return False
+    configured = os.environ.get(LOCAL_PROJECTS_ENV)
+    if configured is None:
+        return True
+    return not _falsy_env(configured)
+
+
+def _project_store_enabled() -> bool:
+    return _pilot_auth_enabled() or _local_project_mode_enabled()
+
+
 def _pilot_store_dir() -> Path:
     configured = os.environ.get(PILOT_STORE_DIR_ENV)
     return Path(configured).expanduser().resolve() if configured else PILOT_DEFAULT_STORE_DIR.resolve()
 
 
+def _local_project_store_dir() -> Path:
+    configured = os.environ.get(LOCAL_PROJECT_STORE_DIR_ENV)
+    return Path(configured).expanduser().resolve() if configured else LOCAL_PROJECT_DEFAULT_STORE_DIR.resolve()
+
+
+def _project_store_dir() -> Path:
+    return _pilot_store_dir() if _pilot_auth_enabled() else _local_project_store_dir()
+
+
+def _local_project_user_id() -> str:
+    configured = str(os.environ.get(LOCAL_PROJECT_USER_ID_ENV) or LOCAL_PROJECT_DEFAULT_USER_ID).strip()
+    return configured or LOCAL_PROJECT_DEFAULT_USER_ID
+
+
 def _pilot_auth_service() -> LocalPilotAuth:
-    root = _pilot_store_dir()
+    root = _project_store_dir()
     registry = LocalPilotRegistry(root)
     result_store = LocalResultStore(root)
     return LocalPilotAuth(root, registry=registry, result_store=result_store)
 
 
 def _pilot_admin_service() -> LocalPilotAdminService:
-    root = _pilot_store_dir()
+    root = _project_store_dir()
     registry = LocalPilotRegistry(root)
     result_store = LocalResultStore(root)
     auth = LocalPilotAuth(root, registry=registry, result_store=result_store)
@@ -1961,16 +2200,35 @@ def _pilot_admin_service() -> LocalPilotAdminService:
 
 
 def _pilot_access_service() -> PilotAccessService:
-    root = _pilot_store_dir()
+    root = _project_store_dir()
     registry = LocalPilotRegistry(root)
     job_store = LocalJobStore(root)
     result_store = LocalResultStore(root)
     return PilotAccessService(registry=registry, job_store=job_store, result_store=result_store)
 
 
+def _ensure_local_project_user() -> User:
+    access = _pilot_access_service()
+    user_id = _local_project_user_id()
+    try:
+        return access.registry.load_user(user_id)
+    except FileNotFoundError:
+        return access.registry.save_user(
+            User(
+                user_id,
+                LOCAL_PROJECT_DEFAULT_LOGIN_NAME,
+                LOCAL_PROJECT_DEFAULT_DISPLAY_NAME,
+            )
+        )
+
+
 def _current_pilot_user_id(st) -> str | None:
     user_id = st.session_state.get(PILOT_USER_ID_KEY)
-    return str(user_id) if user_id else None
+    if user_id:
+        return str(user_id)
+    if _local_project_mode_enabled():
+        return _local_project_user_id()
+    return None
 
 
 def _current_pilot_user_is_platform_admin(st) -> bool:
@@ -2217,7 +2475,7 @@ def _current_pilot_study_id(st) -> str | None:
 
 
 def _persist_pilot_technical_result_if_enabled(st, technical_result, technical_input=None) -> object | None:
-    if not _pilot_auth_enabled():
+    if not _project_store_enabled():
         return None
     actor_user_id = _current_pilot_user_id(st)
     project_id = _current_pilot_project_id(st)
@@ -2236,14 +2494,12 @@ def _persist_pilot_technical_result_if_enabled(st, technical_result, technical_i
             st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = f"项目结果保存失败：{exc}"
             return None
         raise
-    st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
-        f"已写入项目结果存储：Job {persisted.job.job_id} / Result {persisted.result_record.result_id}"
-    )
+    st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = "已保存本次方案仿真结果到当前项目。"
     return persisted
 
 
 def _persist_pilot_economic_result_if_enabled(st, economic_result) -> object | None:
-    if not _pilot_auth_enabled():
+    if not _project_store_enabled():
         return None
     actor_user_id = _current_pilot_user_id(st)
     project_id = _current_pilot_project_id(st)
@@ -2263,14 +2519,12 @@ def _persist_pilot_economic_result_if_enabled(st, economic_result) -> object | N
             st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = f"项目经济结果保存失败：{exc}"
             return None
         raise
-    st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
-        f"已写入项目经济结果存储：Job {persisted.job.job_id} / Result {persisted.result_record.result_id}"
-    )
+    st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = "已保存本次经济测算结果到当前项目。"
     return persisted
 
 
 def _persist_pilot_recommendation_result_if_enabled(st, recommendation_result) -> object | None:
-    if not _pilot_auth_enabled():
+    if not _project_store_enabled():
         return None
     signature = recommendation_result_fingerprint(recommendation_result)
     if st.session_state.get(PILOT_RECOMMENDATION_STORE_SIGNATURE_KEY) == signature:
@@ -2294,14 +2548,12 @@ def _persist_pilot_recommendation_result_if_enabled(st, recommendation_result) -
             return None
         raise
     st.session_state[PILOT_RECOMMENDATION_STORE_SIGNATURE_KEY] = signature
-    st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
-        f"已写入项目推荐结果存储：Job {persisted.job.job_id} / Result {persisted.result_record.result_id}"
-    )
+    st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = "已保存本次方案推荐结果到当前项目。"
     return persisted
 
 
 def _persist_pilot_hourly_detail_if_enabled(st, scenario_id: str, hourly_detail: pd.DataFrame) -> object | None:
-    if not _pilot_auth_enabled():
+    if not _project_store_enabled():
         return None
     actor_user_id = _current_pilot_user_id(st)
     project_id = _current_pilot_project_id(st)
@@ -2342,7 +2594,7 @@ def _persist_pilot_export_artifact_if_enabled(
     artifact_kind: ArtifactKind,
     metadata: dict | None = None,
 ) -> object | None:
-    if not _pilot_auth_enabled():
+    if not _project_store_enabled():
         return None
     if not _current_pilot_project_can_export_artifacts(st):
         st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = "当前项目未开放导出，无法保存导出产物。"
@@ -2370,9 +2622,7 @@ def _persist_pilot_export_artifact_if_enabled(
             st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = f"项目导出产物保存失败：{exc}"
             return None
         raise
-    st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = (
-        f"已写入项目导出产物：Artifact {persisted.artifact.artifact_id} / Result {persisted.result_record.result_id}"
-    )
+    st.session_state[PILOT_RESULT_STORE_NOTICE_KEY] = "已保存本次导出产物到当前项目。"
     return persisted
 
 
@@ -2385,7 +2635,7 @@ def _audit_pilot_transient_export_download_if_enabled(
     size_bytes: int | None = None,
     metadata: dict | None = None,
 ) -> None:
-    if not _pilot_auth_enabled():
+    if not _project_store_enabled():
         return
     actor_user_id = _current_pilot_user_id(st)
     project_id = _current_pilot_project_id(st)
@@ -2419,7 +2669,7 @@ def _pilot_transient_export_download_kwargs(
     size_bytes: int | None = None,
     metadata: dict | None = None,
 ) -> dict:
-    if not _pilot_auth_enabled():
+    if not _project_store_enabled():
         return {}
     return {
         "on_click": _audit_pilot_transient_export_download_if_enabled,
@@ -2440,19 +2690,57 @@ def _payload_size_bytes(payload: str | bytes | bytearray | memoryview) -> int:
     return len(bytes(payload))
 
 
+def _generate_project_id() -> str:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return f"project_{timestamp}_{uuid.uuid4().hex[:8]}"
+
+
 def _pilot_project_option_label(option: tuple[Project, ProjectMembership]) -> str:
     project, membership = option
+    if _local_project_mode_enabled():
+        return project.name
     export_text = "可导出" if membership.can_export_artifacts else "不可导出"
     return f"{project.name} ({project.project_id}, {membership.role.value}, {export_text})"
 
 
+def _create_and_activate_project(st, *, actor_user_id: str, project_name: str) -> None:
+    project_name_value = str(project_name).strip()
+    if not project_name_value:
+        raise ValueError("项目名称不能为空。")
+    access_service = _pilot_access_service()
+    project = None
+    for _attempt in range(3):
+        try:
+            project = access_service.create_project(
+                actor_user_id=actor_user_id,
+                project=Project(
+                    _generate_project_id(),
+                    project_name_value,
+                    created_by_user_id=actor_user_id,
+                ),
+            )
+            break
+        except FileExistsError:
+            continue
+    if project is None:
+        raise FileExistsError("项目 ID 自动生成失败，请重试。")
+    membership = access_service.registry.get_project_membership(project.project_id, actor_user_id)
+    if membership is None:
+        raise PilotAccessError("Project was created but membership was not initialized.")
+    _activate_pilot_project(st, project=project, membership=membership, clear_work_state=True)
+    st.session_state[PILOT_PROJECT_NOTICE_KEY] = f"已创建并进入项目：{project.name}"
+    st.rerun()
+
+
+def _handle_create_project_error(st, exc: Exception) -> None:
+    if isinstance(exc, (PilotAccessError, FileExistsError, FileNotFoundError, ValueError)):
+        st.error(str(exc))
+    else:
+        raise exc
+
+
 def _render_create_project_form(st, *, actor_user_id: str, form_key: str) -> None:
     with st.form(form_key):
-        project_id = st.text_input(
-            "项目 ID",
-            key=f"{form_key}_project_id",
-            help="建议使用英文、数字、下划线或短横线，例如 pilot_project_01。",
-        )
         project_name = st.text_input("项目名称", key=f"{form_key}_project_name")
         submitted = st.form_submit_button("创建项目", type="primary")
 
@@ -2460,25 +2748,45 @@ def _render_create_project_form(st, *, actor_user_id: str, form_key: str) -> Non
         return
 
     try:
-        project = _pilot_access_service().create_project(
-            actor_user_id=actor_user_id,
-            project=Project(
-                str(project_id).strip(),
-                str(project_name).strip(),
-                created_by_user_id=actor_user_id,
-            ),
-        )
-        membership = _pilot_access_service().registry.get_project_membership(project.project_id, actor_user_id)
-        if membership is None:
-            raise PilotAccessError("Project was created but membership was not initialized.")
-        _activate_pilot_project(st, project=project, membership=membership, clear_work_state=True)
-        st.session_state[PILOT_PROJECT_NOTICE_KEY] = f"已创建并进入项目：{project.name}"
-        st.rerun()
+        _create_and_activate_project(st, actor_user_id=actor_user_id, project_name=project_name)
     except Exception as exc:  # noqa: BLE001 - form errors should be visible
-        if isinstance(exc, (PilotAccessError, FileExistsError, FileNotFoundError, ValueError)):
-            st.error(str(exc))
-        else:
-            raise exc
+        _handle_create_project_error(st, exc)
+
+
+def _render_create_project_sidebar_controls(st, *, actor_user_id: str, key_prefix: str) -> None:
+    project_name = st.text_input("项目名称", key=f"{key_prefix}_project_name")
+    if not st.button("创建项目", key=f"{key_prefix}_submit", type="primary"):
+        return
+    try:
+        _create_and_activate_project(st, actor_user_id=actor_user_id, project_name=project_name)
+    except Exception as exc:  # noqa: BLE001 - button errors should be visible
+        _handle_create_project_error(st, exc)
+
+
+def _archive_project_and_select_next(st, *, actor_user_id: str, project: Project) -> None:
+    access_service = _pilot_access_service()
+    archived = access_service.archive_project(actor_user_id=actor_user_id, project_id=project.project_id)
+    remaining_projects = access_service.list_accessible_projects(actor_user_id=actor_user_id)
+    if remaining_projects:
+        next_project, next_membership = remaining_projects[0]
+        _activate_pilot_project(st, project=next_project, membership=next_membership, clear_work_state=True)
+        st.session_state[PILOT_PROJECT_NOTICE_KEY] = (
+            f"已删除项目：{archived.name}。已切换到项目：{next_project.name}"
+        )
+    else:
+        _clear_pilot_project_context(st, clear_work_state=True)
+        st.session_state[PILOT_PROJECT_NOTICE_KEY] = f"已删除项目：{archived.name}。请创建新的本地项目。"
+    st.rerun()
+
+
+def _render_local_project_delete_controls(st, *, actor_user_id: str, project: Project, key_prefix: str) -> None:
+    st.caption("从本地项目列表移除当前项目。")
+    if not st.button("删除当前项目", key=f"{key_prefix}_submit", type="primary"):
+        return
+    try:
+        _archive_project_and_select_next(st, actor_user_id=actor_user_id, project=project)
+    except Exception as exc:  # noqa: BLE001 - button errors should be visible
+        _handle_create_project_error(st, exc)
 
 
 def _render_pilot_project_sidebar(
@@ -2489,7 +2797,9 @@ def _render_pilot_project_sidebar(
 ) -> None:
     with st.sidebar:
         st.markdown("---")
-        st.caption("项目工作区")
+        st.caption("项目工作区" if _pilot_auth_enabled() else "本地项目库")
+        if not _pilot_auth_enabled():
+            st.caption(f"数据目录：{_local_project_store_dir()}")
         if visible_projects:
             project_ids = [project.project_id for project, _membership in visible_projects]
             active_project_id = _current_pilot_project_id(st)
@@ -2514,42 +2824,118 @@ def _render_pilot_project_sidebar(
                 st.session_state[PILOT_PROJECT_NOTICE_KEY] = f"已切换到项目：{selected_project.name}"
                 st.rerun()
             export_text = "允许导出" if selected_membership.can_export_artifacts else "禁止导出"
-            st.caption(f"当前角色：{selected_membership.role.value} / {export_text}")
+            if _pilot_auth_enabled():
+                st.caption(f"当前角色：{selected_membership.role.value} / {export_text}")
+            else:
+                st.caption("当前项目已选择")
             with st.expander("新建项目"):
-                _render_create_project_form(
+                _render_create_project_sidebar_controls(
                     st,
                     actor_user_id=actor_user_id,
-                    form_key="pilot_sidebar_create_project_form",
+                    key_prefix="pilot_sidebar_create_project",
                 )
+            if not _pilot_auth_enabled():
+                with st.expander("项目操作"):
+                    st.caption(f"内部项目编号：{selected_project.project_id}")
+                    _render_local_project_delete_controls(
+                        st,
+                        actor_user_id=actor_user_id,
+                        project=selected_project,
+                        key_prefix="pilot_sidebar_delete_project",
+                    )
         else:
-            st.info("当前账号尚未加入项目。")
+            if _pilot_auth_enabled():
+                st.info("当前账号尚未加入项目。")
+            else:
+                st.info("本机还没有本地项目。")
 
 
 def _pilot_datetime_text(value) -> str:
     return value.strftime("%Y-%m-%d %H:%M") if value else "-"
 
 
+PILOT_JOB_TYPE_LABELS = {
+    JobType.TECHNICAL_STUDY.value: "方案仿真",
+    JobType.ECONOMIC_STUDY.value: "经济测算",
+    JobType.RECOMMENDATION.value: "方案推荐",
+    JobType.CHART_EXPORT.value: "图表导出",
+    JobType.REPORT_EXPORT.value: "报告导出",
+}
+
+PILOT_JOB_STATUS_LABELS = {
+    JobStatus.QUEUED.value: "排队中",
+    JobStatus.RUNNING.value: "运行中",
+    JobStatus.SUCCEEDED.value: "已完成",
+    JobStatus.FAILED.value: "失败",
+    JobStatus.CANCELED.value: "已取消",
+}
+
+PILOT_JOB_MESSAGE_LABELS = {
+    "technical study result ready": "方案仿真结果已就绪",
+    "economic study result ready": "经济测算结果已就绪",
+    "recommendation study result ready": "方案推荐结果已就绪",
+    "technical simulation": "方案仿真中",
+    "running technical study": "方案仿真运行中",
+    "batch simulation": "批量仿真中",
+    "hourly detail queued": "逐小时明细补算已排队",
+}
+
+
+def _pilot_enum_value(value: object) -> str:
+    return str(getattr(value, "value", value))
+
+
+def _pilot_job_type_label(value: object) -> str:
+    raw_value = _pilot_enum_value(value)
+    return PILOT_JOB_TYPE_LABELS.get(raw_value, raw_value)
+
+
+def _pilot_job_status_label(value: object) -> str:
+    raw_value = _pilot_enum_value(value)
+    return PILOT_JOB_STATUS_LABELS.get(raw_value, raw_value)
+
+
 def _pilot_job_progress_text(job: Job) -> str:
     return f"{job.progress_current}/{job.progress_total}" if job.progress_total else str(job.progress_current)
 
 
-def _pilot_job_history_frame(jobs: list[Job], *, limit: int = 8) -> pd.DataFrame:
+def _pilot_job_message(job: Job) -> str:
+    if job.error_message:
+        return str(job.error_message)
+    message = str(job.progress_message or "").strip()
+    if not message:
+        return ""
+    normalized = " ".join(message.lower().split())
+    if normalized.startswith("running block "):
+        return f"运行分块 {message[len('running block '):]}"
+    return PILOT_JOB_MESSAGE_LABELS.get(normalized, message)
+
+
+def _pilot_job_history_frame(
+    jobs: list[Job],
+    *,
+    limit: int = 8,
+    include_internal: bool = False,
+) -> pd.DataFrame:
     sorted_jobs = sorted(jobs, key=lambda job: (job.queued_at, job.study_id, job.job_id), reverse=True)
     rows = []
     for job in sorted_jobs[:limit]:
-        rows.append(
-            {
-                "job_id": job.job_id,
-                "study_id": job.study_id,
-                "类型": job.job_type.value,
-                "状态": job.status.value,
-                "进度": _pilot_job_progress_text(job),
-                "发起人": job.requested_by_user_id,
-                "开始": _pilot_datetime_text(job.started_at),
-                "完成": _pilot_datetime_text(job.finished_at),
-                "说明": job.error_message or job.progress_message or "",
+        row = {
+            "任务类型": _pilot_job_type_label(job.job_type),
+            "状态": _pilot_job_status_label(job.status),
+            "进度": _pilot_job_progress_text(job),
+            "发起人": job.requested_by_user_id,
+            "开始时间": _pilot_datetime_text(job.started_at or job.queued_at),
+            "完成时间": _pilot_datetime_text(job.finished_at),
+            "说明": _pilot_job_message(job),
+        }
+        if include_internal:
+            row = {
+                "任务编号": job.job_id,
+                "测算编号": job.study_id,
+                **row,
             }
-        )
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -2575,23 +2961,23 @@ def _pilot_job_status_frame(
     for job in sorted_jobs:
         rows.append(
             {
-                "job_id": job.job_id,
-                "study_id": job.study_id,
-                "类型": job.job_type.value,
-                "状态": job.status.value,
+                "任务编号": job.job_id,
+                "测算编号": job.study_id,
+                "任务类型": _pilot_job_type_label(job.job_type),
+                "状态": _pilot_job_status_label(job.status),
                 "进度": _pilot_job_progress_text(job),
                 "发起人": job.requested_by_user_id,
-                "worker": job.worker_id or "",
-                "排队": _pilot_datetime_text(job.queued_at),
-                "开始": _pilot_datetime_text(job.started_at),
+                "执行器": job.worker_id or "",
+                "排队时间": _pilot_datetime_text(job.queued_at),
+                "开始时间": _pilot_datetime_text(job.started_at),
                 "最后心跳": _pilot_datetime_text(job.last_heartbeat_at),
-                "完成": _pilot_datetime_text(job.finished_at),
-                "超时": _pilot_job_stale_text(
+                "完成时间": _pilot_datetime_text(job.finished_at),
+                "是否超时": _pilot_job_stale_text(
                     job,
                     now=now,
                     stale_after_seconds=stale_after_seconds,
                 ),
-                "说明": job.error_message or job.progress_message or "",
+                "说明": _pilot_job_message(job),
             }
         )
     return pd.DataFrame(rows)
@@ -2607,8 +2993,8 @@ def _active_pilot_jobs(jobs: list[Job]) -> list[Job]:
 
 def _pilot_job_option_label(job: Job) -> str:
     return (
-        f"{job.job_id} / {job.job_type.value} / {job.status.value} / "
-        f"{_pilot_job_progress_text(job)} / {job.requested_by_user_id}"
+        f"{_pilot_job_type_label(job.job_type)} / {_pilot_job_status_label(job.status)} / "
+        f"{_pilot_job_progress_text(job)} / {job.requested_by_user_id} / {job.job_id}"
     )
 
 
@@ -2622,18 +3008,18 @@ def _can_cancel_pilot_job(job: Job, *, actor_user_id: str, project_role: str | N
 
 def _pilot_result_record_kind(record: StudyResultRecord) -> str:
     if record.recommendation_artifact_id:
-        return "recommendation"
+        return "方案推荐"
     if record.economy_summary_artifact_id or record.single_entity_summary_artifact_id:
-        return "economy"
+        return "经济测算"
     if record.technical_summary_artifact_id:
-        return "technical"
+        return "技术仿真"
     if record.report_artifact_ids:
-        return "report"
+        return "报告导出"
     if record.annual_cashflow_artifact_ids:
-        return "annual_cashflow"
+        return "年度现金流"
     if record.hourly_detail_artifact_ids:
-        return "hourly_detail"
-    return "result"
+        return "逐小时明细"
+    return "结果记录"
 
 
 def _pilot_result_artifact_count(record: StudyResultRecord) -> int:
@@ -2686,6 +3072,31 @@ def _pilot_result_artifact_refs(record: StudyResultRecord) -> list[tuple[str, st
         for name, artifact_id in sorted(record.report_artifact_ids.items())
     )
     return refs
+
+
+PILOT_SAVED_DELIVERABLE_LABELS = {
+    "chart_html": "图表 HTML 包",
+    "markdown": "Markdown 报告",
+    "docx": "Word 报告",
+    "docx_template": "DOCX 报告模板",
+}
+
+
+def _pilot_saved_deliverable_artifact_refs(record: StudyResultRecord) -> list[tuple[str, str]]:
+    return [
+        (PILOT_SAVED_DELIVERABLE_LABELS[name], artifact_id)
+        for name, artifact_id in sorted(record.report_artifact_ids.items())
+        if name in PILOT_SAVED_DELIVERABLE_LABELS and artifact_id
+    ]
+
+
+def _pilot_result_restore_available(record: StudyResultRecord) -> bool:
+    return bool(
+        record.technical_summary_artifact_id
+        or record.economy_summary_artifact_id
+        or record.single_entity_summary_artifact_id
+        or record.recommendation_artifact_id
+    )
 
 
 def _pilot_artifact_download_key(record: StudyResultRecord, artifact_id: str) -> str:
@@ -3187,22 +3598,78 @@ def _sort_pilot_result_records(records: list[StudyResultRecord]) -> list[StudyRe
     )
 
 
-def _pilot_result_history_frame(records: list[StudyResultRecord], *, limit: int = 8) -> pd.DataFrame:
+def _sort_pilot_result_records_by_created(records: list[StudyResultRecord]) -> list[StudyResultRecord]:
+    return sorted(
+        records,
+        key=lambda record: (record.created_at, record.study_id, record.result_id),
+        reverse=True,
+    )
+
+
+def _pilot_current_result_records(records: list[StudyResultRecord]) -> list[StudyResultRecord]:
+    sorted_records = _sort_pilot_result_records_by_created(records)
+    latest_technical = next((record for record in sorted_records if record.technical_summary_artifact_id), None)
+    if latest_technical is not None:
+        current_study_id = latest_technical.study_id
+    elif sorted_records:
+        current_study_id = sorted_records[0].study_id
+    else:
+        return []
+    return _sort_pilot_result_records([record for record in records if record.study_id == current_study_id])
+
+
+def _pilot_current_result_frame(records: list[StudyResultRecord]) -> pd.DataFrame:
+    current_records = _pilot_current_result_records(records)
+    if not current_records:
+        return pd.DataFrame()
+
+    latest_updated_at = max((record.created_at for record in current_records), default=None)
+    has_technical = any(record.technical_summary_artifact_id for record in current_records)
+    has_economy = any(
+        record.economy_summary_artifact_id or record.single_entity_summary_artifact_id
+        for record in current_records
+    )
+    has_recommendation = any(record.recommendation_artifact_id for record in current_records)
+    deliverable_count = sum(len(_pilot_saved_deliverable_artifact_refs(record)) for record in current_records)
+
+    return pd.DataFrame(
+        [
+            {
+                "结果集": "当前项目结果",
+                "方案遍历": "已完成" if has_technical else "待计算",
+                "经济测算": "已完成" if has_economy else "待计算",
+                "推荐方案": "已完成" if has_recommendation else "待生成",
+                "图表/报告": f"已保存 {deliverable_count} 个" if deliverable_count else "按需生成",
+                "更新时间": _pilot_datetime_text(latest_updated_at),
+            }
+        ]
+    )
+
+
+def _pilot_result_history_frame(
+    records: list[StudyResultRecord],
+    *,
+    limit: int = 8,
+    include_internal: bool = False,
+) -> pd.DataFrame:
     sorted_records = _sort_pilot_result_records(records)
     rows = []
     for record in sorted_records[:limit]:
-        rows.append(
-            {
-                "result_id": record.result_id,
-                "study_id": record.study_id,
-                "标记": "重点" if record.is_pinned else "",
-                "备注": record.label or "",
-                "类型": _pilot_result_record_kind(record),
-                "产物数": _pilot_result_artifact_count(record),
-                "来源 Job": record.created_by_job_id,
-                "保存时间": _pilot_datetime_text(record.created_at),
+        row = {
+            "结果类型": _pilot_result_record_kind(record),
+            "标记": "重点" if record.is_pinned else "",
+            "备注": record.label or "",
+            "产物数": _pilot_result_artifact_count(record),
+            "保存时间": _pilot_datetime_text(record.created_at),
+        }
+        if include_internal:
+            row = {
+                "结果编号": record.result_id,
+                "测算编号": record.study_id,
+                **row,
+                "来源任务编号": record.created_by_job_id,
             }
-        )
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -3215,20 +3682,26 @@ def _render_pilot_result_artifact_downloads(
     limit: int = 5,
 ) -> None:
     sorted_records = _sort_pilot_result_records(records)
-    records_with_artifacts = [record for record in sorted_records if _pilot_result_artifact_refs(record)]
-    if not records_with_artifacts:
+    records_with_restore_or_deliverables = [
+        record
+        for record in sorted_records
+        if _pilot_result_restore_available(record) or _pilot_saved_deliverable_artifact_refs(record)
+    ]
+    if not records_with_restore_or_deliverables:
         return
 
-    st.caption("历史结果产物")
+    st.caption("当前结果恢复与交付产物")
     can_export_artifacts = _current_pilot_project_can_export_artifacts(st)
     can_manage_project = _current_pilot_project_can_manage(st)
     if not can_export_artifacts:
-        st.info("当前项目成员权限允许查看和恢复历史结果到网页工作流，但不允许下载结果文件。")
+        st.info("当前项目成员权限允许查看和恢复当前结果到网页工作流，但不允许下载已保存的交付产物。")
 
     downloads = st.session_state.setdefault(PILOT_HISTORY_ARTIFACT_DOWNLOADS_KEY, {})
-    for record in records_with_artifacts[:limit]:
-        title = f"{record.result_id} · {_pilot_result_record_kind(record)} · {_pilot_datetime_text(record.created_at)}"
+    for record in records_with_restore_or_deliverables[:limit]:
+        deliverable_refs = _pilot_saved_deliverable_artifact_refs(record)
+        title = f"{_pilot_result_record_kind(record)} · {_pilot_datetime_text(record.created_at)}"
         with st.expander(title, expanded=False):
+            st.caption(f"内部索引：{record.result_id}；测算编号：{record.study_id}")
             if record.technical_summary_artifact_id:
                 restore_key = f"pilot_history_restore_{record.project_id}:{record.study_id}:{record.result_id}"
                 if st.button("恢复技术汇总到当前会话", key=restore_key):
@@ -3241,7 +3714,7 @@ def _render_pilot_result_artifact_downloads(
                         )
                     except Exception as exc:  # noqa: BLE001 - restore errors should be user-visible
                         if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
-                            st.warning(f"历史技术汇总暂不能恢复：{exc}")
+                            st.warning(f"技术汇总暂不能恢复：{exc}")
                         else:
                             raise
                     else:
@@ -3259,7 +3732,7 @@ def _render_pilot_result_artifact_downloads(
                         )
                     except Exception as exc:  # noqa: BLE001 - restore errors should be user-visible
                         if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
-                            st.warning(f"历史经济性汇总暂不能恢复：{exc}")
+                            st.warning(f"经济性汇总暂不能恢复：{exc}")
                         else:
                             raise
                     else:
@@ -3279,7 +3752,7 @@ def _render_pilot_result_artifact_downloads(
                         )
                     except Exception as exc:  # noqa: BLE001 - restore errors should be user-visible
                         if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
-                            st.warning(f"历史推荐组合暂不能恢复：{exc}")
+                            st.warning(f"推荐组合暂不能恢复：{exc}")
                         else:
                             raise
                     else:
@@ -3296,7 +3769,7 @@ def _render_pilot_result_artifact_downloads(
                 marker_save_key = (
                     f"pilot_history_mark_save_{record.project_id}:{record.study_id}:{record.result_id}"
                 )
-                st.caption("项目管理员可把有效结论标记为重点结果，便于后续复核。")
+                st.caption("项目管理员可把当前结论标记为重点结果，便于后续复核。")
                 marker_pinned = st.checkbox(
                     "标记为重点结果",
                     value=record.is_pinned,
@@ -3320,20 +3793,20 @@ def _render_pilot_result_artifact_downloads(
                         )
                     except Exception as exc:  # noqa: BLE001 - activity panel should surface storage/permission races
                         if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
-                            st.warning(f"历史结果标记暂不能保存：{exc}")
+                            st.warning(f"结果标记暂不能保存：{exc}")
                             return
                         raise
                     st.session_state[PILOT_PROJECT_NOTICE_KEY] = (
-                        f"已更新历史结果标记：{marked.result_id}"
+                        f"已更新结果标记：{marked.result_id}"
                     )
                     st.rerun()
                 confirm_delete_key = (
                     f"pilot_history_delete_confirm_{record.project_id}:{record.study_id}:{record.result_id}"
                 )
                 delete_key = f"pilot_history_delete_{record.project_id}:{record.study_id}:{record.result_id}"
-                st.caption("项目管理员可隐藏这条历史结果索引；这不会删除已落盘 artifact 文件。")
-                if st.checkbox("确认隐藏这条历史结果索引", key=confirm_delete_key):
-                    if st.button("隐藏历史结果索引", key=delete_key):
+                st.caption("项目管理员可隐藏这条结果索引；这不会删除已落盘 artifact 文件。")
+                if st.checkbox("确认隐藏这条结果索引", key=confirm_delete_key):
+                    if st.button("隐藏结果索引", key=delete_key):
                         try:
                             deleted = access.delete_result_record(
                                 actor_user_id=actor_user_id,
@@ -3343,18 +3816,23 @@ def _render_pilot_result_artifact_downloads(
                             )
                         except Exception as exc:  # noqa: BLE001 - activity panel should surface storage/permission races
                             if isinstance(exc, (PilotAccessError, FileNotFoundError, ValueError, OSError)):
-                                st.warning(f"历史结果索引暂不能隐藏：{exc}")
+                                st.warning(f"结果索引暂不能隐藏：{exc}")
                                 return
                             raise
                         st.session_state[PILOT_PROJECT_NOTICE_KEY] = (
-                            f"已隐藏历史结果索引：{deleted.result_id}"
+                            f"已隐藏结果索引：{deleted.result_id}"
                         )
                         st.rerun()
+            if deliverable_refs:
+                st.divider()
+                st.caption("已保存交付产物")
+            else:
+                st.caption("本版本为自动保存的计算结果快照，暂无单独保存的报告或图表交付产物。")
             if not can_export_artifacts:
-                for label, artifact_id in _pilot_result_artifact_refs(record):
+                for label, artifact_id in deliverable_refs:
                     st.caption(f"{label} · {artifact_id}")
                 continue
-            for label, artifact_id in _pilot_result_artifact_refs(record):
+            for label, artifact_id in deliverable_refs:
                 cache_key = _pilot_artifact_download_key(record, artifact_id)
                 load_key = f"pilot_history_load_{cache_key}"
                 download_key = f"pilot_history_download_{cache_key}"
@@ -3435,23 +3913,41 @@ def _render_pilot_active_job_controls(
             st.rerun()
 
 
-def _render_pilot_job_status_details(st, *, jobs: list[Job]) -> None:
-    if not jobs:
+def _render_pilot_job_status_details(
+    st,
+    *,
+    jobs: list[Job],
+    records: list[StudyResultRecord],
+) -> None:
+    if not jobs and not records:
         return
-    with st.expander("任务状态明细", expanded=False):
-        st.dataframe(
-            _pilot_job_status_frame(
-                jobs,
-                now=datetime.now(timezone.utc),
-                stale_after_seconds=PILOT_JOB_STALE_AFTER_SECONDS,
-            ),
-            width="stretch",
-            hide_index=True,
+    with st.expander("运行审计（排查用）", expanded=False):
+        st.caption(
+            "这里保留每次仿真、经济测算、推荐或导出的任务流水，用于排查和审计；"
+            "普通使用时只看上方当前结果集即可。"
         )
+        if jobs:
+            st.markdown("##### 运行记录明细")
+            st.dataframe(
+                _pilot_job_status_frame(
+                    jobs,
+                    now=datetime.now(timezone.utc),
+                    stale_after_seconds=PILOT_JOB_STALE_AFTER_SECONDS,
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+        if records:
+            st.markdown("##### 当前结果索引明细")
+            st.dataframe(
+                _pilot_result_history_frame(records, limit=50, include_internal=True),
+                width="stretch",
+                hide_index=True,
+            )
 
 
 def _render_pilot_project_activity(st) -> None:
-    if not _pilot_auth_enabled():
+    if not _project_store_enabled():
         return
     actor_user_id = _current_pilot_user_id(st)
     project_id = _current_pilot_project_id(st)
@@ -3468,9 +3964,24 @@ def _render_pilot_project_activity(st) -> None:
         raise
 
     st.markdown("### 项目任务与结果")
+    current_records = _pilot_current_result_records(records)
+    deliverable_count = sum(len(_pilot_saved_deliverable_artifact_refs(record)) for record in current_records)
+    current_ready = any(record.technical_summary_artifact_id for record in current_records)
     col1, col2 = st.columns(2)
-    col1.metric("已登记任务", len(jobs))
-    col2.metric("已保存结果", len(records))
+    col1.metric(
+        "当前结果",
+        "已生成" if current_ready else "未生成",
+        help="一个项目默认只展示一个当前结果集；重新运行方案遍历会替换旧的可见结果索引。",
+    )
+    col2.metric(
+        "交付产物",
+        f"{deliverable_count} 个" if deliverable_count else "按需生成",
+        help="图表、报告和打包文件默认从当前方案与经济结果按需生成；显式保存后才计为交付产物。",
+    )
+    st.caption(
+        "项目首页只展示一个当前结果集：方案遍历、经济测算、推荐和图表/报告围绕同一套当前结果展开；"
+        "完整运行流水折叠保留，用于排查和审计。"
+    )
     _render_pilot_active_job_controls(
         st,
         access=access,
@@ -3478,33 +3989,36 @@ def _render_pilot_project_activity(st) -> None:
         project_id=project_id,
         jobs=jobs,
     )
-    _render_pilot_job_status_details(st, jobs=jobs)
     left, right = st.columns(2)
     with left:
-        st.caption("最近任务")
-        jobs_frame = _pilot_job_history_frame(jobs)
+        st.caption("最近一次运行")
+        jobs_frame = _pilot_job_history_frame(jobs, limit=1)
         if jobs_frame.empty:
             st.info("当前项目还没有任务记录。")
         else:
             st.dataframe(jobs_frame, width="stretch", hide_index=True)
     with right:
-        st.caption("最近结果索引")
-        results_frame = _pilot_result_history_frame(records)
+        st.caption("当前结果状态")
+        results_frame = _pilot_current_result_frame(records)
         if results_frame.empty:
             st.info("当前项目还没有保存结果。")
         else:
             st.dataframe(results_frame, width="stretch", hide_index=True)
+    _render_pilot_job_status_details(st, jobs=jobs, records=current_records)
     _render_pilot_result_artifact_downloads(
         st,
         access=access,
         actor_user_id=actor_user_id,
-        records=records,
+        records=current_records,
     )
 
 
 def _ensure_pilot_project_selected(st) -> bool:
-    if not _pilot_auth_enabled():
+    if not _project_store_enabled():
         return True
+
+    if _local_project_mode_enabled():
+        _ensure_local_project_user()
 
     actor_user_id = _current_pilot_user_id(st)
     if not actor_user_id:
@@ -3542,8 +4056,12 @@ def _ensure_pilot_project_selected(st) -> bool:
         return True
 
     st.markdown("## 项目工作区")
-    st.caption("内部试用部署已启用账号和项目边界。请先创建或加入一个项目，再开始方案仿真。")
-    st.info("当前账号尚未加入任何有效项目。你可以先创建一个项目；平台管理员也可以在后台把你加入已有项目。")
+    if _pilot_auth_enabled():
+        st.caption("内部试用部署已启用账号和项目边界。请先创建或加入一个项目，再开始方案仿真。")
+        st.info("当前账号尚未加入任何有效项目。你可以先创建一个项目；平台管理员也可以在后台把你加入已有项目。")
+    else:
+        st.caption("本地项目库会把项目、输入曲线、方案汇总、经济结果和推荐组合保存到本机 `.runtime/local_project_store`。")
+        st.info("请先创建一个本地项目，再开始方案仿真。切换项目会清空当前会话结果，但不会删除项目历史。")
     _render_create_project_form(st, actor_user_id=actor_user_id, form_key="pilot_main_create_project_form")
     return False
 
@@ -4084,7 +4602,6 @@ def _render_platform_admin_page(st) -> None:
     with project_tab:
         st.caption("平台管理员可在这里准备内测项目，再分配项目成员和导出权限。")
         with st.form("pilot_admin_create_project_form"):
-            new_project_id = st.text_input("新项目 ID", key="pilot_admin_create_project_id")
             new_project_name = st.text_input("新项目名称", key="pilot_admin_create_project_name")
             owner_user_id = st.selectbox(
                 "项目管理员",
@@ -4095,17 +4612,22 @@ def _render_platform_admin_page(st) -> None:
             create_project_submitted = st.form_submit_button("创建项目", type="primary")
         if create_project_submitted:
             try:
-                project_id_value = str(new_project_id).strip()
                 project_name_value = str(new_project_name).strip()
-                if not project_id_value:
-                    raise ValueError("新项目 ID 不能为空。")
                 if not project_name_value:
                     raise ValueError("新项目名称不能为空。")
-                created_project = admin_service.create_project(
-                    actor_user_id=actor_user_id,
-                    project=Project(project_id_value, project_name_value),
-                    owner_user_id=str(owner_user_id),
-                )
+                created_project = None
+                for _attempt in range(3):
+                    try:
+                        created_project = admin_service.create_project(
+                            actor_user_id=actor_user_id,
+                            project=Project(_generate_project_id(), project_name_value),
+                            owner_user_id=str(owner_user_id),
+                        )
+                        break
+                    except FileExistsError:
+                        continue
+                if created_project is None:
+                    raise FileExistsError("项目 ID 自动生成失败，请重试。")
                 st.session_state[PILOT_ADMIN_NOTICE_KEY] = f"已创建项目：{created_project.project_id}"
                 st.rerun()
             except Exception as exc:  # noqa: BLE001
@@ -4434,7 +4956,7 @@ def _discard_incompatible_project_price_curve(
     return (
         f"已清除旧项目级下网电价曲线：曲线 {price_curve_rows:,} 行，"
         f"与当前逐小时明细 {_format_row_counts(hourly_row_counts)} 行不一致。"
-        "本次经济性测算将切回固定价/网页组价模式。"
+        "本次经济性测算将切回本页电费单参数。"
     )
 
 
@@ -4448,7 +4970,7 @@ def _clear_project_price_curve_for_partial_hourly_retention(st, detail_retention
     retained_text = f"仅保留 {len(retained_ids)} 个方案逐小时明细" if retained_ids else "未保留逐小时明细"
     return (
         f"已清除项目级下网电价曲线：价格曲线经济性需要全部候选方案逐小时明细，"
-        f"本次大批量模式{retained_text}，经济性测算将切回固定价/网页组价模式。"
+        f"本次大批量模式{retained_text}，经济性测算将切回本页电费单参数。"
     )
 
 
@@ -4467,7 +4989,7 @@ def _price_curve_status_text(st) -> str:
 def _render_project_price_curve_status(st, *, active_label: str = "已上传项目级下网电价曲线") -> None:
     price_curve_data = _project_price_curve_data(st)
     if price_curve_data is None:
-        st.info("未上传下网电价曲线。经济性测算将使用网页端固定外部购电净成本或电费清单组价。")
+        st.info("未上传下网电价曲线。经济性测算将使用本页电费单参数。")
         return
     st.success(f"{active_label}：{_price_curve_status_text(st)}。后续经济性测算使用该曲线。")
     if price_curve_data.warnings:
@@ -4653,13 +5175,13 @@ def _economy_cashflow_retention_plan(
     retained_ids = _scenario_ids_from_summary(summary)[:retained_limit_value]
     if retained_ids:
         message = (
-            f"大批量经济性将计算全部 {scenario_count:,} 个方案的汇总指标和排序，"
-            f"但只常驻前 {len(retained_ids)} 个方案的年度现金流；其他方案后续需要按需补算年度现金流。"
+            f"本次会计算全部 {scenario_count:,} 个方案的经济性汇总、FIRR/NPV 和推荐排序；"
+            f"年度现金流明细只默认保存前 {len(retained_ids)} 个代表方案，其他方案需要时可单独补算。"
         )
     else:
         message = (
-            f"大批量经济性将计算全部 {scenario_count:,} 个方案的汇总指标和排序，"
-            "但不常驻年度现金流；后续需要按需补算单个方案年度现金流。"
+            f"本次会计算全部 {scenario_count:,} 个方案的经济性汇总、FIRR/NPV 和推荐排序；"
+            "年度现金流明细不默认保存，后续需要时可单独补算。"
         )
     return {
         "mode": "summary_first",
@@ -4686,12 +5208,12 @@ def _economy_cashflow_retention_missing_notice(economy_result: dict | None, sele
     count_text = f"{int(scenario_count):,} 个" if isinstance(scenario_count, int) else "全量"
     if retained_count:
         return (
-            f"当前经济性按大批量 summary-first 模式运行，已计算 {count_text}方案的汇总指标、FIRR/NPV 和推荐排序，"
-            f"但只常驻 {retained_count} 个方案的年度现金流；所选方案 {selected_id} 的年度现金流未常驻。"
+            f"当前已计算 {count_text}方案的经济性汇总、FIRR/NPV 和推荐排序，"
+            f"但只默认保存 {retained_count} 个方案的年度现金流明细；所选方案 {selected_id} 的年度现金流明细未保存。"
         )
     return (
-        f"当前经济性按大批量 summary-first 模式运行，已计算 {count_text}方案的汇总指标、FIRR/NPV 和推荐排序，"
-        f"但未常驻年度现金流；所选方案 {selected_id} 的年度现金流未常驻。"
+        f"当前已计算 {count_text}方案的经济性汇总、FIRR/NPV 和推荐排序，"
+        f"但未默认保存年度现金流明细；所选方案 {selected_id} 的年度现金流明细未保存。"
     )
 
 
@@ -4867,7 +5389,7 @@ def _pilot_hourly_detail_artifact_id(st, scenario_id: str) -> str | None:
 
 
 def _load_pilot_hourly_detail_artifact_if_available(st, scenario_id: str) -> bool:
-    if not _pilot_auth_enabled():
+    if not _project_store_enabled():
         return False
     artifact_id = _pilot_hourly_detail_artifact_id(st, str(scenario_id))
     if not artifact_id:
@@ -4903,7 +5425,7 @@ def _load_pilot_hourly_detail_artifact_if_available(st, scenario_id: str) -> boo
 
 
 def _refresh_pilot_hourly_detail_artifact_ref_from_record(st, scenario_id: str) -> bool:
-    if not _pilot_auth_enabled():
+    if not _project_store_enabled():
         return False
     actor_user_id = _current_pilot_user_id(st)
     project_id = _current_pilot_project_id(st)
@@ -4988,7 +5510,7 @@ def _pilot_input_curve_artifact_ids(st) -> dict[str, str]:
 
 
 def _restore_technical_study_input_from_pilot_artifacts(st) -> bool:
-    if not _pilot_auth_enabled() or _has_technical_study_input(st):
+    if not _project_store_enabled() or _has_technical_study_input(st):
         return _has_technical_study_input(st)
     actor_user_id = _current_pilot_user_id(st)
     project_id = _current_pilot_project_id(st)
@@ -5120,7 +5642,7 @@ def _pilot_hourly_detail_job_input_artifact_ids(st) -> dict[str, str] | None:
 def _can_queue_pilot_hourly_detail_job(st, scenario_id: str | None) -> bool:
     return (
         bool(scenario_id)
-        and _pilot_auth_enabled()
+        and _project_store_enabled()
         and _current_pilot_project_can_submit_jobs(st)
         and _current_pilot_user_id(st) is not None
         and _current_pilot_project_id(st) is not None
@@ -5306,7 +5828,7 @@ def _can_queue_pilot_annual_cashflow_job(st, scenario_id: str | None) -> bool:
     refs = study_result.result_store_refs if isinstance(study_result, StudyResult) else {}
     return (
         bool(scenario_id)
-        and _pilot_auth_enabled()
+        and _project_store_enabled()
         and _current_pilot_project_can_submit_jobs(st)
         and _current_pilot_user_id(st) is not None
         and _current_pilot_project_id(st) is not None
@@ -5352,7 +5874,7 @@ def _pilot_annual_cashflow_job_for_scenario(
 
 
 def _load_pilot_annual_cashflow_artifacts_if_available(st, scenario_id: str) -> bool:
-    if not _pilot_auth_enabled():
+    if not _project_store_enabled():
         return False
     actor_user_id = _current_pilot_user_id(st)
     project_id = _current_pilot_project_id(st)
@@ -5749,55 +6271,144 @@ def _recommendation_status_display(status) -> tuple[str, str]:
     return str(status or "待复核"), "pending"
 
 
-def _render_recommendation_cards(st, portfolio: pd.DataFrame) -> None:
-    cards: list[str] = []
-    for display_index, (_, row) in enumerate(portfolio.head(6).iterrows(), start=1):
-        labels = row.get("recommendation_labels", "推荐方案")
-        status = row.get("recommendation_status", "selected")
-        status_text, status_state = _recommendation_status_display(status)
-        rank = row.get("recommendation_rank", display_index)
-        rank_text = _compact_number(rank, digits=0)
-        risk_note = row.get("risk_note")
-        risk_html = (
-            f'<div class="gd-risk-note">{_safe_html_text(risk_note)}</div>'
-            if _is_present(risk_note) and str(risk_note).strip()
-            else ""
-        )
-        metric_html = "".join(
-            [
-                _recommendation_metric("绿电占比", row.get("green_load_rate"), rate=True),
-                _recommendation_metric("自发自用率", row.get("self_use_rate"), rate=True),
-                _recommendation_metric("弃电率", row.get("curtail_rate"), rate=True),
-                _recommendation_metric("上网比例", row.get("export_rate"), rate=True),
-                _recommendation_metric("绿电前到户价", row.get("load_landed_price_before_green_with_vat"), digits=3),
-                _recommendation_metric("绿电后到户价", row.get("load_landed_price_after_green_with_vat"), digits=3),
-                _recommendation_metric("绿电结算价", row.get("green_power_settlement_price_with_vat_effective"), digits=3),
-                _recommendation_metric("下网路径到户价", row.get("weighted_down_grid_landed_price_with_vat"), digits=3),
-                _recommendation_metric("下网比例", row.get("grid_import_rate"), rate=True),
-                _recommendation_metric("同一主体FIRR", row.get("single_entity_firr_pre_tax"), rate=True),
-                _recommendation_metric("电源侧FIRR", row.get("firr"), rate=True),
-                _recommendation_metric("负荷侧收益", row.get("load_side_annual_benefit"), digits=0),
-            ]
-        )
-        cards.append(
-            '<div class="gd-rec-card">'
-            '<div class="gd-rec-top">'
-            "<div>"
-            '<div class="gd-rec-titleline">'
-            f'<span class="gd-rec-rank">{_safe_html_text(rank_text)}</span>'
-            f'<div class="gd-rec-labels">{_safe_html_text(labels)}</div>'
-            "</div>"
-            f'<div class="gd-rec-id">{_safe_html_text(row.get("scenario_id", "-"))}</div>'
-            f'<div class="gd-rec-capacity">{_safe_html_text(_capacity_config_text(row))}</div>'
-            "</div>"
-            f"{_status_pill(status_text, status_state)}"
-            "</div>"
-            f'<div class="gd-rec-reason">{_safe_html_text(row.get("recommendation_reason", ""))}</div>'
-            f'<div class="gd-rec-metrics">{metric_html}</div>'
-            f"{risk_html}"
-            "</div>"
-        )
-    st.markdown(f'<div class="gd-rec-grid">{"".join(cards)}</div>', unsafe_allow_html=True)
+def _activate_recommendation_economy_scenario(st, scenario_id: str) -> None:
+    st.session_state[RECOMMENDATION_ACTIVE_ECONOMY_SCENARIO_KEY] = scenario_id
+    st.session_state["chart_overview_active_detail_scenario"] = scenario_id
+    st.session_state["_chart_overview_pending_detail_scenario"] = scenario_id
+
+
+def _consume_recommendation_card_query_selection(st, summary: pd.DataFrame) -> None:
+    query_params = getattr(st, "query_params", None)
+    if query_params is None:
+        return
+    raw_value = query_params.get(RECOMMENDATION_CARD_QUERY_PARAM)
+    if isinstance(raw_value, (list, tuple)):
+        raw_value = raw_value[0] if raw_value else None
+    scenario_id = str(raw_value or "").strip()
+    if not scenario_id:
+        return
+    valid_ids = set(summary["scenario_id"].dropna().astype(str)) if "scenario_id" in summary.columns else set()
+    if not valid_ids or scenario_id in valid_ids:
+        _activate_recommendation_economy_scenario(st, scenario_id)
+    try:
+        del query_params[RECOMMENDATION_CARD_QUERY_PARAM]
+    except Exception:  # noqa: BLE001 - query param cleanup is best-effort for Streamlit versions
+        pass
+
+
+def _recommendation_card_html(
+    row: pd.Series,
+    *,
+    rank_text: str,
+    labels: str,
+    scenario_id: str,
+    status_text: str,
+    status_state: str,
+    active: bool,
+) -> str:
+    risk_note = row.get("risk_note")
+    risk_html = (
+        f'<div class="gd-risk-note">{_safe_html_text(risk_note)}</div>'
+        if _is_present(risk_note) and str(risk_note).strip()
+        else ""
+    )
+    metric_html = "".join(
+        [
+            _recommendation_metric("绿电占比", row.get("green_load_rate"), rate=True),
+            _recommendation_metric("自发自用率", row.get("self_use_rate"), rate=True),
+            _recommendation_metric("弃电率", row.get("curtail_rate"), rate=True),
+            _recommendation_metric("上网比例", row.get("export_rate"), rate=True),
+            _recommendation_metric("绿电前到户价", row.get("load_landed_price_before_green_with_vat"), digits=3),
+            _recommendation_metric("绿电后到户价", row.get("load_landed_price_after_green_with_vat"), digits=3),
+            _recommendation_metric("绿电结算价", row.get("green_power_settlement_price_with_vat_effective"), digits=3),
+            _recommendation_metric("下网路径到户价", row.get("weighted_down_grid_landed_price_with_vat"), digits=3),
+            _recommendation_metric("下网比例", row.get("grid_import_rate"), rate=True),
+            _recommendation_metric("同一主体FIRR", row.get("single_entity_firr_pre_tax"), rate=True),
+            _recommendation_metric("电源侧FIRR", row.get("firr"), rate=True),
+            _recommendation_metric("负荷侧收益", row.get("load_side_annual_benefit"), digits=0),
+        ]
+    )
+    active_class = " is-active" if active else ""
+    href = f"?{RECOMMENDATION_CARD_QUERY_PARAM}={quote(str(scenario_id or ''), safe='')}"
+    return (
+        '<div class="gd-rec-click-frame">'
+        f'<a class="gd-rec-card-link" href="{_safe_html_text(href)}" title="切换当前查看方案">'
+        f'<div class="gd-rec-card{active_class}">'
+        '<div class="gd-rec-top">'
+        "<div>"
+        '<div class="gd-rec-titleline">'
+        f'<span class="gd-rec-rank">{_safe_html_text(rank_text)}</span>'
+        f'<div class="gd-rec-labels">{_safe_html_text(labels)}</div>'
+        "</div>"
+        f'<div class="gd-rec-id">{_safe_html_text(scenario_id or "-")}</div>'
+        f'<div class="gd-rec-capacity">{_safe_html_text(_capacity_config_text(row))}</div>'
+        "</div>"
+        f"{_status_pill(status_text, status_state)}"
+        "</div>"
+        f'<div class="gd-rec-reason">{_safe_html_text(row.get("recommendation_reason", ""))}</div>'
+        f'<div class="gd-rec-metrics">{metric_html}</div>'
+        f"{risk_html}"
+        "</div>"
+        "</a>"
+        "</div>"
+    )
+
+
+def _active_recommendation_economy_scenario_id(
+    st,
+    summary: pd.DataFrame,
+    portfolio: pd.DataFrame | None,
+) -> str | None:
+    valid_ids = set(summary["scenario_id"].dropna().astype(str)) if "scenario_id" in summary.columns else set()
+    for candidate in [
+        st.session_state.get(RECOMMENDATION_ACTIVE_ECONOMY_SCENARIO_KEY),
+        st.session_state.get("chart_overview_active_detail_scenario"),
+        st.session_state.get("_chart_overview_pending_detail_scenario"),
+        st.session_state.get("export_report_scenario"),
+    ]:
+        if candidate is not None and str(candidate) in valid_ids:
+            return str(candidate)
+
+    if portfolio is not None and not portfolio.empty and "scenario_id" in portfolio.columns:
+        for first_portfolio_id in portfolio["scenario_id"].dropna().astype(str):
+            if not valid_ids or first_portfolio_id in valid_ids:
+                return str(first_portfolio_id)
+    return None
+
+
+def _render_recommendation_cards(
+    st,
+    portfolio: pd.DataFrame,
+    active_scenario_id: str | None = None,
+) -> None:
+    if active_scenario_id is None and "scenario_id" in portfolio.columns:
+        first_id = portfolio["scenario_id"].dropna().astype(str)
+        active_scenario_id = str(first_id.iloc[0]) if not first_id.empty else None
+
+    rows = list(portfolio.head(6).iterrows())
+    for row_start in range(0, len(rows), 3):
+        columns = st.columns(min(3, len(rows) - row_start), gap="small")
+        for offset, column in enumerate(columns):
+            display_index = row_start + offset + 1
+            _, row = rows[row_start + offset]
+            labels = str(row.get("recommendation_labels", "推荐方案") or "推荐方案")
+            status = row.get("recommendation_status", "selected")
+            status_text, status_state = _recommendation_status_display(status)
+            rank = row.get("recommendation_rank", display_index)
+            rank_text = _compact_number(rank, digits=0)
+            scenario_id = str(row.get("scenario_id", "") or "").strip()
+            is_active = bool(scenario_id and scenario_id == str(active_scenario_id))
+            card_html = _recommendation_card_html(
+                row,
+                rank_text=rank_text,
+                labels=labels,
+                scenario_id=scenario_id,
+                status_text=status_text,
+                status_state=status_state,
+                active=is_active,
+            )
+            with column:
+                st.markdown(card_html, unsafe_allow_html=True)
 
 
 def _recommendation_portfolio_display_columns(portfolio: pd.DataFrame) -> list[str]:
@@ -6017,7 +6628,10 @@ def _auto_assign_curve_files(files) -> tuple[dict[str, object], object | None, l
 
         curve_name = _match_curve_from_filename(filename)
         if curve_name is None:
-            messages.append(f"未能识别文件 `{filename}`，请使用单独上传入口；若为下网电价曲线，文件名建议包含“电价/价格/下网/price”。")
+            messages.append(
+                f"未能识别文件 `{filename}`，请调整文件名后重新上传；"
+                "技术曲线建议包含 load/pv/wind 或负荷/光伏/风电，电价曲线建议包含“电价/价格/下网/price”。"
+            )
             continue
         if not _is_supported_technical_curve_file(filename):
             messages.append(f"技术曲线 `{filename}` 当前仅支持 CSV，未纳入负荷/光伏/风电输入。")
@@ -6027,6 +6641,100 @@ def _auto_assign_curve_files(files) -> tuple[dict[str, object], object | None, l
             continue
         assigned[curve_name] = uploaded_file
     return assigned, price_curve_file, messages
+
+
+def _upload_size_text(uploaded_file, upload_infos: dict[int, UploadFileInfo]) -> str:
+    info = upload_infos.get(id(uploaded_file)) if uploaded_file is not None else None
+    if info is None:
+        return "-"
+    size_kb = info.size_bytes / 1024
+    if size_kb < 1024:
+        return f"{size_kb:.0f} KB"
+    return f"{size_kb / 1024:.1f} MB"
+
+
+def _batch_upload_recognition_rows(
+    files,
+    assigned_files: dict[str, object],
+    price_curve_file,
+    upload_infos: dict[int, UploadFileInfo],
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    assigned_ids = {id(file_obj): curve_name for curve_name, file_obj in assigned_files.items()}
+    price_curve_id = id(price_curve_file) if price_curve_file is not None else None
+    used_curve_names: set[str] = set()
+    used_price_curve = False
+
+    for uploaded_file in files or []:
+        filename = getattr(uploaded_file, "name", "")
+        file_id = id(uploaded_file)
+        recognized_type = "未识别"
+        action = "未纳入"
+        status = "需调整文件名"
+
+        if file_id == price_curve_id:
+            recognized_type = "下网电价"
+            action = "更新下网电价曲线"
+            status = "已识别"
+            used_price_curve = True
+        elif file_id in assigned_ids:
+            curve_name = assigned_ids[file_id]
+            recognized_type = curve_name
+            action = f"更新{curve_name}曲线"
+            status = "已识别"
+            used_curve_names.add(curve_name)
+        elif _match_price_curve_from_filename(filename):
+            recognized_type = "下网电价"
+            action = "忽略"
+            status = "重复文件" if used_price_curve else "未使用"
+        else:
+            curve_name = _match_curve_from_filename(filename)
+            if curve_name is not None:
+                recognized_type = curve_name
+                if not _is_supported_technical_curve_file(filename):
+                    status = "格式不支持"
+                elif curve_name in used_curve_names:
+                    status = "重复文件"
+                else:
+                    status = "未使用"
+
+        rows.append(
+            {
+                "文件": str(filename or "-"),
+                "识别类型": recognized_type,
+                "处理动作": action,
+                "状态": status,
+                "大小": _upload_size_text(uploaded_file, upload_infos),
+            }
+        )
+    return rows
+
+
+def _render_batch_upload_recognition(
+    st,
+    *,
+    files,
+    assigned_files: dict[str, object],
+    price_curve_file,
+    upload_infos: dict[int, UploadFileInfo],
+    messages: list[str],
+) -> None:
+    rows = _batch_upload_recognition_rows(files, assigned_files, price_curve_file, upload_infos)
+    if not rows and not messages:
+        return
+    st.markdown("#### 本次上传识别结果")
+    if rows:
+        st.markdown(
+            _compact_status_rows_html(
+                rows,
+                label_key="文件",
+                status_key="状态",
+                meta_keys=["识别类型", "处理动作", "大小"],
+            ),
+            unsafe_allow_html=True,
+        )
+    for message in messages:
+        st.warning(message)
 
 
 def _read_uploaded_price_curve(uploaded_file):
@@ -6224,13 +6932,22 @@ def _float_text_input(
     disabled: bool = False,
     key: str | None = None,
     state_st=None,
+    display_digits: int | None = None,
 ) -> float:
     state_st = state_st or st
     stored_value = _stored_widget_value(state_st, key, value)
     display_label, display_help = _label_with_unit_help(label, help)
+    if _is_present(stored_value):
+        display_value = (
+            f"{float(stored_value):.{display_digits}f}"
+            if display_digits is not None
+            else _trim_number(float(stored_value))
+        )
+    else:
+        display_value = ""
     raw = st.text_input(
         display_label,
-        value=_trim_number(float(stored_value)) if _is_present(stored_value) else "",
+        value=display_value,
         help=display_help,
         disabled=disabled,
         key=key,
@@ -6257,6 +6974,30 @@ def _coerce_float(value, default: float) -> float:
         return float(default)
 
 
+def _queue_economy_stepper_delta(
+    root_st,
+    *,
+    value_key: str,
+    input_key: str,
+    pending_key: str,
+    delta: float,
+    default: float,
+    min_value: float | None,
+    max_value: float | None,
+) -> None:
+    current = _coerce_float(
+        root_st.session_state.get(input_key, root_st.session_state.get(value_key, default)),
+        default,
+    )
+    next_value = current + float(delta)
+    if min_value is not None:
+        next_value = max(float(min_value), next_value)
+    if max_value is not None:
+        next_value = min(float(max_value), next_value)
+    _store_widget_value(root_st, value_key, next_value)
+    root_st.session_state[pending_key] = _trim_number(next_value)
+
+
 def _economy_float_input(
     root_st,
     container,
@@ -6271,20 +7012,78 @@ def _economy_float_input(
     disabled: bool = False,
 ) -> float:
     stored_value = _coerce_float(_stored_widget_value(root_st, key, value), value)
-    if key in root_st.session_state:
-        root_st.session_state[key] = _coerce_float(root_st.session_state[key], stored_value)
     step = abs(float(quick_step)) if quick_step else 1.0
     display_label, display_help = _label_with_unit_help(label, help)
-    parsed = container.number_input(
-        display_label,
-        value=float(stored_value),
-        min_value=min_value,
-        max_value=max_value,
-        step=step,
-        help=display_help,
-        disabled=disabled,
-        key=key,
+    help_html = (
+        f'<span class="gd-info-dot" title="{_safe_html_text(display_help)}">?</span>'
+        if display_help
+        else ""
     )
+    container.markdown(
+        '<div class="gd-compact-stepper-label">'
+        f'<span>{_safe_html_text(display_label)}</span>{help_html}'
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    input_key = f"economy_stepper_input_{key}"
+    pending_key = f"{input_key}_pending"
+    if pending_key in root_st.session_state:
+        root_st.session_state[input_key] = root_st.session_state.pop(pending_key)
+    if input_key not in root_st.session_state:
+        root_st.session_state[input_key] = _trim_number(stored_value)
+    input_col, minus_col, plus_col = container.columns([1.0, 0.18, 0.18], gap="small")
+    raw = input_col.text_input(
+        f"{display_label}输入",
+        help=display_help,
+        key=input_key,
+        label_visibility="collapsed",
+        disabled=disabled,
+    )
+    minus_col.form_submit_button(
+        "-",
+        key=f"economy_stepper_{key}_minus",
+        help=f"减少 {_trim_number(step)}",
+        disabled=disabled,
+        on_click=_queue_economy_stepper_delta,
+        kwargs={
+            "root_st": root_st,
+            "value_key": key,
+            "input_key": input_key,
+            "pending_key": pending_key,
+            "delta": -step,
+            "default": value,
+            "min_value": min_value,
+            "max_value": max_value,
+        },
+    )
+    plus_col.form_submit_button(
+        "+",
+        key=f"economy_stepper_{key}_plus",
+        help=f"增加 {_trim_number(step)}",
+        disabled=disabled,
+        on_click=_queue_economy_stepper_delta,
+        kwargs={
+            "root_st": root_st,
+            "value_key": key,
+            "input_key": input_key,
+            "pending_key": pending_key,
+            "delta": step,
+            "default": value,
+            "min_value": min_value,
+            "max_value": max_value,
+        },
+    )
+    try:
+        parsed = float(str(raw).replace(",", "").strip())
+    except ValueError:
+        root_st.error(f"{label} 必须填写数字。")
+        root_st.stop()
+    if min_value is not None and parsed < min_value:
+        root_st.error(f"{label} 不能小于 {_trim_number(min_value)}。")
+        root_st.stop()
+    if max_value is not None and parsed > max_value:
+        root_st.error(f"{label} 不能大于 {_trim_number(max_value)}。")
+        root_st.stop()
     return float(_store_widget_value(root_st, key, parsed))
 
 
@@ -6374,6 +7173,103 @@ def _curve_status(label: str, df: pd.DataFrame | None, encoding: str | None, tim
         "大于1点": int((numeric > 1).sum()) if label in {"光伏", "风电"} else 0,
     }
     return status
+
+
+def _curve_status_state(status: dict | None, *, required: bool = True) -> str:
+    if status is None:
+        return "缺失" if required else "未上传（可选）"
+    if status["小时数"] not in {8760, 8784}:
+        return "需复核"
+    if status["大于1点"] or status["负值点"] or status["空值/非数字点"]:
+        return "有警告"
+    return "已就绪"
+
+
+def _curve_status_summary(metric: dict[str, object] | None, status: dict | None) -> str:
+    if metric is None:
+        return "-"
+    pieces = [_format_curve_metric_value(metric)]
+    if status is not None:
+        pieces.append(f"{int(status['小时数']):,} 行")
+    return " / ".join(pieces)
+
+
+def _current_input_status_rows(
+    *,
+    curve_files: dict[str, object],
+    curve_metrics: dict[str, dict[str, object] | None],
+    statuses_by_curve: dict[str, dict],
+    price_curve_data,
+    price_curve_meta: dict,
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for curve_name in ["负荷", "光伏", "风电"]:
+        file_obj = curve_files.get(curve_name)
+        status = statuses_by_curve.get(curve_name)
+        rows.append(
+            {
+                "数据项": f"{curve_name}曲线",
+                "状态": _curve_status_state(status),
+                "文件": getattr(file_obj, "name", "-") if file_obj is not None else "-",
+                "摘要": _curve_status_summary(curve_metrics.get(curve_name), status),
+            }
+        )
+    if price_curve_data is None:
+        rows.append(
+            {
+                "数据项": "下网电价曲线",
+                "状态": "未上传（可选）",
+                "文件": "-",
+                "摘要": "经济测算使用本页电费单参数",
+            }
+        )
+    else:
+        rows.append(
+            {
+                "数据项": "下网电价曲线",
+                "状态": "已上传",
+                "文件": str(price_curve_meta.get("source_name", "已上传文件")),
+                "摘要": f"{int(price_curve_meta.get('row_count', len(price_curve_data.data))):,} 行",
+            }
+        )
+    return rows
+
+
+def _render_current_input_status(
+    st,
+    *,
+    curve_files: dict[str, object],
+    curve_metrics: dict[str, dict[str, object] | None],
+    statuses: list[dict],
+) -> None:
+    statuses_by_curve = {str(item["曲线"]): item for item in statuses}
+    rows = _current_input_status_rows(
+        curve_files=curve_files,
+        curve_metrics=curve_metrics,
+        statuses_by_curve=statuses_by_curve,
+        price_curve_data=_project_price_curve_data(st),
+        price_curve_meta=_project_price_curve_meta(st),
+    )
+    st.markdown("##### 当前数据状态")
+    st.markdown(
+        _compact_status_rows_html(
+            rows,
+            label_key="数据项",
+            status_key="状态",
+            meta_keys=[],
+        ),
+        unsafe_allow_html=True,
+    )
+
+    required_statuses = [row["状态"] for row in rows[:3]]
+    if any(status == "缺失" for status in required_statuses):
+        st.error("仍缺少必需曲线。请通过批量上传补齐负荷、光伏和风电曲线。")
+    elif any(status == "需复核" for status in required_statuses):
+        st.error("存在小时数或列识别问题，请在下方数据质量详情中复核。")
+    elif any(status == "有警告" for status in required_statuses):
+        return
+    else:
+        st.success("负荷、光伏、风电三条技术曲线已就绪。")
 
 
 def _scenario_type(row: pd.Series) -> str:
@@ -6608,7 +7504,7 @@ def _single_entity_field_descriptions(columns: list[str]) -> pd.DataFrame:
         "environmental_value": f"{n('environmental_value')}={n('self_use_energy')}×环境价值单价。默认环境价值单价为 0。",
         "grid_export_revenue_without_vat": f"{n('grid_export_revenue_without_vat')}={n('grid_export_energy')}×上网含税电价÷(1+销项税率)。",
         "other_external_revenue_without_vat": "其他外部收益，不含税口径。来自其他经营收入设置。",
-        "operating_cost_basis": "运行成本评价基础。当前 V1 运行成本不拆进项税。",
+        "operating_cost_basis": "运行成本评价基础。当前模型运行成本不拆进项税。",
         "bess_replacement_basis": f"储能更换评价基础。可抵扣时，约等于 {n('bess_replacement_cash_outflow_with_vat')}÷(1+储能更换进项税率)；用于税前 FIRR。",
         "bess_replacement_cash_outflow_with_vat": "储能更换现金流出，含税展示口径。约等于储能容量×储能单位造价×储能更换投资比例，仅在触发更换年份发生。",
         "initial_investment_basis": "Year 0 初始投资评价基础。可抵扣时为含税建设投资扣除进项税后的金额，进入税前 FIRR。",
@@ -6717,6 +7613,22 @@ def _merge_landed_price_context(summary: pd.DataFrame, economy_summary: pd.DataF
     return data.merge(economy[extra_columns].drop_duplicates("scenario_id"), on="scenario_id", how="left")
 
 
+def _recommendation_labels_by_scenario(portfolio: pd.DataFrame | None) -> dict[str, str]:
+    if portfolio is None or portfolio.empty or "scenario_id" not in portfolio.columns:
+        return {}
+    labels_by_id: dict[str, list[str]] = {}
+    for _, row in portfolio.iterrows():
+        scenario_id = str(row.get("scenario_id", "") or "").strip()
+        if not scenario_id:
+            continue
+        raw_label = row.get("recommendation_labels", "推荐组合")
+        label = str(raw_label or "").strip() or "推荐组合"
+        labels_by_id.setdefault(scenario_id, [])
+        if label not in labels_by_id[scenario_id]:
+            labels_by_id[scenario_id].append(label)
+    return {scenario_id: "；".join(labels) for scenario_id, labels in labels_by_id.items()}
+
+
 def _recommendation_economy_chart_frame(
     summary: pd.DataFrame,
     power_economy_summary: pd.DataFrame | None,
@@ -6751,10 +7663,13 @@ def _recommendation_economy_chart_frame(
 
     merge_source(power_economy_summary, ["firr", "construction_cash_outflow"])
     merge_source(single_entity_summary, ["single_entity_firr_pre_tax", "load_side_annual_benefit"])
-    portfolio_ids: set[str] = set()
-    if portfolio is not None and not portfolio.empty and "scenario_id" in portfolio.columns:
-        portfolio_ids = set(portfolio["scenario_id"].dropna().astype(str))
-    data["is_recommended"] = data["scenario_id"].isin(portfolio_ids)
+    recommendation_labels = _recommendation_labels_by_scenario(portfolio)
+    data["recommendation_labels_for_chart"] = data["scenario_id"].map(recommendation_labels).fillna("")
+    data["is_recommended"] = data["recommendation_labels_for_chart"].astype(str).str.len().gt(0)
+    data["recommendation_labels_for_chart"] = data["recommendation_labels_for_chart"].where(
+        data["is_recommended"],
+        "普通候选",
+    )
     return data
 
 
@@ -6813,6 +7728,7 @@ def _build_recommendation_economy_comparison_figure(
         "green_load_rate",
         "curtail_rate",
         "policy_status",
+        "recommendation_labels_for_chart",
     ]
     custom = pd.DataFrame(index=chart.index)
     for column in custom_columns:
@@ -6820,7 +7736,8 @@ def _build_recommendation_economy_comparison_figure(
     custom = custom.astype(object).where(pd.notna(custom), None)
 
     hover = (
-        "方案：%{customdata[0]}<br>"
+        "<b>方案：%{customdata[0]}</b><br>"
+        "推荐席位：%{customdata[10]}<br>"
         "光伏容量：%{customdata[1]:.2f} 万kW<br>"
         "风电容量：%{customdata[2]:.2f} 万kW<br>"
         "储能容量：%{customdata[3]:.2f} 万kWh<br>"
@@ -6829,7 +7746,7 @@ def _build_recommendation_economy_comparison_figure(
         "负荷侧收益：%{customdata[6]:,.0f}<br>"
         "绿电占比：%{customdata[7]:.1%}<br>"
         "弃电率：%{customdata[8]:.1%}<br>"
-        "政策状态：%{customdata[9]}<extra></extra>"
+        "政策状态：%{customdata[9]}<extra>%{fullData.name}</extra>"
     )
 
     fig = go.Figure()
@@ -6854,6 +7771,7 @@ def _build_recommendation_economy_comparison_figure(
                     opacity=0.76,
                 ),
                 hovertemplate=hover,
+                hoverlabel=dict(bgcolor="#ffffff", bordercolor="#2474c7", font=dict(color="#172033", size=13)),
             )
         )
     if not fail_chart.empty:
@@ -6873,6 +7791,7 @@ def _build_recommendation_economy_comparison_figure(
                     opacity=0.32,
                 ),
                 hovertemplate=hover,
+                hoverlabel=dict(bgcolor="#f8fafc", bordercolor="#64748b", font=dict(color="#172033", size=13)),
             )
         )
 
@@ -6895,6 +7814,7 @@ def _build_recommendation_economy_comparison_figure(
                     opacity=0.98,
                 ),
                 hovertemplate=hover,
+                hoverlabel=dict(bgcolor="#fff1f2", bordercolor="#ef4444", font=dict(color="#172033", size=13)),
             )
         )
 
@@ -6937,6 +7857,7 @@ def _build_recommendation_economy_comparison_figure(
                     opacity=1.0,
                 ),
                 hovertemplate=hover,
+                hoverlabel=dict(bgcolor="#fff1f2", bordercolor="#ef4444", font=dict(color="#172033", size=13)),
             )
         )
 
@@ -6948,6 +7869,7 @@ def _build_recommendation_economy_comparison_figure(
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         margin=dict(l=20, r=20, t=78, b=18),
         uirevision="recommendation-economy-3d",
+        hoverlabel=dict(bgcolor="#ffffff", font_size=13, font_color="#172033"),
         scene=dict(
             xaxis=dict(title="光伏容量（万kW）", backgroundcolor="#f8fafc", gridcolor="#e5edf6", zerolinecolor="#cbd5e1"),
             yaxis=dict(title="风电容量（万kW）", backgroundcolor="#f8fafc", gridcolor="#e5edf6", zerolinecolor="#cbd5e1"),
@@ -6966,22 +7888,7 @@ def _render_recommendation_economy_comparison(
     single_entity_summary: pd.DataFrame | None,
     portfolio: pd.DataFrame | None,
 ) -> None:
-    valid_ids = set(summary["scenario_id"].dropna().astype(str)) if "scenario_id" in summary.columns else set()
-    active_scenario_id = None
-    for candidate in [
-        st.session_state.get("chart_overview_active_detail_scenario"),
-        st.session_state.get("_chart_overview_pending_detail_scenario"),
-        st.session_state.get("export_report_scenario"),
-    ]:
-        if candidate is not None and str(candidate) in valid_ids:
-            active_scenario_id = str(candidate)
-            break
-    if active_scenario_id is None and portfolio is not None and not portfolio.empty and "scenario_id" in portfolio.columns:
-        portfolio_ids = portfolio["scenario_id"].dropna().astype(str)
-        if not portfolio_ids.empty:
-            first_portfolio_id = str(portfolio_ids.iloc[0])
-            if first_portfolio_id in valid_ids:
-                active_scenario_id = first_portfolio_id
+    active_scenario_id = _active_recommendation_economy_scenario_id(st, summary, portfolio)
 
     fig, message = _build_recommendation_economy_comparison_figure(
         summary,
@@ -6995,7 +7902,7 @@ def _render_recommendation_economy_comparison(
             st,
             "Economy",
             "经济性对比图",
-            "读取已计算的经济性结果，观察电源侧 FIRR 随光伏、风电和储能配置变化的趋势；颜色表示储能容量，红色菱形为推荐组合，红色光环为当前查看方案。",
+            "读取已计算的经济性结果，观察电源侧 FIRR 随光伏、风电和储能配置变化的趋势；颜色表示储能容量，红色菱形为推荐组合，红色光环为当前查看方案，悬浮可查看推荐席位和关键指标。",
         )
         if fig is None:
             st.info(message or "经济性对比图暂不可用。")
@@ -7088,7 +7995,8 @@ def _render_recommendation_v1(
     if min_power_side_acceptable_firr is None:
         st.warning("电源侧最低可接受 FIRR 已留空，负荷侧可成交收益席位不参与默认排序。")
 
-    _render_recommendation_cards(st, portfolio)
+    active_scenario_id = _active_recommendation_economy_scenario_id(st, summary, portfolio)
+    _render_recommendation_cards(st, portfolio, active_scenario_id=active_scenario_id)
     _render_recommendation_economy_comparison(
         st,
         summary,
@@ -7147,7 +8055,7 @@ def _render_economy_task_overview(st, summary: pd.DataFrame, *, using_project_pr
     price_mode = (
         str(economy_result.get("price_mode", "项目级曲线" if using_project_price_curve else "固定价"))
         if economy_result
-        else ("项目级曲线" if using_project_price_curve else "固定价/网页组价")
+        else ("项目级曲线" if using_project_price_curve else "电费单固定价")
     )
     recommendation_inputs_ready = "recommendation_v1_inputs" in st.session_state
     status_items = [
@@ -7181,7 +8089,7 @@ def _economy_status_snapshot(st, summary: pd.DataFrame, *, using_project_price_c
     price_mode = (
         str(economy_result.get("price_mode", "项目级曲线" if using_project_price_curve else "固定价"))
         if economy_result
-        else ("项目级曲线" if using_project_price_curve else "固定价/网页组价")
+        else ("项目级曲线" if using_project_price_curve else "电费单固定价")
     )
     return {
         "status": "已计算" if economy_done else "待计算",
@@ -7311,16 +8219,29 @@ def _inline_percent_text_input(
     return None if parsed is None else parsed / 100
 
 
-def _render_economy_card_heading(st, title: str, subtitle: str | None = None) -> None:
+def _render_economy_card_heading(st, title: str, subtitle: str | None = None, help_text: str | None = None) -> None:
     subtitle_html = (
         f'<div class="gd-economy-card-subtitle">{_safe_html_text(subtitle)}</div>'
         if subtitle
         else ""
     )
+    help_html = (
+        f'<span class="gd-info-dot" title="{_safe_html_text(help_text)}">?</span>'
+        if help_text
+        else ""
+    )
     st.markdown(
-        f'<div class="gd-economy-card-title">{_safe_html_text(title)}</div>{subtitle_html}',
+        '<div class="gd-economy-card-title-row">'
+        f'<div class="gd-economy-card-title">{_safe_html_text(title)}</div>'
+        f"{help_html}"
+        "</div>"
+        f"{subtitle_html}",
         unsafe_allow_html=True,
     )
+
+
+def _update_economy_progress(progress_bar, value: float, message: str) -> None:
+    progress_bar.progress(value, text=f"经济性计算进度：{message}")
 
 
 def _render_economy_v1(
@@ -7343,14 +8264,15 @@ def _render_economy_v1(
     project_price_curve_data = _project_price_curve_data(st)
     using_project_price_curve = project_price_curve_data is not None
     if using_project_price_curve:
-        st.caption(f"电价曲线：{_price_curve_status_text(st)}。固定下网价格和电费组价不会覆盖曲线结果。")
+        st.caption(f"电价曲线：{_price_curve_status_text(st)}。本页电费单参数不会覆盖曲线结果。")
     else:
-        st.caption("电价模式：未上传项目级下网电价曲线，按固定价/网页组价模式执行。")
+        st.caption("电价模式：未上传项目级下网电价曲线，按本页电费单参数执行。")
 
     cashflow_retention_plan = _economy_cashflow_retention_plan(summary)
     if cashflow_retention_plan["mode"] == "summary_first":
         st.info(str(cashflow_retention_plan["message"]))
 
+    economy_progress_slot = st.empty()
     run_economy_top_clicked = False
 
     with st.form("economy_v1_params_form", clear_on_submit=False):
@@ -7387,51 +8309,59 @@ def _render_economy_v1(
                 help="用于负荷侧可成交收益席位筛选。留空时，该席位不参与默认排序。",
                 allow_blank=True,
             )
-        with top_right.container():
+        with top_right.container(border=True):
             _render_economy_status_panel(st, summary, using_project_price_curve=using_project_price_curve)
             run_economy_form_top_clicked = st.form_submit_button(
-                "计算经济性 V1",
+                "计算经济性",
                 type="primary",
                 disabled=summary.empty,
                 width="stretch",
             )
 
-        left_block, right_block = st.columns([1.02, 0.98], gap="small")
-        with left_block.container(border=True):
+        cost_block, revenue_block, bill_block = st.columns([1.08, 0.92, 1.0], gap="small")
+        with cost_block.container(border=True):
             _render_economy_card_heading(st, "建设投资与成本费用")
             st.markdown('<div class="gd-economy-subhead">建设投资</div>', unsafe_allow_html=True)
             c1, c2, c3 = st.columns(3, gap="small")
             wind_capex = _economy_float_input(
                 st,
                 c1,
-                "风电单位造价（元/kW，含税）",
+                "风电造价（元/kW，含税）",
                 5000,
                 key="economy_wind_capex",
                 quick_step=100,
                 min_value=0.0,
+                help="风电单位造价，按装机容量折算。",
             )
             pv_capex = _economy_float_input(
                 st,
                 c2,
-                "光伏单位造价（元/kW，含税）",
+                "光伏造价（元/kW，含税）",
                 2800,
                 key="economy_pv_capex",
                 quick_step=100,
                 min_value=0.0,
-                help="需与光伏标幺曲线容量基准匹配；直流侧曲线填直流侧造价，交流侧曲线填交流侧造价。",
+                help="光伏单位造价，需与光伏标幺曲线容量基准匹配；直流侧曲线填直流侧造价，交流侧曲线填交流侧造价。",
             )
             bess_capex = _economy_float_input(
                 st,
                 c3,
-                "储能单位造价（元/kWh，含税）",
+                "储能造价（元/kWh，含税）",
                 900,
                 key="economy_bess_capex",
                 quick_step=100,
                 min_value=0.0,
+                help="储能单位造价，按储能电量容量折算。",
             )
-            c1, c2, c3 = st.columns([1.1, 1.1, 0.8], gap="small")
+            c1, c2, c3 = st.columns([1.1, 0.9, 0.8], gap="small")
             dedicated_connection_line = _float_text_input(c1, "送出线路投资（万元，含税）", 0, min_value=0.0)
-            other_fixed_asset = _float_text_input(c2, "其他固定资产投资（万元，含税）", 0, min_value=0.0)
+            other_fixed_asset = _float_text_input(
+                c2,
+                "其他固投（万元，含税）",
+                0,
+                min_value=0.0,
+                help="其他固定资产投资，指未包含在风电、光伏、储能和送出线路中的一次性固定资产投资。",
+            )
             construction_vat_rate = _percent_text_input(c3, "进项税率（%）", 10)
 
             st.markdown('<div class="gd-economy-divider"></div><div class="gd-economy-subhead">成本费用</div>', unsafe_allow_html=True)
@@ -7475,8 +8405,8 @@ def _render_economy_v1(
                 replacement_vat_rate = _percent_text_input(c2, "更换进项税率（%）", 13)
             replacement_calendar_life = float(bess_calendar_life_years)
 
-        with right_block.container(border=True):
-            _render_economy_card_heading(st, "收入和税金")
+        with revenue_block.container(border=True):
+            _render_economy_card_heading(st, "收入与税金")
             st.markdown('<div class="gd-economy-subhead">收益电价</div>', unsafe_allow_html=True)
             c1, c2 = st.columns(2, gap="small")
             grid_export_price = _float_text_input(c1, "上网电价（元/kWh，含税）", 0.25, min_value=0.0)
@@ -7487,62 +8417,17 @@ def _render_economy_v1(
                 min_value=0.0,
                 help="原“自发自用电价”。电源侧视角中作为绿电售电收入，负荷侧视角中作为绿电购电成本。非用户到户电价，不含输配电价、政府基金及附加、系统运行费和容需量电费等。",
             )
-            c1, c2 = st.columns(2, gap="small")
-            net_avoided_grid_cost_price = _float_text_input(
-                c1,
-                "外部购电净成本（元/kWh）",
-                0.50,
-                min_value=0.0,
-                help=(
-                    "用于同一主体口径估算每 1 kWh 自发自用绿电替代外部购电带来的税前净节费。"
-                    "简化模式下直接使用本输入值；组价模式公式：外部购电净成本单价="
-                    "原外部购网电电量类成本单价-绿电直连自发自用仍需缴纳费用单价。"
-                    "不等同于负荷侧比较绿电结算价时使用的到户电能量全价。"
-                ),
-                disabled=using_project_price_curve,
-            )
-            environmental_value = _float_text_input(c2, "环境价值（元/kWh）", 0, min_value=0.0)
+            environmental_value = _float_text_input(st, "环境价值（元/kWh）", 0, min_value=0.0)
 
             st.markdown('<div class="gd-economy-divider"></div><div class="gd-economy-subhead">税金</div>', unsafe_allow_html=True)
-            c1, c2, c3 = st.columns(3, gap="small")
+            c1, c2 = st.columns(2, gap="small")
             output_vat_rate = _percent_text_input(c1, "销项税率（%）", 13)
-            income_tax_rate = _percent_text_input(c2, "企业所得税率（%）", 25)
-            urban_area = c3.selectbox("城建税地区", ["县城、镇 5%", "市区 7%", "其他 1%"])
+            income_tax_rate = _percent_text_input(c2, "所得税率（%）", 25, help="企业所得税率，用于项目所得税测算。")
+            urban_area = st.selectbox("城建税地区", ["县城、镇 5%", "市区 7%", "其他 1%"])
             urban_tax_rate = {"市区 7%": 0.07, "县城、镇 5%": 0.05, "其他 1%": 0.01}[urban_area]
 
-            st.markdown('<div class="gd-economy-divider"></div><div class="gd-economy-subhead">用能侧结算口径</div>', unsafe_allow_html=True)
-            st.caption(
-                "关系：下网电量 × 下网到户价；自发自用绿电量 ×（绿电结算价 + 绿电仍缴输配 + 绿电仍缴基金）。三项不是直接相加。"
-            )
-            c1, c2, c3 = st.columns(3, gap="small")
-            fixed_down_grid_landed_price = _float_text_input(
-                c1,
-                "下网到户价（元/kWh）",
-                0.55,
-                min_value=0.0,
-                disabled=using_project_price_curve,
-                help="只作用于外部购网/下网电量。无逐时下网电价曲线时，绿电前综合到户价直接使用该值；绿电后综合价按下网电量和自发自用绿电量加权。",
-            )
-            green_self_use_td_fee = _float_text_input(
-                c2,
-                "绿电仍缴输配（元/kWh）",
-                0.15,
-                min_value=0.0,
-                disabled=using_project_price_curve,
-                help="只加在自发自用绿电路径上，不再与下网到户价相加。绿电自用到户价 = 绿电结算价 + 绿电仍缴输配 + 绿电仍缴基金。",
-            )
-            green_self_use_gov_fee = _float_text_input(
-                c3,
-                "绿电仍缴基金（元/kWh）",
-                0.03,
-                min_value=0.0,
-                disabled=using_project_price_curve,
-                help="只加在自发自用绿电路径上，用于展示绿电自用到户价和绿电后综合到户价。",
-            )
-            fixed_green_self_use_extra_fee = green_self_use_td_fee + green_self_use_gov_fee
-
             with st.expander("高级：其他经营收入", expanded=False):
-                st.caption("一般项目可不填。可输入负值；负值在 V1 中不产生进项税，按收入抵减或额外经营性支出处理。")
+                st.caption("一般项目可不填。可输入负值；负值在当前模型中不产生进项税，按收入抵减或额外经营性支出处理。")
                 default_other = pd.DataFrame(
                     [
                         {
@@ -7562,60 +8447,142 @@ def _render_economy_v1(
                 )
                 st.session_state["economy_other_revenue_df"] = other_revenue_df
 
-            with st.expander("高级：电费清单组价", expanded=False):
+        with bill_block.container(border=True):
+            down_grid_bill_help = (
+                "默认按电费单到户综合电价和可查账单项内部推导同一主体净节费；"
+                "自发自用绿电默认仍缴输配电价和政府性基金及附加。"
+                "起始值按湖南 110kV 工商业两部制用户常用账单项预填，请按项目电费单复核。"
+            )
+            _render_economy_card_heading(st, "下网电费单", help_text=down_grid_bill_help)
+            c1, c2 = st.columns(2, gap="small")
+            fixed_down_grid_landed_price = _float_text_input(
+                c1,
+                "到户综合电价（元/kWh，含税）",
+                HUNAN_110KV_DEFAULT_DOWN_GRID_LANDED_PRICE_WITH_VAT,
+                min_value=0.0,
+                disabled=using_project_price_curve,
+                key="economy_down_grid_landed_price",
+                state_st=st,
+                help="电费单中的下网到户电量类综合单价。容需量电费、力调电费等非电量项本阶段不放入该单价。",
+                display_digits=4,
+            )
+            grid_purchase_vat_rate = _percent_text_input(
+                c2,
+                "购电增值税率（%）",
+                13,
+                disabled=using_project_price_curve,
+                key="economy_grid_purchase_vat_rate",
+                state_st=st,
+            )
+            c1, c2 = st.columns(2, gap="small")
+            line_loss_price = _float_text_input(
+                c1,
+                "线损单价（元/kWh）",
+                HUNAN_110KV_DEFAULT_LINE_LOSS_PRICE_WITH_VAT,
+                min_value=0.0,
+                disabled=using_project_price_curve,
+                key="economy_line_loss_price",
+                state_st=st,
+                display_digits=4,
+            )
+            system_operation_fee = _float_text_input(
+                c2,
+                "系统运行费（元/kWh）",
+                HUNAN_110KV_DEFAULT_SYSTEM_OPERATION_FEE_WITH_VAT,
+                min_value=0.0,
+                disabled=using_project_price_curve,
+                key="economy_system_operation_fee",
+                state_st=st,
+                display_digits=4,
+            )
+            c1, c2 = st.columns(2, gap="small")
+            transmission_distribution_tariff = _float_text_input(
+                c1,
+                "输配电价（元/kWh）",
+                HUNAN_110KV_DEFAULT_TRANSMISSION_DISTRIBUTION_TARIFF_WITH_VAT,
+                min_value=0.0,
+                disabled=using_project_price_curve,
+                key="economy_transmission_distribution_tariff",
+                state_st=st,
+                display_digits=4,
+            )
+            gov_fund_surcharge = _float_text_input(
+                c2,
+                "政府基金及附加（元/kWh）",
+                HUNAN_110KV_DEFAULT_GOV_FUND_SURCHARGE,
+                min_value=0.0,
+                disabled=using_project_price_curve,
+                key="economy_gov_fund_surcharge",
+                state_st=st,
+                help="按无增值税电量附加处理。",
+                display_digits=4,
+            )
+
+            retained_transmission_distribution_tariff = transmission_distribution_tariff
+            retained_gov_fund_surcharge = gov_fund_surcharge
+            direct_net_avoided_grid_cost_price = None
+            load_side_avoided_charge_price_override = None
+
+            with st.expander("高级：特殊电费口径", expanded=False):
                 if using_project_price_curve:
-                    st.caption("当前使用已上传的逐时下网电价曲线；本节固定组价参数不会覆盖曲线结果。")
-                    _store_widget_value(st, "economy_use_grid_price_build_up", False)
+                    st.caption("当前使用已上传的逐时下网电价曲线；本节固定价和覆盖参数不会覆盖曲线结果。")
                     _store_widget_value(st, "economy_override_load_side_avoided_charge", False)
-                    st.session_state["economy_use_grid_price_build_up"] = False
+                    _store_widget_value(st, "economy_override_retained_green_fees", False)
+                    _store_widget_value(st, "economy_direct_net_avoided_grid_cost", False)
                     st.session_state["economy_override_load_side_avoided_charge"] = False
-                use_grid_price_build_up = _boolean_input(
+                    st.session_state["economy_override_retained_green_fees"] = False
+                    st.session_state["economy_direct_net_avoided_grid_cost"] = False
+                override_retained_green_fees = _boolean_input(
                     st,
-                    "按电费清单组价覆盖外部购电净成本和负荷侧可减少费用",
+                    "绿电自用仍缴费用与输配/基金不同",
                     value=False,
-                    help="默认使用上方固定值；勾选后按电费清单中的电量电费项目分别推导同一主体净成本口径和负荷侧现金口径。",
-                    key="economy_use_grid_price_build_up",
+                    help="默认自发自用绿电仍缴输配电价和政府性基金及附加；如项目政策明确免缴或部分缴纳，可在这里覆盖。",
+                    key="economy_override_retained_green_fees",
                     disabled=using_project_price_curve,
                     sync_on_change=False,
                 )
                 if using_project_price_curve:
-                    use_grid_price_build_up = False
-                if use_grid_price_build_up:
-                    c1, c2 = st.columns(2, gap="small")
-                    energy_market_price = _float_text_input(c1, "电能量/市场购电价（元/kWh）", 0.40, min_value=0.0)
-                    line_loss_price = _float_text_input(c2, "线损费用（元/kWh）", 0, min_value=0.0)
-                    c1, c2 = st.columns(2, gap="small")
-                    system_operation_fee = _float_text_input(c1, "系统运行费（元/kWh）", 0, min_value=0.0)
-                    transmission_distribution_tariff = _float_text_input(c2, "输配电价（元/kWh）", 0.15, min_value=0.0)
-                    c1, c2 = st.columns(2, gap="small")
-                    gov_fund_surcharge = _float_text_input(c1, "政府性基金及附加（元/kWh）", 0.03, min_value=0.0, help="按无增值税电量附加处理。")
-                    grid_purchase_vat_rate = _percent_text_input(c2, "电网购电增值税率（%）", 13)
+                    override_retained_green_fees = False
+                if override_retained_green_fees:
                     c1, c2 = st.columns(2, gap="small")
                     retained_transmission_distribution_tariff = _float_text_input(
                         c1,
-                        "绿电仍缴输配（元/kWh）",
+                        "自用绿电仍缴输配（元/kWh）",
                         transmission_distribution_tariff,
                         min_value=0.0,
-                        help="组价模式下仍只作用于自发自用绿电路径；外部购网路径仍使用原下网账单组价。",
+                        key="economy_retained_transmission_distribution_tariff",
+                        state_st=st,
+                        help="只作用于自发自用绿电路径；外部购网路径仍使用原下网账单到户价。",
                     )
                     retained_gov_fund_surcharge = _float_text_input(
                         c2,
-                        "绿电仍缴基金（元/kWh）",
+                        "自用绿电仍缴基金（元/kWh）",
                         gov_fund_surcharge,
                         min_value=0.0,
-                        help="组价模式下仍只作用于自发自用绿电路径；不与下网到户价重复相加。",
+                        key="economy_retained_gov_fund_surcharge",
+                        state_st=st,
+                        help="只作用于自发自用绿电路径；不与到户综合电价重复相加。",
                     )
-                    net_avoided_grid_cost_price_for_calc = None
-                else:
-                    energy_market_price = 0.0
-                    line_loss_price = 0.0
-                    system_operation_fee = 0.0
-                    transmission_distribution_tariff = 0.0
-                    gov_fund_surcharge = 0.0
-                    retained_transmission_distribution_tariff = 0.0
-                    retained_gov_fund_surcharge = 0.0
-                    grid_purchase_vat_rate = 0.13
-                    net_avoided_grid_cost_price_for_calc = net_avoided_grid_cost_price
+                direct_net_cost = _boolean_input(
+                    st,
+                    "直接输入同一主体净节费单价",
+                    value=False,
+                    help="仅用于专家复核。普通项目建议保持关闭，由电费单到户价和账单项自动派生。",
+                    key="economy_direct_net_avoided_grid_cost",
+                    disabled=using_project_price_curve,
+                    sync_on_change=False,
+                )
+                if using_project_price_curve:
+                    direct_net_cost = False
+                if direct_net_cost:
+                    direct_net_avoided_grid_cost_price = _float_text_input(
+                        st,
+                        "同一主体净节费单价（元/kWh）",
+                        0.50,
+                        min_value=0.0,
+                        key="economy_net_avoided_grid_cost_price_direct",
+                        help="原“外部购电净成本”。表示每 1 kWh 自发自用绿电替代外部购电带来的税前净节费。",
+                    )
                 override_load_side_avoided_charge = _boolean_input(
                     st,
                     "单独覆盖负荷侧可减少购网费用单价",
@@ -7633,20 +8600,55 @@ def _render_economy_v1(
                     load_side_avoided_charge_price_override = _float_text_input(
                         st,
                         "负荷侧可减少购网费用单价（元/kWh）",
-                        net_avoided_grid_cost_price,
+                        fixed_down_grid_landed_price,
                         min_value=0.0,
+                        key="economy_load_side_avoided_charge_price_override",
                         help=(
                             "用于负荷侧可成交收益席位，表示绿电替代购网电后，负荷侧每 1 kWh "
                             "自发自用绿电可减少的电量类购网费用现金口径。"
                         ),
                     )
-                else:
-                    load_side_avoided_charge_price_override = None
                 price_curve_data = project_price_curve_data
                 if using_project_price_curve:
                     st.caption("本次使用下网电价曲线；固定价/组价仅在无曲线时生效。")
                 else:
-                    st.caption("未上传项目级下网电价曲线时使用固定价或本页电费清单组价。")
+                    st.caption("未上传项目级下网电价曲线时使用本页电费单参数；特殊政策才需要覆盖。")
+
+            try:
+                bill_derived_avoided_grid_params = build_avoided_grid_purchase_params_from_landed_price(
+                    down_grid_landed_price_with_vat=fixed_down_grid_landed_price,
+                    line_loss_price_with_vat=line_loss_price,
+                    system_operation_fee_with_vat=system_operation_fee,
+                    transmission_distribution_tariff_with_vat=transmission_distribution_tariff,
+                    gov_fund_surcharge=gov_fund_surcharge,
+                    grid_purchase_vat_rate=grid_purchase_vat_rate,
+                    green_direct_retained_transmission_distribution_tariff_with_vat=retained_transmission_distribution_tariff,
+                    green_direct_retained_gov_fund_surcharge=retained_gov_fund_surcharge,
+                    environmental_value_per_kwh=environmental_value,
+                )
+            except ValueError as exc:
+                st.error(f"下网电费单参数有误：{exc}")
+                st.stop()
+            avoided_grid_params_for_inputs = (
+                replace(
+                    bill_derived_avoided_grid_params,
+                    net_avoided_grid_cost_price=direct_net_avoided_grid_cost_price,
+                )
+                if direct_net_avoided_grid_cost_price is not None
+                else bill_derived_avoided_grid_params
+            )
+            fixed_green_self_use_extra_fee = (
+                retained_transmission_distribution_tariff + retained_gov_fund_surcharge
+            )
+            derived_energy_market_price = bill_derived_avoided_grid_params.energy_market_price_with_vat
+            derived_net_avoided_grid_cost_price = calc_net_avoided_grid_cost_price(avoided_grid_params_for_inputs)
+            derived_load_side_avoided_price_preview = calc_avoided_grid_purchase_cash_price(avoided_grid_params_for_inputs)
+            st.caption(
+                "内部派生："
+                f"电能量/市场购电价 {_trim_number(derived_energy_market_price)} 元/kWh；"
+                f"同一主体净节费 {_trim_number(derived_net_avoided_grid_cost_price)} 元/kWh；"
+                f"负荷侧可减少购网费用 {_trim_number(derived_load_side_avoided_price_preview)} 元/kWh。"
+            )
 
     run_economy_form_clicked = run_economy_form_top_clicked
 
@@ -7679,18 +8681,7 @@ def _render_economy_v1(
         income_tax_rate=income_tax_rate,
         discount_rate=discount_rate,
     )
-    avoided_grid_params = AvoidedGridPurchaseParams(
-        net_avoided_grid_cost_price=net_avoided_grid_cost_price_for_calc,
-        energy_market_price_with_vat=energy_market_price,
-        line_loss_price_with_vat=line_loss_price,
-        system_operation_fee_with_vat=system_operation_fee,
-        transmission_distribution_tariff_with_vat=transmission_distribution_tariff,
-        gov_fund_surcharge=gov_fund_surcharge,
-        green_direct_retained_transmission_distribution_tariff_with_vat=retained_transmission_distribution_tariff,
-        green_direct_retained_gov_fund_surcharge=retained_gov_fund_surcharge,
-        grid_purchase_vat_rate=grid_purchase_vat_rate,
-        environmental_value_per_kwh=environmental_value,
-    )
+    avoided_grid_params = avoided_grid_params_for_inputs
     derived_load_side_avoided_charge_price = calc_avoided_grid_purchase_cash_price(
         avoided_grid_params
     )
@@ -7710,6 +8701,19 @@ def _render_economy_v1(
                 if cashflow_retention_plan["mode"] == "summary_first"
                 else "正在计算电源侧和同一主体经济性年度现金流..."
             )
+            economy_progress = economy_progress_slot.progress(0.02, text="经济性计算进度：准备参数和方案汇总")
+            _update_economy_progress(economy_progress, 0.12, "读取电费单、电价曲线和候选方案")
+            _update_economy_progress(economy_progress, 0.24, "开始计算经济性汇总和排序")
+
+            def update_economy_run_progress(done: int, total: int, message: str) -> None:
+                ratio = 0.0 if total <= 0 else min(1.0, max(0.0, done / total))
+                percent_text = f"{ratio * 100:.0f}%"
+                _update_economy_progress(
+                    economy_progress,
+                    0.24 + ratio * 0.58,
+                    f"{message} · 总进度 {done}/{total}（{percent_text}）",
+                )
+
             with st.spinner(spinner_text):
                 economic_study_result = run_economic_study(
                     summary,
@@ -7726,8 +8730,11 @@ def _render_economy_v1(
                     fixed_green_self_use_extra_fee_with_vat=fixed_green_self_use_extra_fee,
                     retain_annual_cashflows=bool(cashflow_retention_plan["retain_annual_cashflows"]),
                     annual_cashflow_scenario_ids=retained_cashflow_ids,
+                    progress_callback=update_economy_run_progress,
                 )
+            _update_economy_progress(economy_progress, 0.82, "计算完成，正在整理结果")
             persisted_economy_result = _persist_pilot_economic_result_if_enabled(st, economic_study_result)
+            _update_economy_progress(economy_progress, 0.92, "保存当前项目结果")
             st.session_state["economy_v1_result"] = {
                 "summary": economic_study_result.power_summary,
                 "annual_cashflows": economic_study_result.power_annual_cashflows,
@@ -7752,7 +8759,8 @@ def _render_economy_v1(
                 st.session_state["study_result"] = next_study_result
             st.session_state.pop("download_payloads", None)
             store_notice = st.session_state.pop(PILOT_RESULT_STORE_NOTICE_KEY, "")
-            st.session_state["_economy_notice"] = f"经济性 V1 已计算，推荐页和导出页已可读取经济性结果。{store_notice}"
+            _update_economy_progress(economy_progress, 1.0, "完成")
+            st.session_state["_economy_notice"] = f"经济性已计算，推荐页和导出页已可读取经济性结果。{store_notice}"
             _save_runtime_snapshot(st)
             st.rerun()
         except ValueError as exc:
@@ -7809,7 +8817,7 @@ def _render_economy_v1(
                 "bess_replacement_count",
             ]
             display_columns = [column for column in display_columns if column in display_economic_summary.columns]
-            st.success("电源侧经济性 V1 已计算。技术方案汇总表仍保持纯技术指标；下载请前往“图表下载和报告生成”。")
+            st.success("电源侧经济性已计算。技术方案汇总表仍保持纯技术指标；下载请前往“图表下载和报告生成”。")
 
             with st.expander("高级：电源侧经济性汇总复核表", expanded=False):
                 st.dataframe(
@@ -8810,7 +9818,7 @@ def _render_recommendation_bottom_status(st, batch_result, summary: pd.DataFrame
     status_items = [
         f"<strong>默认报告方案</strong> {_safe_html_text(_scenario_status_text(summary, report_scenario_id))}",
         f"<strong>逐小时台账</strong> {_safe_html_text(str(hourly_count))} 个方案",
-        "<strong>数据来源</strong> batch_result.summary / hourly_details / economy_v1_result",
+        "<strong>数据来源</strong> 技术方案汇总 / 逐小时台账 / 经济性测算结果",
         "<strong>版本号</strong> 待接入",
         "<strong>帮助入口</strong> 待接入正式帮助页",
     ]
@@ -8863,6 +9871,7 @@ def _render_recommendation_analysis_page(st, batch_result, summary: pd.DataFrame
     recommendation_notice = st.session_state.pop("_recommendation_notice", None)
     if recommendation_notice:
         st.success(recommendation_notice)
+    _consume_recommendation_card_query_selection(st, summary)
 
     economy_result = st.session_state.get("economy_v1_result")
     single_entity_result = st.session_state.get("single_entity_economy_result")
@@ -8879,7 +9888,6 @@ def _render_recommendation_analysis_page(st, batch_result, summary: pd.DataFrame
             _render_missing_step(st, "经济性测算", "请重新运行一次经济性测算，以保存推荐席位所需的价格和门槛参数。")
             return
         st.info("当前展示的是从项目历史恢复的推荐组合；不包含推荐席位输入，无法在此页重新排序。")
-        _render_recommendation_cards(st, restored_recommendation.portfolio)
         restored_power_summary = (
             economy_result["summary"]
             if economy_result and isinstance(economy_result.get("summary"), pd.DataFrame) and not economy_result["summary"].empty
@@ -8891,6 +9899,16 @@ def _render_recommendation_analysis_page(st, batch_result, summary: pd.DataFrame
             and isinstance(single_entity_result.get("summary"), pd.DataFrame)
             and not single_entity_result["summary"].empty
             else None
+        )
+        restored_active_scenario_id = _active_recommendation_economy_scenario_id(
+            st,
+            summary,
+            restored_recommendation.portfolio,
+        )
+        _render_recommendation_cards(
+            st,
+            restored_recommendation.portfolio,
+            active_scenario_id=restored_active_scenario_id,
         )
         _render_recommendation_economy_comparison(
             st,
@@ -10898,7 +11916,7 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
                         metadata={"scenario_id": selected_id},
                     ),
                 )
-                if _pilot_auth_enabled() and st.button("保存 HTML 图表包到项目历史", key="export_store_chart_html_zip"):
+                if _project_store_enabled() and st.button("保存 HTML 图表包到项目历史", key="export_store_chart_html_zip"):
                     persisted = _persist_pilot_export_artifact_if_enabled(
                         st,
                         artifact_key="chart_html",
@@ -10969,7 +11987,7 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
                     metadata={"scenario_id": selected_id},
                 ),
             )
-            if _pilot_auth_enabled() and st.button("保存 Markdown 报告到项目历史", key="export_store_markdown_report"):
+            if _project_store_enabled() and st.button("保存 Markdown 报告到项目历史", key="export_store_markdown_report"):
                 persisted = _persist_pilot_export_artifact_if_enabled(
                     st,
                     artifact_key="markdown",
@@ -11052,7 +12070,7 @@ def _render_exports_and_reports_page(st, batch_result, summary: pd.DataFrame) ->
                         metadata={"scenario_id": selected_id},
                     ),
                 )
-                if _pilot_auth_enabled() and st.button("保存 DOCX 报告模板到项目历史", key="export_store_docx_report_template"):
+                if _project_store_enabled() and st.button("保存 DOCX 报告模板到项目历史", key="export_store_docx_report_template"):
                     persisted = _persist_pilot_export_artifact_if_enabled(
                         st,
                         artifact_key="docx_template",
@@ -11240,7 +12258,7 @@ def _render_simulation_page(st) -> None:
                 st,
                 "Input",
                 "数据曲线",
-                "优先批量上传三条曲线；手动覆盖、编码和列识别放入复核区。",
+                "上传负荷、光伏、风电；可同时更新可选下网电价曲线。",
             )
             if st.session_state.pop("_simulation_force_sample_data", False):
                 st.session_state["simulation_use_sample_data"] = True
@@ -11258,18 +12276,19 @@ def _render_simulation_page(st) -> None:
                     st.warning(message)
 
             batch_files = st.file_uploader(
-                "批量上传项目曲线文件",
+                "上传 / 更新曲线",
                 type=["csv", "xlsx", "xlsm"],
                 accept_multiple_files=True,
                 help=(
-                    "一次选择负荷、光伏、风电 CSV，并可同时加入下网电价曲线 CSV/XLSX；"
-                    "负荷曲线单位为万kW，光伏/风电曲线为单位容量出力系数（p.u.）；"
-                    "技术曲线文件名包含 load、pv/solar、wind 或中文关键词时自动识别，"
-                    f"电价曲线文件名建议包含“电价/价格/下网/price”。{_upload_limit_caption()}"
+                    "支持负荷、光伏、风电 CSV 和可选下网电价 CSV/XLSX/XLSM；"
+                    "可多选，也可只上传一条覆盖更新；"
+                    "文件名含 load、pv/solar、wind 或“电价/价格/下网/price”时自动识别。"
+                    "单位：负荷曲线为功率（万kW）；光伏、风电曲线为单位容量出力系数（p.u.，通常 0-1），"
+                    "平台按候选装机容量折算为万kW。"
+                    f"{_upload_limit_caption()}"
                 ),
                 key="simulation_batch_curve_csv",
             )
-            st.caption("计量单位：负荷曲线为功率（万kW）；光伏、风电曲线为单位容量出力系数（p.u.，通常 0-1），平台按候选装机容量折算为万kW。")
             batch_files, batch_upload_infos = _filter_uploads_for_ui(
                 st,
                 batch_files,
@@ -11277,51 +12296,15 @@ def _render_simulation_page(st) -> None:
                 label="批量上传项目曲线",
             )
             assigned_files, batch_price_curve_file, assign_messages = _auto_assign_curve_files(batch_files)
-            for message in assign_messages:
-                st.warning(message)
+            if batch_files or assign_messages:
+                st.caption("识别结果和当前数据状态在下方详情中复核。")
             if batch_price_curve_file is not None:
                 _remember_uploaded_price_curve(st, batch_price_curve_file, context_label="批量导入中的电价曲线")
 
-            with st.expander("高级：单独上传覆盖", expanded=False):
-                st.markdown(
-                    '<div class="gd-field-note">批量识别不准确时，在这里单独覆盖某一条曲线文件。</div>',
-                    unsafe_allow_html=True,
-                )
-                c1, c2, c3 = st.columns(3)
-                load_file_manual = c1.file_uploader("负荷曲线 CSV（万kW）", type=["csv"], key="load_csv_manual")
-                pv_file_manual = c2.file_uploader("光伏出力系数 CSV（p.u.）", type=["csv"], key="pv_csv_manual")
-                wind_file_manual = c3.file_uploader("风电出力系数 CSV（p.u.）", type=["csv"], key="wind_csv_manual")
-                manual_upload_infos: dict[int, UploadFileInfo] = {}
-                load_file_manual, load_file_manual_info = _validate_single_upload(
-                    st,
-                    load_file_manual,
-                    _upload_policy(".csv"),
-                    label="负荷曲线",
-                )
-                pv_file_manual, pv_file_manual_info = _validate_single_upload(
-                    st,
-                    pv_file_manual,
-                    _upload_policy(".csv"),
-                    label="光伏曲线",
-                )
-                wind_file_manual, wind_file_manual_info = _validate_single_upload(
-                    st,
-                    wind_file_manual,
-                    _upload_policy(".csv"),
-                    label="风电曲线",
-                )
-                for file_obj, info in [
-                    (load_file_manual, load_file_manual_info),
-                    (pv_file_manual, pv_file_manual_info),
-                    (wind_file_manual, wind_file_manual_info),
-                ]:
-                    if file_obj is not None and info is not None:
-                        manual_upload_infos[id(file_obj)] = info
-
-            load_file = load_file_manual or assigned_files.get("负荷") or sample_files.get("负荷")
-            pv_file = pv_file_manual or assigned_files.get("光伏") or sample_files.get("光伏")
-            wind_file = wind_file_manual or assigned_files.get("风电") or sample_files.get("风电")
-            curve_upload_infos = {**batch_upload_infos, **manual_upload_infos}
+            load_file = assigned_files.get("负荷") or sample_files.get("负荷")
+            pv_file = assigned_files.get("光伏") or sample_files.get("光伏")
+            wind_file = assigned_files.get("风电") or sample_files.get("风电")
+            curve_upload_infos = dict(batch_upload_infos)
 
             try:
                 load_df, load_encoding = _load_preview(load_file)
@@ -11346,10 +12329,18 @@ def _render_simulation_page(st) -> None:
                 ]
             )
 
-            with st.expander("数据识别复核", expanded=needs_column_review):
+            with st.expander("数据质量与识别详情", expanded=needs_column_review):
                 st.markdown(
-                    '<div class="gd-field-note">自动识别正常时无需处理；列名异常时在这里人工选择时间列和数值列。</div>',
+                    '<div class="gd-field-note">用于查阅平台识别到的文件、编码、时间列、数值列和数据质量；如列识别或数据值有问题，请修改源 CSV/XLSX 后重新上传。</div>',
                     unsafe_allow_html=True,
+                )
+                _render_batch_upload_recognition(
+                    st,
+                    files=batch_files,
+                    assigned_files=assigned_files,
+                    price_curve_file=batch_price_curve_file,
+                    upload_infos=batch_upload_infos,
+                    messages=assign_messages,
                 )
                 load_time_col = _column_selector(
                     st, "负荷时间列", load_df, load_time_guess, show_guess_caption=False, key="simulation_load_time_col"
@@ -11392,52 +12383,59 @@ def _render_simulation_page(st) -> None:
                         "数值列": wind_value_col or "-",
                     },
                 ]
+                curve_metrics = {
+                    "负荷": _curve_metric_snapshot("负荷", load_df, load_time_col, load_value_col),
+                    "光伏": _curve_metric_snapshot("光伏", pv_df, pv_time_col, pv_value_col),
+                    "风电": _curve_metric_snapshot("风电", wind_df, wind_time_col, wind_value_col),
+                }
+                statuses = [
+                    _curve_status("负荷", load_df, load_encoding, load_time_col, load_value_col),
+                    _curve_status("光伏", pv_df, pv_encoding, pv_time_col, pv_value_col),
+                    _curve_status("风电", wind_df, wind_encoding, wind_time_col, wind_value_col),
+                ]
+                statuses = [item for item in statuses if item is not None]
+                statuses_by_curve = {str(item["曲线"]): item for item in statuses}
+                review_rows = [
+                    {
+                        "曲线": row["曲线"],
+                        "状态": _curve_status_state(statuses_by_curve.get(row["曲线"])),
+                        "文件": row["文件"],
+                        "摘要": _curve_status_summary(curve_metrics.get(row["曲线"]), statuses_by_curve.get(row["曲线"])),
+                        "编码": row["编码"],
+                        "时间列": row["时间列"],
+                        "数值列": row["数值列"],
+                        "空值/非数字点": (
+                            int(statuses_by_curve[row["曲线"]]["空值/非数字点"])
+                            if row["曲线"] in statuses_by_curve
+                            else "-"
+                        ),
+                        "负值点": (
+                            int(statuses_by_curve[row["曲线"]]["负值点"])
+                            if row["曲线"] in statuses_by_curve
+                            else "-"
+                        ),
+                        "大于1点": (
+                            int(statuses_by_curve[row["曲线"]]["大于1点"])
+                            if row["曲线"] in statuses_by_curve
+                            else "-"
+                        ),
+                    }
+                    for row in review_rows
+                ]
+                _render_current_input_status(
+                    st,
+                    curve_files={"负荷": load_file, "光伏": pv_file, "风电": wind_file},
+                    curve_metrics=curve_metrics,
+                    statuses=statuses,
+                )
+                if any(_curve_status_state(item) == "有警告" for item in statuses):
+                    st.warning("警告原因：存在空值/非数字、负值，或光伏/风电标幺值大于 1 的点；当前仍可计算，请复核源文件口径。")
                 st.dataframe(pd.DataFrame(review_rows), width="stretch", hide_index=True)
 
-            curve_metrics = {
-                "负荷": _curve_metric_snapshot("负荷", load_df, load_time_col, load_value_col),
-                "光伏": _curve_metric_snapshot("光伏", pv_df, pv_time_col, pv_value_col),
-                "风电": _curve_metric_snapshot("风电", wind_df, wind_time_col, wind_value_col),
-            }
             _remember_curve_metrics(st, curve_metrics)
-            with st.expander("曲线识别摘要", expanded=False):
-                _render_curve_overview_cards(
-                    st,
-                    {"负荷": load_file, "光伏": pv_file, "风电": wind_file},
-                    {
-                        "负荷": (load_time_col, load_value_col),
-                        "光伏": (pv_time_col, pv_value_col),
-                        "风电": (wind_time_col, wind_value_col),
-                    },
-                    {
-                        "负荷": _curve_metric_tooltip(curve_metrics["负荷"]),
-                        "光伏": _curve_metric_tooltip(curve_metrics["光伏"]),
-                        "风电": _curve_metric_tooltip(curve_metrics["风电"]),
-                    },
-                )
             notice = st.session_state.pop(PROJECT_PRICE_CURVE_NOTICE_KEY, None)
             if notice:
                 st.success(notice)
-            price_curve_upload = None
-            with st.expander("可选：下网电价曲线", expanded=False):
-                price_curve_upload = st.file_uploader(
-                    "上传下网电价曲线（CSV / XLSX）",
-                    type=["csv", "xlsx", "xlsm"],
-                    key="simulation_price_curve_upload",
-                    help=f"可选经济性输入，只影响经济性测算和推荐排序，不改变技术仿真。未上传时使用固定价/网页组价模式。{_upload_limit_caption()}",
-                )
-                price_curve_upload, price_curve_upload_info = _validate_single_upload(
-                    st,
-                    price_curve_upload,
-                    _upload_policy(".csv", ".xlsx", ".xlsm"),
-                    label="下网电价曲线",
-                )
-                if price_curve_upload is not None and price_curve_upload_info is not None:
-                    curve_upload_infos[id(price_curve_upload)] = price_curve_upload_info
-                if price_curve_upload is not None:
-                    _remember_uploaded_price_curve(st, price_curve_upload)
-                if _project_price_curve_data(st) is not None:
-                    _render_project_price_curve_status(st)
 
     with scenario_col:
         with st.container(border=True):
@@ -12018,15 +13016,6 @@ def _render_simulation_page(st) -> None:
         except Exception as exc:  # noqa: BLE001 - UI should show friendly text
             st.error(f"Demo 生成失败：{exc}")
 
-    statuses = [
-        _curve_status("负荷", load_df, load_encoding, load_time_col, load_value_col),
-        _curve_status("光伏", pv_df, pv_encoding, pv_time_col, pv_value_col),
-        _curve_status("风电", wind_df, wind_encoding, wind_time_col, wind_value_col),
-    ]
-    statuses = [item for item in statuses if item is not None]
-    if statuses:
-        _render_data_status(st, statuses)
-
     if start_clicked:
         try:
             bess_params = BessParams(
@@ -12046,12 +13035,26 @@ def _render_simulation_page(st) -> None:
                 grid_exchange_power_limit=grid_exchange_power_limit,
                 export_control_mode="annual_cap_runtime" if enforce_export_cap else "post_check",
             )
-            progress = st.progress(0)
+            initial_progress_message = "方案仿真进度：正在准备计算任务"
+            if int(parallel_workers) > 1:
+                initial_progress_message = (
+                    f"方案仿真进度：正在启动 {int(parallel_workers)} 个计算进程，首次进度可能需要几秒"
+                )
+            progress = st.progress(0.01, text=initial_progress_message)
             progress_text = st.empty()
 
             def update_progress(done, total, scenario):
-                progress.progress(done / total if total else 1.0)
-                progress_text.caption(f"正在计算 {done}/{total}：{scenario.scenario_id}")
+                safe_total = int(total or 0)
+                safe_done = int(done or 0)
+                interval = max(1, safe_total // 100) if safe_total else 1
+                if safe_total and safe_done not in (1, safe_total) and safe_done % interval != 0:
+                    return
+                ratio = safe_done / safe_total if safe_total else 1.0
+                progress.progress(
+                    min(1.0, max(0.0, ratio)),
+                    text=f"方案仿真进度：{safe_done}/{safe_total} · {scenario.scenario_id}",
+                )
+                progress_text.caption(f"正在计算 {safe_done}/{safe_total}：{scenario.scenario_id}")
 
             upload_file_metadata = {
                 key: value
@@ -12059,10 +13062,7 @@ def _render_simulation_page(st) -> None:
                     "load_curve": _upload_info_metadata(load_file, curve_upload_infos),
                     "pv_curve": _upload_info_metadata(pv_file, curve_upload_infos),
                     "wind_curve": _upload_info_metadata(wind_file, curve_upload_infos),
-                    "price_curve": _upload_info_metadata(
-                        price_curve_upload or batch_price_curve_file,
-                        curve_upload_infos,
-                    ),
+                    "price_curve": _upload_info_metadata(batch_price_curve_file, curve_upload_infos),
                 }.items()
                 if value is not None
             }
@@ -12106,6 +13106,7 @@ def _render_simulation_page(st) -> None:
                 technical_input,
                 progress_callback=update_progress,
             )
+            progress.progress(1.0, text=f"方案仿真进度：完成 {technical_result.scenario_count}/{technical_result.scenario_count}")
             progress_text.caption(
                 f"计算完成：{technical_result.scenario_count}/{technical_result.scenario_count}"
             )
@@ -12118,7 +13119,7 @@ def _render_simulation_page(st) -> None:
             st.session_state["batch_result"] = technical_result.batch_result
             st.session_state["config_snapshot"] = technical_result.config_snapshot
             _remember_technical_study_input(st, technical_input)
-            if batch_price_curve_file is None and price_curve_upload is None:
+            if batch_price_curve_file is None:
                 _clear_project_price_curve(st)
             _clear_chart_export_cache(st)
             price_curve_reset_notice = _clear_project_price_curve_for_partial_hourly_retention(

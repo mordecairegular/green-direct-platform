@@ -231,6 +231,73 @@ def test_economic_study_preserves_recommendation_input_snapshot():
     assert result.recommendation_inputs.to_session_dict()["green_power_settlement_price_with_vat"] == 0.35
 
 
+def test_economic_study_reports_combined_progress():
+    calls: list[tuple[int, int, str]] = []
+
+    run_economic_study(
+        _summary(),
+        economic_params=EconomicParams(operation_years=2, construction_input_vat_rate=0.0),
+        avoided_grid_params=AvoidedGridPurchaseParams(net_avoided_grid_cost_price=0.5),
+        load_side_avoided_charge_price=0.55,
+        green_power_settlement_price_with_vat=0.35,
+        progress_callback=lambda done, total, message: calls.append((done, total, message)),
+    )
+
+    assert len(calls) == 2
+    assert calls[0][0:2] == (1, 2)
+    assert calls[1][0:2] == (2, 2)
+    assert "电源侧经济性" in calls[0][2]
+    assert "同一主体经济性" in calls[1][2]
+
+
+def test_economic_study_reports_price_curve_progress():
+    hours = 8760
+    summary = _summary().assign(
+        total_load_energy=10.0,
+        grid_import_energy=6.0,
+        self_use_energy=4.0,
+        grid_import_rate=0.6,
+        green_load_rate=0.4,
+    )
+    prices = pd.DataFrame(
+        {
+            "hour_index": range(hours),
+            "energy_market_price_with_vat": [0.40] * hours,
+        }
+    )
+    price_curve = read_price_curve(prices.to_csv(index=False).encode("utf-8-sig"))
+    hourly = pd.DataFrame(
+        {
+            "scenario_id": "S_SERVICE",
+            "timestamp": pd.date_range("2025-01-01", periods=hours, freq="h"),
+            "hour_index": range(hours),
+            "load_power": [1.0] * hours,
+            "direct_self_use_power": [0.0] * hours,
+            "bess_discharge_power": [0.0] * hours,
+            "grid_import_power": [1.0] * hours,
+            "grid_export_power": [0.0] * hours,
+        }
+    )
+    calls: list[tuple[int, int, str]] = []
+
+    run_economic_study(
+        summary,
+        economic_params=EconomicParams(operation_years=2, construction_input_vat_rate=0.0),
+        avoided_grid_params=AvoidedGridPurchaseParams(net_avoided_grid_cost_price=None),
+        load_side_avoided_charge_price=0.55,
+        green_power_settlement_price_with_vat=0.35,
+        price_curve=price_curve,
+        hourly_details={"S_SERVICE": hourly},
+        progress_callback=lambda done, total, message: calls.append((done, total, message)),
+    )
+
+    assert len(calls) == 3
+    assert [call[0:2] for call in calls] == [(1, 3), (2, 3), (3, 3)]
+    assert "逐小时电价匹配" in calls[0][2]
+    assert "电源侧经济性" in calls[1][2]
+    assert "同一主体经济性" in calls[2][2]
+
+
 def test_economic_study_can_skip_annual_cashflow_retention():
     result = run_economic_study(
         _summary(),

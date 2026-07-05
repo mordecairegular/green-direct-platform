@@ -407,3 +407,21 @@ def test_batch_economy_summary_only_keeps_selected_cashflows_only():
     assert summary["scenario_id"].tolist() == ["S_KEEP", "S_DROP"]
     assert set(annual_cashflows) == {"S_KEEP"}
     assert not annual_cashflows["S_KEEP"].empty
+
+
+def test_batch_economy_reports_progress():
+    frame = pd.DataFrame(
+        [
+            _summary(scenario_id="S_ONE", wind_capacity=1.0, grid_export_energy=452.0),
+            _summary(scenario_id="S_TWO", pv_capacity=1.0, self_use_energy=300.0),
+        ]
+    )
+    calls: list[tuple[int, int, str]] = []
+
+    evaluate_batch_economy(
+        frame,
+        EconomicParams(operation_years=1),
+        progress_callback=lambda done, total, scenario_id: calls.append((done, total, scenario_id)),
+    )
+
+    assert calls == [(1, 2, "S_ONE"), (2, 2, "S_TWO")]

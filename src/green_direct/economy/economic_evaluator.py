@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 import math
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 import numpy as np
 import pandas as pd
@@ -17,6 +17,7 @@ import pandas as pd
 from green_direct.economy.economic_inputs import EconomicParams, OtherOperatingRevenueItem
 
 _EMPTY_ANNUAL_CASHFLOW = pd.DataFrame()
+ProgressCallback = Callable[[int, int, str], None]
 
 
 @dataclass
@@ -430,6 +431,26 @@ def _summary_records(summary: pd.DataFrame) -> Iterable[dict[Any, Any]]:
         yield dict(zip(columns, values))
 
 
+def _progress_interval(total: int) -> int:
+    if total <= 100:
+        return 1
+    return max(1, total // 100)
+
+
+def _emit_progress(
+    progress_callback: ProgressCallback | None,
+    *,
+    current: int,
+    total: int,
+    message: str,
+    interval: int,
+) -> None:
+    if progress_callback is None:
+        return
+    if current == 1 or current == total or current % interval == 0:
+        progress_callback(current, total, message)
+
+
 def evaluate_scenario_economy(
     summary: Mapping[str, Any] | pd.Series,
     params: EconomicParams | None = None,
@@ -794,6 +815,7 @@ def evaluate_batch_economy(
     *,
     retain_annual_cashflows: bool = True,
     annual_cashflow_scenario_ids: Iterable[str] | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     """Evaluate all rows in a technical summary table."""
 
@@ -802,7 +824,9 @@ def evaluate_batch_economy(
     retained_scenario_ids = {str(scenario_id) for scenario_id in annual_cashflow_scenario_ids or []}
     economic_params = params or EconomicParams()
     context = _power_economy_context(economic_params)
-    for row in _summary_records(summary):
+    total = len(summary.index)
+    interval = _progress_interval(total)
+    for index, row in enumerate(_summary_records(summary), start=1):
         retain_cashflow = retain_annual_cashflows or _scenario_id(row) in retained_scenario_ids
         result = evaluate_scenario_economy(
             row,
@@ -814,4 +838,11 @@ def evaluate_batch_economy(
         results.append(result.metrics)
         if retain_cashflow:
             annual_cashflows[result.scenario_id] = result.annual_cashflow
+        _emit_progress(
+            progress_callback,
+            current=index,
+            total=total,
+            message=result.scenario_id,
+            interval=interval,
+        )
     return pd.DataFrame(results), annual_cashflows

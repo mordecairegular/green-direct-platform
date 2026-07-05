@@ -56,6 +56,7 @@ def test_runtime_snapshot_round_trips_session_state(tmp_path, monkeypatch):
 
     snapshot_path = tmp_path / "latest_session_snapshot.pkl"
     monkeypatch.setenv(app.RUNTIME_SNAPSHOT_ENV, "1")
+    monkeypatch.setenv(app.LOCAL_PROJECTS_ENV, "0")
     monkeypatch.setattr(app, "RUNTIME_STATE_DIR", tmp_path)
     monkeypatch.setattr(app, "LATEST_SESSION_SNAPSHOT_PATH", snapshot_path)
 
@@ -137,6 +138,27 @@ def test_runtime_snapshot_is_disabled_when_pilot_auth_is_enabled(tmp_path, monke
     assert not snapshot_path.exists()
 
 
+def test_runtime_snapshot_is_disabled_when_local_projects_are_enabled(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+
+    snapshot_path = tmp_path / "latest_session_snapshot.pkl"
+    monkeypatch.setenv(app.RUNTIME_SNAPSHOT_ENV, "1")
+    monkeypatch.setenv(app.LOCAL_PROJECTS_ENV, "1")
+    monkeypatch.setattr(app, "RUNTIME_STATE_DIR", tmp_path)
+    monkeypatch.setattr(app, "LATEST_SESSION_SNAPSHOT_PATH", snapshot_path)
+
+    class DummyStreamlit:
+        def __init__(self, state):
+            self.session_state = state
+
+    app._save_runtime_snapshot(
+        DummyStreamlit({"batch_result": SimpleNamespace(summary=pd.DataFrame({"scenario_id": ["S0001"]}))})
+    )
+
+    assert app._restore_runtime_snapshot_if_needed(DummyStreamlit({})) is False
+    assert not snapshot_path.exists()
+
+
 def test_pilot_auth_gate_is_disabled_by_default(monkeypatch):
     import green_direct.ui.app as app
 
@@ -148,6 +170,377 @@ def test_pilot_auth_gate_is_disabled_by_default(monkeypatch):
 
     assert app._pilot_auth_enabled() is False
     assert app._ensure_pilot_authenticated(DummyStreamlit()) is True
+
+
+def test_local_project_mode_creates_local_user_and_persists_technical_result(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.batch.batch_runner import BatchResult
+    from green_direct.models.diagnostics import InputDiagnostics
+    from green_direct.models.pilot_backend import ArtifactKind, Project
+    from green_direct.services.study_runner import TechnicalStudyInput, TechnicalStudyResult
+
+    monkeypatch.delenv(app.PILOT_AUTH_ENV, raising=False)
+    monkeypatch.setenv(app.LOCAL_PROJECTS_ENV, "1")
+    monkeypatch.setenv(app.LOCAL_PROJECT_STORE_DIR_ENV, str(tmp_path))
+
+    user = app._ensure_local_project_user()
+    access = app._pilot_access_service()
+    project = access.create_project(
+        actor_user_id=user.user_id,
+        project=Project("local_project_1", "本地项目 1", created_by_user_id=user.user_id),
+    )
+    technical_result = TechnicalStudyResult(
+        study_id="study_local",
+        batch_result=BatchResult(
+            summary=pd.DataFrame({"scenario_id": ["S0001"], "green_load_rate": [0.4]}),
+            hourly_details={},
+            errors=pd.DataFrame(),
+            warnings=[],
+            scenario_count=1,
+        ),
+        input_diagnostics=InputDiagnostics(),
+        config_snapshot={"study_id": "study_local", "scenario_grid": {"pv_capacity": [5]}},
+    )
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {app.PILOT_ACTIVE_PROJECT_ID_KEY: project.project_id}
+
+    dummy = DummyStreamlit()
+    technical_input = TechnicalStudyInput(
+        load_source=b"timestamp,load\n2026-01-01 00:00:00,1\n",
+        pv_source=b"timestamp,pv\n2026-01-01 00:00:00,0.5\n",
+        wind_source=b"timestamp,wind\n2026-01-01 00:00:00,0.3\n",
+        load_time_col="timestamp",
+        load_value_col="load",
+        pv_time_col="timestamp",
+        pv_value_col="pv",
+        wind_time_col="timestamp",
+        wind_value_col="wind",
+        scenario_grid={"pv_capacity": {"start": 5, "end": 5, "step": 1}},
+    )
+
+    persisted = app._persist_pilot_technical_result_if_enabled(dummy, technical_result, technical_input)
+
+    assert persisted is not None
+    assert persisted.job.project_id == "local_project_1"
+    assert persisted.job.requested_by_user_id == app.LOCAL_PROJECT_DEFAULT_USER_ID
+    assert access.result_store.load_artifact(project.project_id, "study_local", "technical_summary").kind == (
+        ArtifactKind.TECHNICAL_SUMMARY
+    )
+    assert access.result_store.load_artifact(project.project_id, "study_local", "config_snapshot").kind == (
+        ArtifactKind.CONFIG_SNAPSHOT
+    )
+
+
+def test_generated_project_id_is_safe_path_segment():
+    import green_direct.ui.app as app
+    from green_direct.services.local_store_utils import validate_path_segment
+
+    project_id = app._generate_project_id()
+
+    assert project_id.startswith("project_")
+    assert validate_path_segment(project_id, "project_id") == project_id
+
+
+def test_create_project_form_uses_generated_id_and_only_asks_for_name(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+
+    monkeypatch.delenv(app.PILOT_AUTH_ENV, raising=False)
+    monkeypatch.setenv(app.LOCAL_PROJECTS_ENV, "1")
+    monkeypatch.setenv(app.LOCAL_PROJECT_STORE_DIR_ENV, str(tmp_path))
+
+    user = app._ensure_local_project_user()
+
+    class DummyContext:
+        def __init__(self, st):
+            self.st = st
+
+        def __enter__(self):
+            return self.st
+
+        def __exit__(self, *_args):
+            return False
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {}
+            self.text_input_labels = []
+            self.did_rerun = False
+            self.errors = []
+
+        def form(self, _key):
+            return DummyContext(self)
+
+        def text_input(self, label, **_kwargs):
+            self.text_input_labels.append(label)
+            return "本地项目 A"
+
+        def form_submit_button(self, *_args, **_kwargs):
+            return True
+
+        def rerun(self):
+            self.did_rerun = True
+
+        def error(self, message):
+            self.errors.append(str(message))
+
+    dummy = DummyStreamlit()
+    app._render_create_project_form(dummy, actor_user_id=user.user_id, form_key="test_create_project")
+
+    projects = app._pilot_access_service().list_accessible_projects(actor_user_id=user.user_id)
+    assert dummy.text_input_labels == ["项目名称"]
+    assert dummy.errors == []
+    assert dummy.did_rerun is True
+    assert len(projects) == 1
+    assert projects[0][0].name == "本地项目 A"
+    assert projects[0][0].project_id.startswith("project_")
+    assert dummy.session_state[app.PILOT_ACTIVE_PROJECT_NAME_KEY] == "本地项目 A"
+
+
+def test_local_project_sidebar_exposes_create_form_after_existing_project(monkeypatch, tmp_path):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import Project, ProjectMembership, ProjectRole
+
+    monkeypatch.delenv(app.PILOT_AUTH_ENV, raising=False)
+    monkeypatch.setenv(app.LOCAL_PROJECTS_ENV, "1")
+    monkeypatch.setenv(app.LOCAL_PROJECT_STORE_DIR_ENV, str(tmp_path))
+
+    class DummyContext:
+        def __init__(self, st):
+            self.st = st
+
+        def __enter__(self):
+            return self.st
+
+        def __exit__(self, *_args):
+            return False
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {app.PILOT_ACTIVE_PROJECT_ID_KEY: "project_1"}
+            self.sidebar = DummyContext(self)
+            self.expander_labels = []
+            self.info_messages = []
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def caption(self, *_args, **_kwargs):
+            return None
+
+        def info(self, message):
+            self.info_messages.append(str(message))
+
+        def selectbox(self, _label, options, index=0, **_kwargs):
+            return options[index]
+
+        def expander(self, label):
+            self.expander_labels.append(label)
+            return DummyContext(self)
+
+        def form(self, _key):
+            return DummyContext(self)
+
+        def text_input(self, *_args, **_kwargs):
+            return ""
+
+        def form_submit_button(self, *_args, **_kwargs):
+            return False
+
+        def button(self, *_args, **_kwargs):
+            return False
+
+    dummy = DummyStreamlit()
+    project = Project("project_1", "本地项目 1")
+    membership = ProjectMembership(
+        "project_1__local_user",
+        project.project_id,
+        app.LOCAL_PROJECT_DEFAULT_USER_ID,
+        ProjectRole.ADMIN,
+    )
+    app._render_pilot_project_sidebar(
+        dummy,
+        actor_user_id=app.LOCAL_PROJECT_DEFAULT_USER_ID,
+        visible_projects=[(project, membership)],
+    )
+
+    assert dummy.info_messages == []
+    assert "新建项目" in dummy.expander_labels
+    assert "项目操作" in dummy.expander_labels
+
+
+def test_local_project_sidebar_create_controls_create_and_activate_project(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+
+    monkeypatch.delenv(app.PILOT_AUTH_ENV, raising=False)
+    monkeypatch.setenv(app.LOCAL_PROJECTS_ENV, "1")
+    monkeypatch.setenv(app.LOCAL_PROJECT_STORE_DIR_ENV, str(tmp_path))
+
+    user = app._ensure_local_project_user()
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {}
+            self.did_rerun = False
+            self.errors = []
+
+        def text_input(self, label, **_kwargs):
+            assert label == "项目名称"
+            return "本地项目 B"
+
+        def button(self, label, **_kwargs):
+            assert label == "创建项目"
+            return True
+
+        def rerun(self):
+            self.did_rerun = True
+
+        def error(self, message):
+            self.errors.append(str(message))
+
+    dummy = DummyStreamlit()
+    app._render_create_project_sidebar_controls(
+        dummy,
+        actor_user_id=user.user_id,
+        key_prefix="test_sidebar_create_project",
+    )
+
+    projects = app._pilot_access_service().list_accessible_projects(actor_user_id=user.user_id)
+    assert dummy.errors == []
+    assert dummy.did_rerun is True
+    assert len(projects) == 1
+    assert projects[0][0].name == "本地项目 B"
+    assert dummy.session_state[app.PILOT_ACTIVE_PROJECT_NAME_KEY] == "本地项目 B"
+
+
+def test_local_project_delete_archives_current_project_and_selects_next(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import Project, ProjectStatus
+
+    monkeypatch.delenv(app.PILOT_AUTH_ENV, raising=False)
+    monkeypatch.setenv(app.LOCAL_PROJECTS_ENV, "1")
+    monkeypatch.setenv(app.LOCAL_PROJECT_STORE_DIR_ENV, str(tmp_path))
+
+    user = app._ensure_local_project_user()
+    access = app._pilot_access_service()
+    first = access.create_project(
+        actor_user_id=user.user_id,
+        project=Project("project_first", "本地项目一", created_by_user_id=user.user_id),
+    )
+    second = access.create_project(
+        actor_user_id=user.user_id,
+        project=Project("project_second", "本地项目二", created_by_user_id=user.user_id),
+    )
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {app.PILOT_ACTIVE_PROJECT_ID_KEY: first.project_id}
+            self.did_rerun = False
+
+        def rerun(self):
+            self.did_rerun = True
+
+    dummy = DummyStreamlit()
+    app._archive_project_and_select_next(dummy, actor_user_id=user.user_id, project=first)
+
+    registry = app._pilot_access_service().registry
+    assert registry.load_project(first.project_id).status == ProjectStatus.ARCHIVED
+    assert registry.load_project(second.project_id).status == ProjectStatus.ACTIVE
+    assert dummy.session_state[app.PILOT_ACTIVE_PROJECT_ID_KEY] == second.project_id
+    assert dummy.session_state[app.PILOT_ACTIVE_PROJECT_NAME_KEY] == "本地项目二"
+    assert "已删除项目：本地项目一" in dummy.session_state[app.PILOT_PROJECT_NOTICE_KEY]
+    assert dummy.did_rerun is True
+
+
+def test_local_project_delete_control_is_direct_button_without_name_confirmation(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import Project, ProjectStatus
+
+    monkeypatch.delenv(app.PILOT_AUTH_ENV, raising=False)
+    monkeypatch.setenv(app.LOCAL_PROJECTS_ENV, "1")
+    monkeypatch.setenv(app.LOCAL_PROJECT_STORE_DIR_ENV, str(tmp_path))
+
+    user = app._ensure_local_project_user()
+    project = app._pilot_access_service().create_project(
+        actor_user_id=user.user_id,
+        project=Project("project_delete", "待删除项目", created_by_user_id=user.user_id),
+    )
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {app.PILOT_ACTIVE_PROJECT_ID_KEY: project.project_id}
+            self.caption_messages = []
+            self.button_calls = []
+            self.did_rerun = False
+
+        def caption(self, message):
+            self.caption_messages.append(str(message))
+
+        def text_input(self, *_args, **_kwargs):
+            raise AssertionError("delete should not ask the user to type the project name")
+
+        def button(self, label, **kwargs):
+            self.button_calls.append((label, kwargs))
+            return True
+
+        def rerun(self):
+            self.did_rerun = True
+
+        def error(self, message):
+            raise AssertionError(str(message))
+
+    dummy = DummyStreamlit()
+    app._render_local_project_delete_controls(
+        dummy,
+        actor_user_id=user.user_id,
+        project=project,
+        key_prefix="test_direct_delete",
+    )
+
+    assert dummy.caption_messages == ["从本地项目列表移除当前项目。"]
+    assert dummy.button_calls[0][0] == "删除当前项目"
+    assert "disabled" not in dummy.button_calls[0][1]
+    assert app._pilot_access_service().registry.load_project(project.project_id).status == ProjectStatus.ARCHIVED
+    assert dummy.did_rerun is True
+
+
+def test_local_project_delete_last_project_clears_current_project(tmp_path, monkeypatch):
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import Project, ProjectStatus
+
+    monkeypatch.delenv(app.PILOT_AUTH_ENV, raising=False)
+    monkeypatch.setenv(app.LOCAL_PROJECTS_ENV, "1")
+    monkeypatch.setenv(app.LOCAL_PROJECT_STORE_DIR_ENV, str(tmp_path))
+
+    user = app._ensure_local_project_user()
+    access = app._pilot_access_service()
+    project = access.create_project(
+        actor_user_id=user.user_id,
+        project=Project("project_only", "唯一项目", created_by_user_id=user.user_id),
+    )
+
+    class DummyStreamlit:
+        def __init__(self):
+            self.session_state = {
+                app.PILOT_ACTIVE_PROJECT_ID_KEY: project.project_id,
+                app.PILOT_ACTIVE_PROJECT_NAME_KEY: project.name,
+                "batch_result": object(),
+            }
+            self.did_rerun = False
+
+        def rerun(self):
+            self.did_rerun = True
+
+    dummy = DummyStreamlit()
+    app._archive_project_and_select_next(dummy, actor_user_id=user.user_id, project=project)
+
+    assert app._pilot_access_service().registry.load_project(project.project_id).status == ProjectStatus.ARCHIVED
+    assert app.PILOT_ACTIVE_PROJECT_ID_KEY not in dummy.session_state
+    assert app.PILOT_ACTIVE_PROJECT_NAME_KEY not in dummy.session_state
+    assert "batch_result" not in dummy.session_state
+    assert "已删除项目：唯一项目" in dummy.session_state[app.PILOT_PROJECT_NOTICE_KEY]
+    assert dummy.did_rerun is True
 
 
 def test_pilot_authenticated_user_validates_local_session(tmp_path, monkeypatch):
@@ -435,6 +828,7 @@ def test_pilot_project_activity_frames_summarize_jobs_and_results():
         job_type=JobType.TECHNICAL_STUDY,
         status=JobStatus.SUCCEEDED,
         queued_at=earlier,
+        progress_message="technical study result ready",
     )
     newer_job = Job(
         job_id="job_new",
@@ -475,16 +869,24 @@ def test_pilot_project_activity_frames_summarize_jobs_and_results():
         stale_after_seconds=3600,
     )
     result_frame = app._pilot_result_history_frame([older_result, newer_result])
+    result_detail_frame = app._pilot_result_history_frame([older_result, newer_result], include_internal=True)
 
-    assert job_frame.iloc[0]["job_id"] == "job_new"
+    assert "任务编号" not in job_frame.columns
+    assert job_frame.iloc[0]["任务类型"] == "方案推荐"
+    assert job_frame.iloc[0]["状态"] == "运行中"
     assert job_frame.iloc[0]["进度"] == "1/2"
-    assert status_frame.iloc[0]["worker"] == "worker_1"
+    assert status_frame.iloc[0]["任务编号"] == "job_new"
+    assert status_frame.iloc[0]["测算编号"] == "study_1"
+    assert status_frame.iloc[0]["执行器"] == "worker_1"
     assert status_frame.iloc[0]["最后心跳"] == "2026-06-15 01:00"
-    assert status_frame.iloc[0]["超时"] == "是"
-    assert status_frame.iloc[1]["超时"] == "-"
-    assert result_frame.iloc[0]["result_id"] == "recommendation_result_job_new"
-    assert result_frame.iloc[0]["类型"] == "recommendation"
+    assert status_frame.iloc[0]["是否超时"] == "是"
+    assert status_frame.iloc[1]["是否超时"] == "-"
+    assert status_frame.iloc[1]["说明"] == "方案仿真结果已就绪"
+    assert "结果编号" not in result_frame.columns
+    assert result_frame.iloc[0]["结果类型"] == "方案推荐"
     assert result_frame.iloc[0]["产物数"] == 2
+    assert result_detail_frame.iloc[0]["结果编号"] == "recommendation_result_job_new"
+    assert result_detail_frame.iloc[0]["来源任务编号"] == "job_new"
 
 
 def test_pilot_result_history_frame_surfaces_pinned_records():
@@ -516,10 +918,88 @@ def test_pilot_result_history_frame_surfaces_pinned_records():
     )
 
     result_frame = app._pilot_result_history_frame([unpinned_newer, pinned_older])
+    result_detail_frame = app._pilot_result_history_frame([unpinned_newer, pinned_older], include_internal=True)
 
-    assert result_frame.iloc[0]["result_id"] == "technical_result"
+    assert "结果编号" not in result_frame.columns
+    assert result_frame.iloc[0]["结果类型"] == "技术仿真"
     assert result_frame.iloc[0]["标记"] == "重点"
     assert result_frame.iloc[0]["备注"] == "report candidate"
+    assert result_detail_frame.iloc[0]["结果编号"] == "technical_result"
+
+
+def test_pilot_current_result_records_group_latest_technical_study():
+    from datetime import datetime, timezone
+
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import StudyResultRecord
+
+    older = datetime(2026, 6, 15, 1, tzinfo=timezone.utc)
+    later = datetime(2026, 6, 15, 2, tzinfo=timezone.utc)
+    latest = datetime(2026, 6, 15, 3, tzinfo=timezone.utc)
+
+    pinned_old_technical = StudyResultRecord(
+        result_id="technical_result",
+        project_id="project_1",
+        study_id="study_old",
+        created_by_job_id="job_old",
+        technical_summary_artifact_id="technical_summary",
+        created_at=older,
+        pinned_at=latest,
+        pinned_by_user_id="admin",
+        label="archived baseline",
+    )
+    current_technical = StudyResultRecord(
+        result_id="technical_result",
+        project_id="project_1",
+        study_id="study_current",
+        created_by_job_id="job_current_technical",
+        technical_summary_artifact_id="technical_summary",
+        created_at=later,
+    )
+    current_economy = StudyResultRecord(
+        result_id="economy_result_job_current",
+        project_id="project_1",
+        study_id="study_current",
+        created_by_job_id="job_current_economy",
+        economy_summary_artifact_id="power_economy_summary_job_current",
+        single_entity_summary_artifact_id="single_entity_summary_job_current",
+        created_at=latest,
+    )
+
+    current_records = app._pilot_current_result_records(
+        [pinned_old_technical, current_technical, current_economy]
+    )
+    current_frame = app._pilot_current_result_frame(
+        [pinned_old_technical, current_technical, current_economy]
+    )
+
+    assert {record.study_id for record in current_records} == {"study_current"}
+    assert current_frame.to_dict("records") == [
+        {
+            "结果集": "当前项目结果",
+            "方案遍历": "已完成",
+            "经济测算": "已完成",
+            "推荐方案": "待生成",
+            "图表/报告": "按需生成",
+            "更新时间": "2026-06-15 03:00",
+        }
+    ]
+
+
+def test_compact_status_rows_can_hide_detail_meta():
+    import green_direct.ui.app as app
+
+    html = app._compact_status_rows_html(
+        [{"数据项": "光伏曲线", "状态": "有警告", "文件": "pv.csv", "摘要": "1,325 h"}],
+        label_key="数据项",
+        status_key="状态",
+        meta_keys=[],
+    )
+
+    assert "光伏曲线" in html
+    assert "有警告" in html
+    assert "gd-compact-status-meta" not in html
+    assert "pv.csv" not in html
 
 
 def test_pilot_active_job_helpers_filter_and_gate_cancel():
@@ -564,7 +1044,7 @@ def test_pilot_active_job_helpers_filter_and_gate_cancel():
     active_jobs = app._active_pilot_jobs([queued_job, succeeded_job, running_job])
 
     assert [job.job_id for job in active_jobs] == ["job_running", "job_queued"]
-    assert "job_running / recommendation / running / 1/2 / analyst" == app._pilot_job_option_label(running_job)
+    assert "方案推荐 / 运行中 / 1/2 / analyst / job_running" == app._pilot_job_option_label(running_job)
     assert app._can_cancel_pilot_job(running_job, actor_user_id="analyst", project_role=ProjectRole.ANALYST.value)
     assert not app._can_cancel_pilot_job(
         running_job,
@@ -626,6 +1106,11 @@ def test_pilot_history_artifact_refs_and_download_use_access_service(tmp_path):
         ("图表 HTML 包", "chart_html_zip"),
         ("Markdown 报告", "brief_report"),
     ]
+    assert app._pilot_saved_deliverable_artifact_refs(record) == [
+        ("图表 HTML 包", "chart_html_zip"),
+        ("Markdown 报告", "brief_report"),
+    ]
+    assert app._pilot_result_restore_available(record) is True
 
     download = app._pilot_load_artifact_download(
         access,
@@ -638,6 +1123,31 @@ def test_pilot_history_artifact_refs_and_download_use_access_service(tmp_path):
     assert download["file_name"] == "technical_summary.csv"
     assert download["mime"] == "text/csv"
     assert result_store.read_audit_log("project_1")[-1].action == AuditAction.DOWNLOAD_ARTIFACT
+
+
+def test_pilot_saved_deliverables_exclude_automatic_snapshots_and_internal_details():
+    import green_direct.ui.app as app
+    from green_direct.models.pilot_backend import StudyResultRecord
+
+    record = StudyResultRecord(
+        result_id="recommendation_result",
+        project_id="project_1",
+        study_id="study_1",
+        created_by_job_id="job_1",
+        technical_summary_artifact_id="technical_summary",
+        economy_summary_artifact_id="economy_summary",
+        recommendation_artifact_id="recommendation_portfolio",
+        report_artifact_ids={
+            "load_side_detail": "recommendation_load_side_detail",
+            "chart_html": "chart_html_zip",
+            "docx_template": "docx_report",
+        },
+    )
+
+    assert app._pilot_saved_deliverable_artifact_refs(record) == [
+        ("图表 HTML 包", "chart_html_zip"),
+        ("DOCX 报告模板", "docx_report"),
+    ]
 
 
 def test_pilot_restore_technical_summary_rebuilds_summary_only_session(tmp_path):
@@ -1375,17 +1885,20 @@ def test_streamlit_app_allows_login_with_pilot_account(tmp_path, monkeypatch):
     assert len(app_test.exception) == 0
     assert not any(text_input.label == "密码" for text_input in app_test.text_input)
     assert any(button.label == "退出登录" for button in app_test.button)
-    assert any(text_input.label == "项目 ID" for text_input in app_test.text_input)
+    assert not any(text_input.label == "项目 ID" for text_input in app_test.text_input)
+    assert any(text_input.label == "项目名称" for text_input in app_test.text_input)
     assert not any(button.label == "开始方案仿真" for button in app_test.button)
 
     inputs = {text_input.label: text_input for text_input in app_test.text_input}
-    inputs["项目 ID"].input("project_1")
     inputs["项目名称"].input("Internal pilot project")
     next(button for button in app_test.button if button.label == "创建项目").click().run(timeout=10)
 
     assert len(app_test.exception) == 0
     assert any(button.label == "开始方案仿真" for button in app_test.button)
-    assert LocalPilotRegistry(tmp_path).load_project("project_1").name == "Internal pilot project"
+    projects = LocalPilotRegistry(tmp_path).list_projects()
+    assert len(projects) == 1
+    assert projects[0].name == "Internal pilot project"
+    assert projects[0].project_id.startswith("project_")
 
 
 def test_streamlit_platform_admin_can_create_user(tmp_path, monkeypatch):
@@ -1544,19 +2057,23 @@ def test_streamlit_platform_admin_can_create_and_archive_project(tmp_path, monke
 
     next(button for button in app_test.button if button.label == "Admin  平台管理").click().run(timeout=10)
     inputs = {text_input.label: text_input for text_input in app_test.text_input}
-    inputs["新项目 ID"].input("project_ui")
+    assert "新项目 ID" not in inputs
     inputs["新项目名称"].input("UI Pilot Project")
     next(button for button in app_test.button if button.label == "创建项目").click().run(timeout=10)
 
-    created = LocalPilotRegistry(tmp_path).load_project("project_ui")
-    membership = LocalPilotRegistry(tmp_path).get_project_membership("project_ui", "admin")
+    registry_after_create = LocalPilotRegistry(tmp_path)
+    created_projects = registry_after_create.list_projects()
+    assert len(created_projects) == 1
+    created = created_projects[0]
+    membership = registry_after_create.get_project_membership(created.project_id, "admin")
     assert created.name == "UI Pilot Project"
+    assert created.project_id.startswith("project_")
     assert membership is not None
     assert membership.role == ProjectRole.ADMIN
 
     next(button for button in app_test.button if button.label == "归档所选项目").click().run(timeout=10)
 
-    archived = LocalPilotRegistry(tmp_path).load_project("project_ui")
+    archived = LocalPilotRegistry(tmp_path).load_project(created.project_id)
     assert archived.status == ProjectStatus.ARCHIVED
 
 
@@ -1825,9 +2342,12 @@ def test_go_to_workflow_page_maps_alias_and_reruns():
     assert dummy.did_rerun is True
 
 
-def test_welcome_start_button_does_not_mutate_radio_state_after_instantiation():
+def test_welcome_start_button_does_not_mutate_radio_state_after_instantiation(monkeypatch):
     from streamlit.testing.v1 import AppTest
 
+    import green_direct.ui.app as app
+
+    monkeypatch.setenv(app.LOCAL_PROJECTS_ENV, "0")
     app_test = AppTest.from_file("src/green_direct/ui/app.py")
     app_test.run(timeout=10)
 
@@ -1836,9 +2356,11 @@ def test_welcome_start_button_does_not_mutate_radio_state_after_instantiation():
     assert len(app_test.exception) == 0
 
 
-def test_technical_next_button_does_not_mutate_radio_state_after_instantiation():
+def test_technical_next_button_does_not_mutate_radio_state_after_instantiation(monkeypatch):
+    import green_direct.ui.app as app
     from streamlit.testing.v1 import AppTest
 
+    monkeypatch.setenv(app.LOCAL_PROJECTS_ENV, "0")
     summary = pd.DataFrame(
         [
             {
@@ -2142,7 +2664,7 @@ def test_economy_cashflow_retention_missing_notice_only_for_unretained_scenario(
     assert app._economy_cashflow_retention_missing_notice(economy_result, "S0101") is None
     notice = app._economy_cashflow_retention_missing_notice(economy_result, "S0103")
     assert notice is not None
-    assert "summary-first" in notice
+    assert "年度现金流明细未保存" in notice
     assert "S0103" in notice
 
 
@@ -2967,6 +3489,46 @@ def test_batch_curve_upload_can_identify_project_price_curve():
     assert any("技术曲线 `load_curve.xlsx` 当前仅支持 CSV" in message for message in messages)
 
 
+def test_batch_upload_recognition_rows_show_update_actions():
+    import green_direct.ui.app as app
+
+    class UploadedFile:
+        def __init__(self, name: str, payload: bytes = b"timestamp,value\n"):
+            self.name = name
+            self._payload = payload
+
+        def getvalue(self):
+            return self._payload
+
+    files = [
+        UploadedFile("load_curve.csv"),
+        UploadedFile("pv_curve.csv"),
+        UploadedFile("wind_curve.csv"),
+        UploadedFile("湖南省2025年110kV下网电价曲线_8760小时.csv"),
+        UploadedFile("load_curve.xlsx"),
+    ]
+    assigned, price_curve_file, _ = app._auto_assign_curve_files(files)
+    upload_infos = {
+        id(uploaded_file): app.UploadFileInfo(
+            name=uploaded_file.name,
+            suffix=Path(uploaded_file.name).suffix.lower(),
+            size_bytes=len(uploaded_file.getvalue()),
+            sha256="0" * 64,
+        )
+        for uploaded_file in files
+    }
+
+    rows = app._batch_upload_recognition_rows(files, assigned, price_curve_file, upload_infos)
+
+    actions_by_file = {row["文件"]: row["处理动作"] for row in rows}
+    statuses_by_file = {row["文件"]: row["状态"] for row in rows}
+    assert actions_by_file["load_curve.csv"] == "更新负荷曲线"
+    assert actions_by_file["pv_curve.csv"] == "更新光伏曲线"
+    assert actions_by_file["wind_curve.csv"] == "更新风电曲线"
+    assert actions_by_file["湖南省2025年110kV下网电价曲线_8760小时.csv"] == "更新下网电价曲线"
+    assert statuses_by_file["load_curve.xlsx"] == "格式不支持"
+
+
 def test_batch_price_curve_upload_stores_project_level_curve():
     import green_direct.ui.app as app
 
@@ -3015,11 +3577,43 @@ def test_sample_curve_loader_ignores_price_curve_templates(tmp_path, monkeypatch
     assert not any("price_curve_template_down_grid.csv" in message for message in messages)
 
 
-def test_price_curve_upload_is_project_level_not_economy_page_upload():
+def test_price_curve_upload_uses_simulation_batch_entry_not_economy_page_upload():
     app_source = Path("src/green_direct/ui/app.py").read_text(encoding="utf-8")
 
-    assert "key=\"simulation_price_curve_upload\"" in app_source
+    assert 'key="simulation_batch_curve_csv"' in app_source
+    assert 'key="simulation_price_curve_upload"' not in app_source
     assert "key=\"economy_price_curve_upload\"" not in app_source
+    assert "上传 / 更新曲线" in app_source
+    assert "单位：负荷曲线为功率（万kW）；光伏、风电曲线为单位容量出力系数" in app_source
+    assert "本次上传识别结果" in app_source
+    assert "当前数据状态" in app_source
+    assert "数据质量与识别详情" in app_source
+    assert "如列识别或数据值有问题，请修改源 CSV/XLSX 后重新上传" in app_source
+    assert "数据可计算，有警告；展开“数据质量与识别详情”查看原因。" not in app_source
+    assert "三条技术曲线已可计算，但存在空值、负值或标幺值大于 1 的点" not in app_source
+    assert "可在这里人工修正" not in app_source
+    assert "历史结果产物" not in app_source
+    assert "当前结果恢复与交付产物" in app_source
+    assert "高级：单独上传覆盖" not in app_source
+    assert "数据识别复核" not in app_source
+    assert "曲线识别摘要" not in app_source
+    assert "可选：下网电价曲线" not in app_source
+
+
+def test_simulation_curve_recognition_and_status_are_inside_quality_details():
+    app_source = Path("src/green_direct/ui/app.py").read_text(encoding="utf-8")
+    start = app_source.index("def _render_simulation_page")
+    end = app_source.index("    with scenario_col:", start)
+    simulation_input_source = app_source[start:end]
+
+    details_index = simulation_input_source.index('with st.expander("数据质量与识别详情"')
+    recognition_index = simulation_input_source.index("_render_batch_upload_recognition(")
+    current_status_index = simulation_input_source.index("_render_current_input_status(")
+
+    assert "current_status_slot" not in simulation_input_source
+    assert details_index < recognition_index
+    assert details_index < current_status_index
+    assert "识别结果和当前数据状态在下方详情中复核。" in simulation_input_source
 
 
 def test_simulation_page_removes_developer_facing_explanatory_copy():
@@ -3038,9 +3632,55 @@ def test_economy_result_keeps_price_curve_alignment_diagnostics_visible():
     assert "价格曲线对齐诊断" in app_source
 
 
-def test_simulation_capacity_input_survives_workflow_navigation():
+def test_economy_page_defaults_to_bill_facing_tariff_inputs():
+    import green_direct.ui.app as app
+
+    app_source = Path("src/green_direct/ui/app.py").read_text(encoding="utf-8")
+
+    assert "下网电费单" in app_source
+    assert "起始值按湖南 110kV 工商业两部制用户常用账单项预填" in app_source
+    assert "到户综合电价（元/kWh，含税）" in app_source
+    assert "线损单价（元/kWh）" in app_source
+    assert "系统运行费（元/kWh）" in app_source
+    assert "输配电价（元/kWh）" in app_source
+    assert "政府基金及附加（元/kWh）" in app_source
+    assert "高级：特殊电费口径" in app_source
+    assert "直接输入同一主体净节费单价" in app_source
+    assert "自用绿电仍缴输配（元/kWh）" in app_source
+    assert "自用绿电仍缴基金（元/kWh）" in app_source
+    assert "外部购电净成本（元/kWh）" not in app_source
+    assert "按电费清单组价覆盖外部购电净成本" not in app_source
+    assert app.HUNAN_110KV_DEFAULT_DOWN_GRID_LANDED_PRICE_WITH_VAT == pytest.approx(0.6523)
+    assert app.HUNAN_110KV_DEFAULT_LINE_LOSS_PRICE_WITH_VAT == pytest.approx(0.0220)
+    assert app.HUNAN_110KV_DEFAULT_SYSTEM_OPERATION_FEE_WITH_VAT == pytest.approx(0.0500)
+    assert app.HUNAN_110KV_DEFAULT_TRANSMISSION_DISTRIBUTION_TARIFF_WITH_VAT == pytest.approx(0.1104)
+    assert app.HUNAN_110KV_DEFAULT_GOV_FUND_SURCHARGE == pytest.approx(0.0463)
+    assert app_source.count("display_digits=4") >= 5
+
+
+def test_economy_page_hides_internal_v1_wording_and_shows_progress():
+    app_source = Path("src/green_direct/ui/app.py").read_text(encoding="utf-8")
+
+    assert '"计算经济性"' in app_source
+    assert "计算经济性 V1" not in app_source
+    assert "经济性 V1 已计算" not in app_source
+    assert "电源侧经济性 V1 已计算" not in app_source
+    assert "负值在 V1 中不产生进项税" not in app_source
+    assert "economy_v1_result" not in app_source[
+        app_source.index("def _render_recommendation_bottom_status"):
+        app_source.index("def _current_recommendation_result")
+    ]
+    assert "经济性计算进度" in app_source
+    assert "_update_economy_progress(economy_progress, 0.24" in app_source
+    assert "总进度 {done}/{total}" in app_source
+    assert "_update_economy_progress(economy_progress, 1.0" in app_source
+
+
+def test_simulation_capacity_input_survives_workflow_navigation(monkeypatch):
+    import green_direct.ui.app as app
     from streamlit.testing.v1 import AppTest
 
+    monkeypatch.setenv(app.LOCAL_PROJECTS_ENV, "0")
     app_test = AppTest.from_file("src/green_direct/ui/app.py")
     app_test.session_state["workflow_page"] = "方案仿真"
     app_test.run(timeout=10)
@@ -3060,6 +3700,7 @@ def test_simulation_page_exposes_parallel_worker_control(monkeypatch):
     from streamlit.testing.v1 import AppTest
 
     monkeypatch.delenv(app.DEFAULT_PARALLEL_WORKERS_ENV, raising=False)
+    monkeypatch.setenv(app.LOCAL_PROJECTS_ENV, "0")
     app_test = AppTest.from_file("src/green_direct/ui/app.py")
     app_test.session_state["workflow_page"] = "方案仿真"
     app_test.run(timeout=10)

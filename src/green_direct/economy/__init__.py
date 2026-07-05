@@ -12,6 +12,7 @@ from green_direct.economy.economic_inputs import (
     OtherOperatingRevenueItem,
 )
 from green_direct.economy.electricity_saving import (
+    build_avoided_grid_purchase_params_from_landed_price,
     calc_avoided_grid_purchase_cash_price,
     calc_environmental_value,
     calc_export_revenue_without_vat,
@@ -39,6 +40,7 @@ __all__ = [
     "PriceCurveData",
     "PriceCurveValidationError",
     "apply_price_curve_to_summary",
+    "build_avoided_grid_purchase_params_from_landed_price",
     "calc_avoided_grid_purchase_cash_price",
     "calc_environmental_value",
     "calc_export_revenue_without_vat",

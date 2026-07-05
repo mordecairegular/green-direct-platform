@@ -1008,7 +1008,7 @@ python -m pytest
 - `inspect_upload()` 会返回安全 trace metadata：文件名、后缀、大小和 SHA256；
 - `filter_uploads()` 会过滤非法文件并返回用户可读的拒绝原因。
 
-Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，但技术曲线仍只纳入 CSV；单独覆盖的负荷/光伏/风电曲线只允许 CSV；下网电价曲线允许 CSV/XLSX/XLSM。非法文件不会进入预览、曲线读取或电价曲线解析。启用内部试用登录并保存技术结果时，负荷、光伏和风电三条技术输入曲线会作为 `ArtifactKind.INPUT_CURVE` 写入 `ResultStore`，默认 30 天过期，并在 `config_snapshot.json` 中写入 `input_artifact_ids` 与 `curve_columns`；历史 summary-only 结果可在这些 input artifact 仍可查看时恢复技术输入并按需补算单方案明细。正式受控公网内测前仍应补充价格曲线、schema 报告、定时清理、关键 Run 保留和恢复策略。
+Streamlit 02 页已接入该策略：`Input 数据曲线` 使用一个“批量上传 / 更新曲线文件”入口，允许 CSV/XLSX/XLSM；技术曲线仍只纳入 CSV，下网电价曲线允许 CSV/XLSX/XLSM。用户可以一次上传负荷、光伏、风电和可选下网电价曲线，也可以只重新上传其中一条曲线来覆盖；上传识别结果、当前数据状态、文件摘要、列识别和异常点统计统一放在“数据质量与识别详情”折叠区复核，首屏不再默认铺开这些明细。非法文件不会进入预览、曲线读取或电价曲线解析。启用内部试用登录并保存技术结果时，负荷、光伏和风电三条技术输入曲线会作为 `ArtifactKind.INPUT_CURVE` 写入 `ResultStore`，默认 30 天过期，并在 `config_snapshot.json` 中写入 `input_artifact_ids` 与 `curve_columns`；历史 summary-only 结果可在这些 input artifact 仍可查看时恢复技术输入并按需补算单方案明细。正式受控公网内测前仍应补充价格曲线、schema 报告、定时清理、关键 Run 保留和恢复策略。
 
 `src/green_direct/services/pilot_registry.py` 已提供第一版 `LocalPilotRegistry`：
 
@@ -1080,7 +1080,7 @@ Streamlit 02 页已接入该策略：批量上传入口允许 CSV/XLSX/XLSM，�
 - 会话失效、token 错误或退出登录时，会清理当前浏览器会话内的测算结果、下载缓存、价格曲线和图表导出缓存，避免下一位用户看到上一位用户的临时结果；
 - 登录后必须先创建或选择一个有效项目工作区，六步业务工作流才会继续渲染；切换项目会清理当前测算结果和下载缓存；
 - 平台管理员登录后，侧栏会出现“平台管理”入口，当前支持创建账号、重置密码并撤销有效会话、停用/恢复账号、授予/撤销平台管理员、查看/撤销会话，并在“项目和成员”中创建/归档项目、为项目分配或禁用成员角色、维护是否允许下载/导出项目结果，在“任务运维”中处理受支持 queued job / 恢复超时 running 任务元数据，在“审计日志”中下载脱敏 support bundle 或只读查看全局/项目级审计事件；
-- 欢迎页已新增“项目任务与结果”面板，显示当前项目任务数、已保存结果数、最近任务和最近结果索引；面板可筛出当前项目排队/运行中的活动任务，并按项目角色提供最小取消入口；“任务状态明细”可查看 worker、最后 heartbeat、stale 标记、进度和错误说明；导出权限允许时，可下载已落盘的 summary / portfolio artifact；网页内恢复技术汇总、加载已有 hourly artifact 和恢复 input artifact 走 `read_artifact_payload_for_view()`，只要求项目查看权限并写 `VIEW_ARTIFACT` 审计，不授予文件下载能力；
+- 欢迎页“项目任务与结果”面板按一个当前结果集展示，聚合当前项目的方案遍历、经济测算、推荐方案和图表/报告状态；图表/报告默认按需生成，只有显式保存的 HTML 图表包、Markdown/DOCX 报告等计为交付产物。面板可筛出当前项目排队/运行中的活动任务，并按项目角色提供最小取消入口；“运行审计（排查用）”可查看 worker、最后 heartbeat、stale 标记、进度和错误说明；导出权限允许时，可下载已落盘的显式交付 artifact；网页内恢复技术汇总、加载已有 hourly artifact 和恢复 input artifact 走 `read_artifact_payload_for_view()`，只要求项目查看权限并写 `VIEW_ARTIFACT` 审计，不授予文件下载能力；
 - 当前门禁、平台管理页和结果面板只解决内部试用账号、项目工作区控制、结果可见性、最小任务运维、审计抽查和已落盘 artifact 取回入口，仍没有数据库会话表、CSRF 防护、正式审计后台、完整历史结果恢复或正式后台 worker。
 
 `src/green_direct/services/job_store.py` 已提供第一版 `LocalJobStore`：
@@ -1266,6 +1266,8 @@ Get-NetTCPConnection -LocalPort 8503 -State Listen |
 
 当前内部试用后台已不再只是模型骨架。启用 `GREEN_DIRECT_ENABLE_PILOT_AUTH=1` 且用户已选择项目后，02 页 Demo/正式技术仿真、03 页经济性测算和推荐页组合生成会走项目级同步持久化路径：
 
+2026-07-03 起，本地单机模式也开始复用同一套项目/结果存储语义：未启用 `GREEN_DIRECT_ENABLE_PILOT_AUTH` 时，应用默认启用本地项目库，使用本地用户 `local_user` 和 `.runtime/local_project_store`。本地项目库不需要登录，但仍要求先创建或选择项目；项目 ID 由软件自动生成，用户只填写项目名称；第一次创建项目走主页面表单，已有项目后侧边栏可继续新建项目，创建成功后自动切换到新项目；切换项目会清空当前会话结果，历史结果保留在项目库中。侧边栏“项目操作 / 删除当前项目”当前采用软删除/归档：项目从本地项目列表隐藏，项目目录和历史文件不物理删除，删除时不要求用户重复输入项目名称。该能力用于本地版项目档案管理，不等同于正式数据库或公网多用户权限系统。
+
 ```text
 TechnicalStudyResult
 -> persist_technical_study_result()
@@ -1301,7 +1303,7 @@ Explicit export artifact
 - `input_curve_load.csv` / `input_curve_pv.csv` / `input_curve_wind.csv`：技术仿真原始输入曲线 artifact，默认 30 天过期；
 - `technical_summary.csv`：当前技术仿真的方案汇总；
 - `config_snapshot.json`：本次技术仿真的配置快照；若保存了 input curve artifact，会额外包含 `input_artifact_ids`；技术快照还包含 `curve_columns`，用于历史 summary-only 恢复后重建 `TechnicalStudyInput`；
-- `StudyResultRecord(result_id="technical_result")`：指向技术汇总 artifact；
+- `StudyResultRecord(result_id="technical_result")`：指向技术汇总 artifact；新的技术仿真写入后会成为当前项目结果，旧 study 下的结果索引默认软隐藏，不再从项目结果列表展示；
 - `Job(job_type="economic_study")`：记录经济性测算同步写入；
 - `power_economy_summary.csv` / `single_entity_summary.csv`：电源侧和同一主体经济性汇总；
 - `recommendation_inputs.json`：推荐 V1 重新生成/排序所需的经济参数、负荷侧可避免电费价格、绿电结算价、环境价值和电源侧最低可接受 FIRR；
@@ -1317,7 +1319,7 @@ Explicit export artifact
 当前读取入口：
 - `LocalResultStore.list_project_result_records()` / `list_study_result_records()`：按创建时间倒序返回结果索引；
 - `PilotAccessService.list_project_result_records()` / `list_study_result_records()`：在读取结果索引前统一校验项目查看权限；
-- Streamlit 欢迎页“项目任务与结果”：展示任务数、结果数、最近任务和最近结果索引，帮助内部试用用户确认项目内已有持久化记录；可查看排队/运行中的活动任务并按项目角色取消任务元数据；可按需加载下载已落盘 artifact，也可把技术 summary 恢复成当前会话的 `BatchResult.summary`。当同一 `study_id` 的技术汇总已在当前会话中时，也可把电源侧/同一主体经济性 summary 恢复成当前会话的经济结果，并同步恢复已保存的年度现金流和推荐席位输入；也可把推荐 portfolio 恢复成当前会话的 portfolio-only 推荐结果。
+- Streamlit 欢迎页“项目任务与结果”：默认展示一个当前结果集，聚合方案遍历、经济测算、推荐方案和图表/报告状态；完整任务流水和当前结果索引明细放在“运行审计（排查用）”折叠区。可查看排队/运行中的活动任务并按项目角色取消任务元数据；可按需加载已落盘 artifact，也可把技术 summary 恢复成当前会话的 `BatchResult.summary`。当同一 `study_id` 的技术汇总已在当前会话中时，也可把电源侧/同一主体经济性 summary 恢复成当前会话的经济结果，并同步恢复已保存的年度现金流和推荐席位输入；也可把推荐 portfolio 恢复成当前会话的 portfolio-only 推荐结果。图表和报告默认从当前技术/经济结果按需生成，显式保存后才作为交付产物展示。
 
 边界：
 - 这仍是 Streamlit 进程内同步写入，不是真正后台 worker；

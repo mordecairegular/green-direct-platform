@@ -282,6 +282,42 @@ def _audit_stored_artifact(
     )
 
 
+def _archive_previous_project_result_records(
+    *,
+    access_service: PilotAccessService,
+    actor_user_id: str,
+    project_id: str,
+    keep_study_id: str,
+) -> None:
+    for record in access_service.result_store.list_project_result_records(project_id):
+        if record.study_id == keep_study_id:
+            continue
+        deleted = access_service.result_store.soft_delete_result_record(
+            project_id,
+            record.study_id,
+            record.result_id,
+            deleted_by_user_id=actor_user_id,
+        )
+        access_service.result_store.append_audit_log(
+            AuditLog(
+                event_id=f"audit_{uuid4().hex[:16]}",
+                actor_user_id=actor_user_id,
+                action=AuditAction.DELETE_RESULT_RECORD,
+                project_id=project_id,
+                study_id=record.study_id,
+                job_id=deleted.created_by_job_id,
+                target_type="result_record",
+                target_id=record.result_id,
+                metadata={
+                    "created_by_job_id": deleted.created_by_job_id,
+                    "deleted_at": deleted.deleted_at.isoformat() if deleted.deleted_at else None,
+                    "reason": "replace_current_project_result",
+                    "replacement_study_id": keep_study_id,
+                },
+            )
+        )
+
+
 def queue_job_with_input_artifact(
     *,
     access_service: PilotAccessService,
@@ -491,6 +527,12 @@ def persist_technical_study_result(
                 created_by_job_id=running.job_id,
                 technical_summary_artifact_id=summary_artifact.artifact_id,
             )
+        )
+        _archive_previous_project_result_records(
+            access_service=access_service,
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            keep_study_id=technical_result.study_id,
         )
         succeeded = access_service.succeed_job(
             actor_user_id=actor_user_id,

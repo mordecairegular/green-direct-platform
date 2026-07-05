@@ -160,6 +160,45 @@ def test_price_curve_zero_self_use_landed_fallback_uses_retained_fee_curve():
     assert row["green_self_use_landed_price_with_vat_effective"] == pytest.approx(0.35 + 0.04 + 0.01)
 
 
+def test_price_curve_application_reports_progress_for_each_scenario():
+    hours = 8760
+    price_curve = read_price_curve(
+        _price_curve_csv(
+            pd.DataFrame(
+                {
+                    "hour_index": range(hours),
+                    "energy_market_price_with_vat": [0.40] * hours,
+                }
+            )
+        )
+    )
+    summary = pd.DataFrame({"scenario_id": ["S_ONE", "S_TWO"]})
+    hourly = pd.DataFrame(
+        {
+            "hour_index": range(hours),
+            "load_power": [1.0] * hours,
+            "direct_self_use_power": [0.0] * hours,
+            "bess_discharge_power": [0.0] * hours,
+            "grid_import_power": [1.0] * hours,
+            "grid_export_power": [0.0] * hours,
+        }
+    )
+    calls: list[tuple[int, int, str]] = []
+
+    apply_price_curve_to_summary(
+        summary,
+        {"S_ONE": hourly, "S_TWO": hourly.copy()},
+        price_curve,
+        economic_params=EconomicParams(),
+        avoided_grid_params=AvoidedGridPurchaseParams(net_avoided_grid_cost_price=None),
+        load_side_avoided_charge_price=0.50,
+        green_power_settlement_price_with_vat=0.35,
+        progress_callback=lambda done, total, scenario_id: calls.append((done, total, scenario_id)),
+    )
+
+    assert calls == [(1, 2, "S_ONE"), (2, 2, "S_TWO")]
+
+
 def test_price_curve_ignores_web_fixed_and_derived_columns():
     hours = 8760
     raw = pd.DataFrame(
